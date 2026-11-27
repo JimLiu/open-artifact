@@ -10,7 +10,7 @@ export function NewThreadCard({ cardRef }: { cardRef?: Ref<HTMLDivElement> }): R
   useCommentUi(state => state.agent);
   const [busy, setBusy] = useState(false);
   const [discard, setDiscard] = useState(false);
-  const assignBox = useAssignBox(!composer || (canAskAgent() && (mentionsAgent(composer.text) || (composer.send ?? rememberedSend()))) ? null : assignableIn(composer.text), null);
+  const assignBox = useAssignBox(!composer || (canAskAgent() && (mentionsAgent(composer.text) || (composer.send ?? rememberedSend()))) ? null : assignableIn(composer.text));
   if (!composer) return null;
   const setText = (text: string) => {
     const current = useCommentUi.getState().composer;

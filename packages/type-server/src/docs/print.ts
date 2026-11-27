@@ -179,7 +179,7 @@ function contentsHtml(lines: FileContentsLine[] | undefined, id: string): string
   const items = lines.map(line => {
     const words = escapeXml(line.text);
     const classes = [`step-${line.indent}`, ...(line.group ? ['group'] : [])].join(' ');
-    return `<div class="${classes}">${line.anchor ? `<a href="#${escapeAttr(line.anchor.id)}">${words}</a>` : words}</div>`;
+    return `<div dir="auto" class="${classes}">${line.anchor ? `<a href="#${escapeAttr(line.anchor.id)}">${words}</a>` : words}</div>`;
   });
   return `<nav${id} class="contents" aria-label="Table of contents">${items.join('')}</nav>`;
 }

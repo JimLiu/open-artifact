@@ -511,6 +511,8 @@ export interface CommentMessage {
   reactions?: CommentReaction[];
   /** The agent's reply to a message sent to it without asking it: it joined without being asked. */
   joined?: boolean;
+  /** The message assigned the thread to this person; `null`: it left the thread unassigned. */
+  assignee?: string | null;
 }
 
 /** What {@link CommentsCapability.sendToAgent} takes besides the thread. */
@@ -529,9 +531,15 @@ export interface CommentSendOptions {
   selectionSnapshot?: SelectionSnapshot;
 }
 
-/** What {@link CommentsCapability.reply} takes besides the text. */
-export interface CommentReplyOptions {
+/** What {@link CommentsCapability.edit} takes besides the text. */
+export interface CommentEditOptions {
   to?: string[];
+}
+
+/** What {@link CommentsCapability.reply} takes besides the text. */
+export interface CommentReplyOptions extends CommentEditOptions {
+  /** Assigns the thread to this person with the reply (`null`: unassigns it). */
+  assignee?: string | null;
 }
 
 /** Where a thread stands with the agent. */
@@ -573,6 +581,8 @@ export interface CommentCreate {
   text: string;
   /** Who the first message asks. */
   to?: string[];
+  /** Assigns the new thread to this person. */
+  assignee?: string;
 }
 
 /** The `comments` capability, granted to types whose manifest declares `comments: true`. */
@@ -582,7 +592,7 @@ export interface CommentsCapability {
   create(input: CommentCreate): Promise<CommentThread>;
   reply(threadId: string, text: string, options?: CommentReplyOptions): Promise<CommentThread>;
   /** Changes the text of one of the viewer's own messages. */
-  edit(threadId: string, messageId: string, text: string, options?: CommentReplyOptions): Promise<CommentThread>;
+  edit(threadId: string, messageId: string, text: string, options?: CommentEditOptions): Promise<CommentThread>;
   /** Adds (`on`) or takes back the viewer's reaction to a message. */
   react(threadId: string, messageId: string, emoji: string, on: boolean): Promise<CommentThread>;
   setResolved(threadId: string, resolved: boolean): Promise<CommentThread>;

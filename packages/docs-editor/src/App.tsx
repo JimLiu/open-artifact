@@ -7,6 +7,7 @@ import { Slot } from './chrome/Slot.tsx';
 import { TopBar } from './chrome/TopBar.tsx';
 import { DocEditor } from './editor/DocEditor.tsx';
 import { VersionPreview, useVersionPreviewing } from './history/index.ts';
+import { ExportScopeDialog } from './topbar/ExportScopeDialog.tsx';
 
 export function App(): ReactNode {
   const phase = useDocs(state => state.phase);
@@ -55,6 +56,7 @@ function DocShell(): ReactNode {
         <Slot name="rail" />
       </div>
       <Slot name="overlay" />
+      <ExportScopeDialog />
     </div>
   );
 }

@@ -1,7 +1,8 @@
 /**
  * A comment's text box: grows with its text, Enter sends, Shift-Enter or Alt-Enter breaks the line, Escape cancels, `@`
  * offers people and the agent. With a `sendBox`, a "Send to agent" checkbox sits under it; on a new comment, a checked
- * box shows an `@agent` tag in front of the text, which Backspace at the start takes off (and unchecks the box).
+ * box shows an `@agent` tag in front of the text, which Backspace at the start takes off (and unchecks the box). An
+ * `assignBox` takes that checkbox's place while it shows.
  */
 import { ChromeButton, Tip } from '@open-artifact/editor-kit/react';
 import { COMMENT_TEXT_MAX, MOD } from '@open-artifact/editor-kit';
@@ -50,7 +51,7 @@ export interface ComposerProps {
   compact?: boolean;
   /** Omitted when no agent can take comments: no checkbox. */
   sendBox?: SendBoxSpec;
-  /** "Assign to {who}", on a line of its own above the buttons ("Send to agent" is unchecked while it shows). */
+  /** "Assign to {who}", in place of "Send to agent" (which is unchecked while it shows). */
   assignBox?: AssignBoxSpec;
 }
 
@@ -221,12 +222,11 @@ export function Composer({ value, onChange, onSubmit, onCancel, label, placehold
           ))}
         </ul>
       ) : null}
-      {assignBox ? <AssignBox box={assignBox} disabled={busy} /> : null}
       {showButtons ? (
         <div className="mt-1.5 flex items-center justify-end gap-1">
-          {sendBox ? <SendBox box={sendBox} disabled={busy} /> : null}
+          {assignBox ? <AssignBox box={assignBox} disabled={busy} /> : sendBox ? <SendBox box={sendBox} disabled={busy} /> : null}
           {value.length >= COUNT_FROM ? (
-            <span className={cn(!sendBox && 'mr-auto', 'text-[12px] tabular-nums', over ? 'text-red-600 dark:text-red-400' : 'text-chrome-muted')} aria-live="polite" data-testid="comment-count">
+            <span className={cn(!sendBox && !assignBox && 'mr-auto', 'text-[12px] tabular-nums', over ? 'text-red-600 dark:text-red-400' : 'text-chrome-muted')} aria-live="polite" data-testid="comment-count">
               {over ? `${(value.length - COMMENT_TEXT_MAX).toLocaleString()} characters too long` : `${(COMMENT_TEXT_MAX - value.length).toLocaleString()} characters left`}
             </span>
           ) : null}
@@ -253,12 +253,12 @@ export function Composer({ value, onChange, onSubmit, onCancel, label, placehold
 
 /**
  * The "Assign to {who}" box for `who`, the one person a comment being written @mentions (`null`: none, or it goes to
- * the agent). It starts checked when the thread is theirs already; the person's own choice lasts while `who` does.
+ * the agent). It starts unchecked; the person's own choice lasts while `who` does.
  */
-export function useAssignBox(who: string | null, current: string | null): { spec: AssignBoxSpec; reset(): void } | null {
+export function useAssignBox(who: string | null): { spec: AssignBoxSpec; reset(): void } | null {
   const [choice, setChoice] = useState<{ who: string; checked: boolean } | null>(null);
   if (who === null) return null;
-  const checked = choice?.who === who ? choice.checked : who === current;
+  const checked = choice?.who === who && choice.checked;
   return { spec: { who, checked, onChange: next => setChoice({ who, checked: next }) }, reset: () => setChoice(null) };
 }
 
@@ -276,7 +276,7 @@ export function Initial({ name, agent = false, size = 'sm' }: { name: string; ag
 function AssignBox({ box, disabled }: { box: AssignBoxSpec; disabled: boolean }): ReactNode {
   return (
     <label
-      className={cn('mt-1.5 flex h-6 min-w-0 items-center gap-1.5 text-[12px] text-chrome-muted select-none', disabled ? 'cursor-default' : 'cursor-pointer hover:text-chrome-fg')}
+      className={cn('mr-auto flex h-6 min-w-0 items-center gap-1.5 text-[12px] text-chrome-muted select-none', disabled ? 'cursor-default' : 'cursor-pointer hover:text-chrome-fg')}
       onMouseDown={event => event.preventDefault()}
       data-assign-box=""
     >

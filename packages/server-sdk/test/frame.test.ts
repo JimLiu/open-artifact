@@ -355,6 +355,19 @@ describe('frame-host', () => {
     assert.equal((await action('open-artifact.comments.read', { all: true })).threads.length, 1);
   });
 
+  it("comments: a person's message can assign its thread, and the page reads who", async () => {
+    const created = await capCall('comments', 'create', { anchor: { slide: 's2' }, text: 'Book the bus, @Ana', label: 'Slide 2', assignee: 'Ana' });
+    const threadId = created.result.threadId;
+    assert.equal(created.result.thread.messages[0].assignee, 'Ana');
+    const unassigned = await capCall('comments', 'reply', { threadId, text: 'This comment is no longer assigned.', assignee: null });
+    assert.equal(unassigned.result.thread.messages.at(-1).assignee, null);
+    const plain = await capCall('comments', 'reply', { threadId, text: 'Thanks' });
+    assert.equal('assignee' in plain.result.thread.messages.at(-1), false);
+    assert.equal((await capCall('comments', 'reply', { threadId, text: 'Over to you', assignee: 'agent' })).error.code, 'invalid_argument');
+    const listed = (await capCall('comments', 'list', {})).result.threads.find((t: { id: string }) => t.id === threadId);
+    assert.deepEqual(listed.messages.map((m: { assignee?: unknown }) => m.assignee), ['Ana', null, undefined]);
+  });
+
   it('assets upload, list, serve and delete', async () => {
     const png = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0005fe02fea7d6a65f0000000049454e44ae426082', 'hex');
     const up = await http(port, {

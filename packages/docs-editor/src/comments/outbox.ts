@@ -16,10 +16,10 @@ export const OUTBOX_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 export type OutboxEntry =
   | { id: string; scope: string; at: number; kind: 'create'; input: CommentCreate }
-  | { id: string; scope: string; at: number; kind: 'reply'; threadId: string; text: string; to?: string[]; quiet?: true };
+  | { id: string; scope: string; at: number; kind: 'reply'; threadId: string; text: string; to?: string[]; assignee?: string; quiet?: true };
 
 /** What an entry is, without its id, scope and time. */
-export type OutboxItem = { kind: 'create'; input: CommentCreate } | { kind: 'reply'; threadId: string; text: string; to?: string[]; quiet?: true };
+export type OutboxItem = { kind: 'create'; input: CommentCreate } | { kind: 'reply'; threadId: string; text: string; to?: string[]; assignee?: string; quiet?: true };
 
 export interface OutboxStore {
   load(scope: string): Promise<OutboxEntry[]>;

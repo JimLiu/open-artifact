@@ -6,7 +6,10 @@ import type { EditorView } from 'prosemirror-view';
 import { isComposingKey } from '@open-artifact/ui/keys';
 
 const PAGE_BAR = '[role="toolbar"][aria-label="Page"]';
-const CURSOR_BARS = ['[data-selbar]', '[data-image-bar]', '[role="toolbar"][aria-label="Cell actions"]', '[role="toolbar"][data-contents-bar]'];
+/** Bars over the text that keep Escape for themselves. */
+const COVERING_BARS = ['[data-selbar]', '[data-image-bar]', '[role="toolbar"][aria-label="Cell actions"]'];
+/** A block's own bar sits beside it: F6 reaches it, Escape still goes to the page's bar. */
+const CURSOR_BARS = [...COVERING_BARS, '[role="toolbar"][data-contents-bar]'];
 const CONTROL = 'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 function isBarKey(event: KeyboardEvent): boolean {
@@ -35,7 +38,7 @@ function cursorBar(doc: Document): HTMLElement | null {
 }
 
 /** What Escape leaves the text alone for: a bar over the text, a menu, a list of choices or a dialog. */
-const OVER_TEXT = [...CURSOR_BARS, '[role="menu"]', '[role="listbox"]', '[role="dialog"]', '[role="alertdialog"]'].join(', ');
+const OVER_TEXT = [...COVERING_BARS, '[role="menu"]', '[role="listbox"]', '[role="dialog"]', '[role="alertdialog"]'].join(', ');
 
 /** Escape in the text, with nothing over it: the keyboard goes to the page's bar. */
 export function leaveText(view: EditorView): boolean {

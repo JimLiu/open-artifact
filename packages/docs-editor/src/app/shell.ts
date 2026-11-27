@@ -7,7 +7,8 @@ import { selectionCommentable } from '../comments/actions.ts';
 import { tabNews, useReads } from '../comments/reads.ts';
 import { useEditor } from '../editor/format.ts';
 import { followDocLink } from '../selbar/navigate.ts';
-import { exportDoc, mayExportDoc } from '../topbar/export.ts';
+import { exportAsking, exportDoc, mayExportDoc } from '../topbar/export.ts';
+import { hasSeveralTabs, scopeBusy } from '../topbar/export-scope.ts';
 import { setTabsUi, getTabsUi } from '../tabs/state.ts';
 import { getTopBar, setTopBar, useTopBar } from '../topbar/store.ts';
 import { defaultPaper } from '../topbar/words.ts';
@@ -22,18 +23,18 @@ const labels: Record<DocExportFormat, string> = {
   docx: 'Word (.docx)', pdf: 'PDF (.pdf)', markdown: 'Markdown (.md)', html: 'HTML (.html)',
 };
 
+/** Formats whose Shell row asks which tabs to export, in a doc of several; the others export the open tab. */
+const ASKS_SCOPE: ReadonlySet<string> = new Set<DocExportFormat>(['docx', 'pdf']);
+
+const PAPERS = [{ id: 'a4', label: 'A4' }, { id: 'letter', label: 'US Letter' }];
+
 function formats(): ChromeFormat[] {
   if (!maybeSession() || !mayExportDoc()) return [];
-  const several = (getDocs().project?.files.length ?? 0) > 1;
-  const scopes = [{ id: 'tab', label: 'This tab' }];
-  if (several) scopes.push({ id: 'doc', label: 'Whole document' });
-  const pdf = scopes.flatMap(scope => ['a4', 'letter'].map(paper => ({
-    id: scope.id + '_' + paper,
-    label: (several ? scope.label + ' · ' : '') + (paper === 'a4' ? 'A4' : 'US Letter'),
-  })));
+  const several = hasSeveralTabs();
   return Object.entries(labels).map(([format, label]) => ({
     format, label, disabled: !!getTopBar().exporting,
-    ...(format === 'pdf' ? { variants: pdf } : several ? { variants: scopes } : {}),
+    ...(several && ASKS_SCOPE.has(format) ? { interactive: true } : {}),
+    ...(format === 'pdf' ? { variants: PAPERS } : {}),
   }));
 }
 
@@ -73,15 +74,17 @@ export function startDocShell(): void {
         break;
       }
       case 'export_format': {
-        if (getTopBar().exporting) { shell.exportState(command.request, 'busy'); break; }
-        if (!Object.hasOwn(labels, command.format) || (command.variant && !formats().find(f => f.format === command.format)?.variants?.some(v => v.id === command.variant))) {
+        if (scopeBusy()) { shell.exportState(command.request, 'busy'); break; }
+        const offered = formats().find(f => f.format === command.format);
+        if (!offered || (command.variant && !offered.variants?.some(v => v.id === command.variant))) {
           shell.exportState(command.request, 'unsupported');
           break;
         }
         shell.exportState(command.request, 'started');
-        const [scope, paper] = (command.variant ?? 'tab').split('_');
-        void exportDoc({ format: command.format as DocExportFormat, scope: scope === 'doc' ? 'doc' : 'tab', paper: paper === 'a4' || paper === 'letter' ? paper : defaultPaper() })
-          .then(ok => shell.exportState(command.request, ok ? 'done' : 'failed'));
+        const format = command.format as DocExportFormat;
+        const paper = command.variant === 'a4' || command.variant === 'letter' ? command.variant : defaultPaper();
+        const run = offered.interactive ? exportAsking(format, paper) : exportDoc({ format, scope: hasSeveralTabs() ? 'tab' : 'doc', paper });
+        void run.then(ok => shell.exportState(command.request, ok === null ? 'declined' : ok ? 'done' : 'failed'));
         break;
       }
     }

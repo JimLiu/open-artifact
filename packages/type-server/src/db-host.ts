@@ -236,6 +236,7 @@ export function pageThread(thread: Thread): CommentThread {
       ...(message.to?.length ? { to: [...message.to] } : {}),
       ...(message.reactions?.length ? { reactions: pageReactions(message.reactions) } : {}),
       ...(message.joined ? { joined: true } : {}),
+      ...(message.assignee !== undefined ? { assignee: message.assignee } : {}),
     })),
   };
 }
@@ -687,7 +688,7 @@ export class DbHost {
         const { input } = await readJson<Partial<CommentCreateRequest>>(req, MAX_COMMENT_BODY);
         if (!isPlain(input) || typeof input.anchor !== 'string') throw new HttpError(400, 'invalid', 'input {anchor, label, text} is required.');
         const thread = guarded(() =>
-          this.comments.create({ anchor: input.anchor, label: input.label, detail: input.detail, location: input.location, text: input.text, to: input.to, author: this.viewer(as?.name) }),
+          this.comments.create({ anchor: input.anchor, label: input.label, detail: input.detail, location: input.location, text: input.text, to: input.to, assignee: input.assignee, author: this.viewer(as?.name) }),
         );
         this.commentsChanged();
         sendJson(res, 200, { thread: pageThread(thread) } satisfies CommentThreadResponse);
@@ -696,7 +697,7 @@ export class DbHost {
       case API.commentsReply: {
         postOnly();
         const body = await readJson<Partial<CommentReplyRequest>>(req, MAX_COMMENT_BODY);
-        const { thread } = guarded(() => this.comments.addMessage(body.threadId, this.viewer(as?.name), body.text, { to: body.to }));
+        const { thread } = guarded(() => this.comments.addMessage(body.threadId, this.viewer(as?.name), body.text, { to: body.to, assignee: body.assignee }));
         this.commentsChanged();
         sendJson(res, 200, { thread: pageThread(thread) } satisfies CommentThreadResponse);
         return true;

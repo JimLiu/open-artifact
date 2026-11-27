@@ -58,6 +58,8 @@ export interface CommentMessage {
   reactions?: MessageReaction[];
   /** The agent's reply to a message that was sent to it without asking it (no `@agent`): it joined without being asked. */
   joined?: boolean;
+  /** A person's message that assigned the thread to this person; `null`: it left the thread unassigned. */
+  assignee?: string | null;
 }
 
 export interface ThreadAgentState {

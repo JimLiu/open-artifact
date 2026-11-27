@@ -2,7 +2,7 @@
  * Comment threads of a frame artifact, in the shared `comments.json` format
  * (version 1) the other Open Artifact types write:
  * `{version: 1, threads: [{id: 'c_…', anchor, label, detail?, location, status, agent?, createdAt, updatedAt,
- * resolvedAt?, messages: [{id: 'm_…', author: {kind, name}, text, at, editedAt?, to?, reactions?}]}]}`.
+ * resolvedAt?, messages: [{id: 'm_…', author: {kind, name}, text, at, editedAt?, to?, reactions?, assignee?}]}]}`.
  *
  * An original page anchors a comment with its own object; it is kept whole
  * under `location.custom` and `anchor` is its stable JSON text, so the page
@@ -160,9 +160,11 @@ export class CommentStore {
     return out;
   }
 
-  create(input: { anchor?: unknown; label?: unknown; detail?: unknown; location?: unknown; text: unknown; to?: unknown; author?: Author }): Thread {
+  create(input: { anchor?: unknown; label?: unknown; detail?: unknown; location?: unknown; text: unknown; to?: unknown; assignee?: unknown; author?: Author }): Thread {
     const body = checkText(input.text);
     const to = checkTo(input.to);
+    const author = input.author ?? { ...AGENT_AUTHOR };
+    const assignee = input.assignee === undefined || input.assignee === null ? undefined : checkAssignee(input.assignee, author);
     return this.mutate((doc) => {
       const at = now();
       const thread: Thread = {
@@ -174,20 +176,21 @@ export class CommentStore {
         status: 'open',
         createdAt: at,
         updatedAt: at,
-        messages: [{ id: newId('m_'), author: input.author ?? { ...AGENT_AUTHOR }, text: body, at, ...(to ? { to } : {}) }],
+        messages: [{ id: newId('m_'), author, text: body, at, ...(to ? { to } : {}), ...(assignee !== undefined ? { assignee } : {}) }],
       };
       doc.threads.push(thread);
       return thread;
     });
   }
 
-  addMessage(threadId: unknown, author: Author, text: unknown, { resolve = false, to }: { resolve?: boolean; to?: unknown } = {}): { thread: Thread; message: CommentMessage } {
+  addMessage(threadId: unknown, author: Author, text: unknown, { resolve = false, to, assignee }: { resolve?: boolean; to?: unknown; assignee?: unknown } = {}): { thread: Thread; message: CommentMessage } {
     const body = checkText(text);
     const recipients = checkTo(to);
+    const assigns = assignee === undefined ? undefined : checkAssignee(assignee, author);
     return this.mutate((doc) => {
       const thread = this.find(doc, threadId);
       const at = now();
-      const message: CommentMessage = { id: newId('m_'), author, text: body, at, ...(recipients ? { to: recipients } : {}) };
+      const message: CommentMessage = { id: newId('m_'), author, text: body, at, ...(recipients ? { to: recipients } : {}), ...(assigns !== undefined ? { assignee: assigns } : {}) };
       thread.messages.push(message);
       thread.updatedAt = at;
       if (author.kind === 'agent') {
@@ -333,6 +336,16 @@ function checkTo(to: unknown): string[] | undefined {
   return names.length ? names : undefined;
 }
 
+/** Who a person's message assigns the thread to (`null`: no one). Only people assign, and only people are assigned. */
+function checkAssignee(assignee: unknown, author: Author): string | null {
+  if (author.kind === 'agent') throw new FrameError('invalid_argument', 'Only a person assigns a thread.');
+  if (assignee === null) return null;
+  if (typeof assignee !== 'string' || !assignee.trim() || assignee.length > 200 || assignee === AGENT_AUTHOR.name) {
+    throw new FrameError('invalid_argument', 'assignee is the name of a person, or null.');
+  }
+  return assignee;
+}
+
 function checkText(text: unknown): string {
   if (typeof text !== 'string' || !text.trim()) throw new FrameError('invalid_argument', 'A comment needs text.');
   if (text.length > TEXT_MAX) throw new FrameError('invalid_argument', `A comment is at most ${TEXT_MAX} characters.`);
@@ -364,6 +377,7 @@ export function agentView(thread: Thread, n?: number): Record<string, unknown> {
       ...(m.to?.length ? { to: m.to } : {}),
       ...(m.reactions?.length ? { reactions: m.reactions.map((r) => `${r.emoji} ${r.author.kind === 'agent' ? 'agent' : r.author.name}`) } : {}),
       ...(m.joined ? { joined: true } : {}),
+      ...(m.assignee !== undefined ? { assignee: m.assignee } : {}),
     })),
   };
 }

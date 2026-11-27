@@ -61,7 +61,7 @@ describe('table of contents in exported files', () => {
   it('draws a nav of links in the print page', async () => {
     const html = (await exportDocFile(storeOf(MARKDOWN), person, new URLSearchParams({ format: 'html' }))).bytes.toString('utf8');
     assert.match(html, /<nav(?: id="[^"]*")? class="contents" aria-label="Table of contents">/);
-    assert.match(html, /<div class="step-0 group"><a href="#plan">Plan<\/a><\/div><div class="step-1"><a href="#steps">Steps<\/a><\/div>/);
+    assert.match(html, /<div dir="auto" class="step-0 group"><a href="#plan">Plan<\/a><\/div><div dir="auto" class="step-1"><a href="#steps">Steps<\/a><\/div>/);
     assert.match(html, /<h2 id="plan">Plan<\/h2>/);
     assert.doesNotMatch(html, /<pre/);
     // The tab's title heads the page; it is no line of its contents.

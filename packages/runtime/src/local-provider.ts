@@ -401,7 +401,7 @@ export function createLocalProvider(options: LocalProviderOptions = {}): Capabil
       const capability: CommentsCapability = {
         list: async () => (await json<CommentsResponse>(API.comments, { cache: 'no-store' })).threads,
         create: (input) => thread(API.commentsCreate, { input } satisfies CommentCreateRequest),
-        reply: (threadId, text, options) => thread(API.commentsReply, { threadId, text, ...(options?.to?.length ? { to: options.to } : {}) } satisfies CommentReplyRequest),
+        reply: (threadId, text, options) => thread(API.commentsReply, { threadId, text, ...(options?.to?.length ? { to: options.to } : {}), ...(options?.assignee !== undefined ? { assignee: options.assignee } : {}) } satisfies CommentReplyRequest),
         edit: (threadId, messageId, text, options) =>
           thread(API.commentsEdit, { threadId, messageId, text, ...(options?.to ? { to: options.to } : {}) } satisfies CommentEditRequest),
         react: (threadId, messageId, emoji, on) => thread(API.commentsReact, { threadId, messageId, emoji, on } satisfies CommentReactRequest),

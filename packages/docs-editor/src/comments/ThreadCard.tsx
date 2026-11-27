@@ -6,7 +6,7 @@ import { ConfirmDialog, cn } from '@open-artifact/ui';
 import { CircleCheck, UserRound } from 'lucide-react';
 import { type ReactNode, type Ref, type RefCallback, useCallback, useEffect, useState } from 'react';
 import { assignableIn, mentionsAgent, pressReactionThread, reply, replyGoesToAgent } from './actions.ts';
-import { type AssignStep, assignNoteText, assignSteps, assignedLabel, assigneeOf } from './assign.ts';
+import { type AssignStep, assignNoteText, assignSteps, assignedLabel } from './assign.ts';
 import { Composer, Initial, type SendBoxSpec, useAssignBox } from './Composer.tsx';
 import { Message } from './Message.tsx';
 import { commentDate, commentTime } from './time.ts';
@@ -71,7 +71,7 @@ function ReplyBox({ thread }: { thread: CommentThread }): ReactNode {
   const sendBox: SendBoxSpec | undefined = canAskAgent()
     ? { checked: locked || (choice ?? replyGoesToAgent(thread, draft)), locked, onChange: setChoice }
     : undefined;
-  const assignBox = useAssignBox(sendBox?.checked ? null : assignableIn(draft), assigneeOf(thread));
+  const assignBox = useAssignBox(sendBox?.checked ? null : assignableIn(draft));
   return (
     <div className="mt-3" onClick={event => event.stopPropagation()}>
       <Composer
@@ -205,7 +205,7 @@ export function ThreadCard({ thread, hold, open, inList = false, tabName, remova
   const resolved = thread.status === 'resolved';
   const shown = open ? steps : [];
   const replies = steps.filter(step => !step.note).length;
-  const assignee = steps.at(-1)?.after ?? null;
+  const assignee = (steps.at(-1) ?? rootStep).after;
   const assigned = assignee === null ? null : assignedLabel(assignee, me);
   const unread = news ? (unreadIsReply(thread) ? '. Has an unread reply.' : '. Unread.') : '';
   return (

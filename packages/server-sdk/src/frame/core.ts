@@ -753,7 +753,7 @@ export class FrameCore {
           author.kind === 'user'
             ? { kind: author.kind, name: named ? author.name : '', ...(vouched && author.principal !== undefined ? { principal: author.principal } : {}), ...(mine ? { mine: true } : {}) }
             : { kind: author.kind, name: author.name };
-        return { id: m.id, author: shown, text: m.text, at: m.at };
+        return { id: m.id, author: shown, text: m.text, at: m.at, ...(named && m.assignee !== undefined ? { assignee: m.assignee } : {}) };
       });
       return out;
     };
@@ -904,13 +904,14 @@ export class FrameCore {
           detail: a.detail,
           location: { custom: a.anchor ?? null, ...(typeof a.file === 'string' ? { file: a.file } : {}) },
           text: a.text,
+          assignee: a.assignee,
           author: this.author(viewer),
         });
         this.commentsChanged();
         return { threadId: thread.id, commentId: thread.messages[0]!.id, thread: this.threadView(viewer, forShell)(thread) };
       }
       case 'comments.reply': {
-        const { thread, message } = this.comments.addMessage(a.threadId, this.author(viewer), a.text);
+        const { thread, message } = this.comments.addMessage(a.threadId, this.author(viewer), a.text, { assignee: a.assignee });
         this.commentsChanged();
         return { threadId: thread.id, commentId: message.id, thread: this.threadView(viewer, forShell)(thread) };
       }
@@ -1418,7 +1419,7 @@ function pageThread(t: Thread): Record<string, unknown> {
     agent: t.agent ?? null,
     createdAt: t.createdAt,
     updatedAt: t.updatedAt,
-    messages: t.messages.map((m) => ({ id: m.id, author: m.author, text: m.text, at: m.at })),
+    messages: t.messages.map((m) => ({ id: m.id, author: m.author, text: m.text, at: m.at, ...(m.assignee !== undefined ? { assignee: m.assignee } : {}) })),
   };
 }
 

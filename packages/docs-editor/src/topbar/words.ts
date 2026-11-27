@@ -106,6 +106,10 @@ export function exportFailure(format: DocExportFormat, scope: 'tab' | 'doc', cod
 }
 
 export const EXPORT_THIS_TAB = 'Export this tab';
+export const EXPORT_ALL_TABS = 'Export all tabs';
+/** The dialog that asks a doc of several tabs which to export. */
+export const SCOPE_TITLE = 'Export';
+export const SCOPE_QUESTION = 'What would you like to include in the export?';
 
 /**
  * Why a file of every tab of a doc with several failed, when one tab could still make it: then the failure says so

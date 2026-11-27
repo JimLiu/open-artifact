@@ -197,6 +197,8 @@ export interface CommentReplyRequest {
   threadId: string;
   text: string;
   to?: string[];
+  /** The reply assigns the thread to this person (`null`: unassigns it). */
+  assignee?: string | null;
 }
 
 /** `POST _api/comments/edit` request body. */

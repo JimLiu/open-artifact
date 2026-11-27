@@ -367,15 +367,17 @@ describe('exports on a cloud host, made in the browser', { skip: skip() }, () =>
 
   it('Docs: Word, Markdown, HTML and the folder download; a PDF opens the print view with "Save as PDF"', T, async () => {
     const page = await open(ctx.owner, 'docs', "document.querySelector('.ProseMirror')");
-    await pickExport(page, 'Word (.docx) · Whole document');
+    await pickExport(page, 'Word (.docx)');
+    await clickInPage(page, byText('Export all tabs'), 'Export all tabs');
     await expectFile(page, 'Docs Word', { ext: 'docx', kind: 'zip', min: 1000, parts: ['word/document.xml'] });
-    await pickExport(page, 'Markdown (.md) · Whole document');
+    await pickExport(page, 'Markdown (.md)');
     await expectFile(page, 'Docs Markdown', { ext: 'md', kind: 'text', min: 20 });
-    await pickExport(page, 'HTML (.html) · Whole document');
+    await pickExport(page, 'HTML (.html)');
     await expectFile(page, 'Docs HTML', { ext: 'html', kind: 'html', min: 500 });
     // The host prints no PDF: the page opens its print view and the browser's print dialog, and says what to pick.
     assert.ok(await stubPrint(page));
-    await pickExport(page, 'PDF (.pdf) · Whole document · A4');
+    await pickExport(page, 'PDF (.pdf) · A4');
+    await clickInPage(page, byText('Export all tabs'), 'Export all tabs');
     assert.ok(await page.waitFor(`${IN_PAGE} && window.__e2ePrinted`, 30000), `the print view did not print; the page said: ${await toasts(page)}`);
     const printed = await inPage(page, 'window.__e2ePrinted');
     assert.equal(printed.own, false, 'the print view, not the editor, prints');
@@ -391,10 +393,11 @@ describe('exports on a cloud host, made in the browser', { skip: skip() }, () =>
   it('Docs: the exported file keeps the doc’s name', T, async () => {
     // The Shell's broker reads the doc export cross-origin: without the header it cannot see the name, and calls it doc.md.
     const page = await open(ctx.owner, 'docs', "document.querySelector('.ProseMirror')");
-    await pickExport(page, 'Markdown (.md) · Whole document');
+    await pickExport(page, 'Markdown (.md)');
     const file = await expectFile(page, 'Docs Markdown (named)', { ext: 'md', kind: 'text', min: 20 });
     await page.close();
-    assert.equal(file.name, 'Docs Browser QA.md');
+    // Markdown is the open tab: the doc's name, then the tab's.
+    assert.match(file.name, /^Docs Browser QA - .+\.md$/);
   });
 
   it('Motion: MP4, GIF, a page and the code from its Export dialog', T, async () => {
@@ -472,10 +475,10 @@ describe('exports on a cloud host, made in the browser', { skip: skip() }, () =>
       // The switch is for viewers: an editor and a commenter download a Doc either way, under its own name.
       for (const role of ['editor', 'commenter']) {
         const person = await join(links[role], `Pat the ${role}`, DOC, people);
-        await pickExport(person.page, 'Markdown (.md) · Whole document');
+        await pickExport(person.page, 'Markdown (.md)');
         const file = await nextDownload(person.dl, person.seen, 60000);
         assert.ok(file, `the ${role} got no file: ${await toasts(person.page)}`);
-        assert.equal(file.name, 'Docs Browser QA.md', `the ${role}'s file`);
+        assert.match(file.name, /^Docs Browser QA - .+\.md$/, `the ${role}'s file`);
         assert.equal(kindOf(file.bytes), 'text');
         ctx.made.push(`Docs Markdown as ${role} -> ${file.name} (${file.bytes.length} bytes)`);
         await person.browser.close();
@@ -483,10 +486,11 @@ describe('exports on a cloud host, made in the browser', { skip: skip() }, () =>
 
       // A viewer is refused a download and the PDF print alike, in words they can read, and gets nothing.
       const viewer = await join(links.viewer, 'Vic the viewer', DOC, people);
-      await pickExport(viewer.page, 'Markdown (.md) · Whole document');
+      await pickExport(viewer.page, 'Markdown (.md)');
       assert.ok(await until(async () => /not let viewers download or export/.test(await toasts(viewer.page)), 20000), `no readable refusal: ${await toasts(viewer.page)}`);
       assert.ok(await stubPrint(viewer.page));
-      await pickExport(viewer.page, 'PDF (.pdf) · Whole document · A4');
+      await pickExport(viewer.page, 'PDF (.pdf) · A4');
+      await clickInPage(viewer.page, byText('Export all tabs'), 'Export all tabs');
       await sleep(3000);
       assert.equal(await inPage(viewer.page, 'window.__e2ePrinted'), null, 'the Docs PDF printed for a viewer while the owner says no');
       assert.equal(await noDownload(viewer.dl, viewer.seen, 2000), true, 'the viewer got a file');
@@ -497,14 +501,15 @@ describe('exports on a cloud host, made in the browser', { skip: skip() }, () =>
       let file = null;
       for (let i = 0; i < 5 && !file; i++) {
         await sleep(2000);
-        await pickExport(viewer.page, 'Markdown (.md) · Whole document');
+        await pickExport(viewer.page, 'Markdown (.md)');
         file = await nextDownload(viewer.dl, viewer.seen, 15000);
       }
       assert.ok(file, `the viewer still got no file: ${await toasts(viewer.page)}`);
-      assert.equal(file.name, 'Docs Browser QA.md');
+      assert.match(file.name, /^Docs Browser QA - .+\.md$/);
       ctx.made.push(`Docs Markdown as viewer (allowed) -> ${file.name} (${file.bytes.length} bytes)`);
       assert.ok(await stubPrint(viewer.page));
-      await pickExport(viewer.page, 'PDF (.pdf) · Whole document · A4');
+      await pickExport(viewer.page, 'PDF (.pdf) · A4');
+      await clickInPage(viewer.page, byText('Export all tabs'), 'Export all tabs');
       assert.ok(await viewer.page.waitFor(`${IN_PAGE} && window.__e2ePrinted`, 30000), `the viewer's PDF did not print: ${await toasts(viewer.page)}`);
 
       // Data's PDF file and its Print… (no download) follow the same switch (last: it needs the dashboard settled, see

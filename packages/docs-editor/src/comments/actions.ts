@@ -3,7 +3,7 @@
  * delete, copy a link; and open a thread where it is. Messages that @mention the agent are addressed to it and hand it
  * the thread.
  */
-import type { CommentThread } from '@open-artifact/runtime';
+import type { CommentReplyOptions, CommentThread } from '@open-artifact/runtime';
 import { COMMENT_TEXT_BYTES, COMMENT_TOO_LONG, announce, commentTextBytes } from '@open-artifact/editor-kit';
 import { toast } from '@open-artifact/ui';
 import type { EditorState } from 'prosemirror-state';
@@ -316,7 +316,7 @@ async function sendKept(entry: OutboxEntry): Promise<void> {
     await handOver(thread, entry.input.to ?? []).catch(() => undefined);
     return;
   }
-  let thread = await comments.reply(entry.threadId, entry.text, entry.to?.length ? { to: entry.to } : undefined);
+  let thread = await comments.reply(entry.threadId, entry.text, replyOptions(entry.to ?? [], entry.assignee ?? null));
   if (thread.status === 'resolved') thread = await comments.setResolved(entry.threadId, false);
   putThread(thread);
   await handOver(thread, entry.to ?? [], false, entry.quiet === true).catch(() => undefined);
@@ -375,6 +375,7 @@ export async function createThread(text: string, composer: Composer | null = use
     location: composer.location,
     text: body,
     ...(to.length ? { to } : {}),
+    ...(assign ? { assignee: assign } : {}),
   };
   try {
     const thread = await comments.create(input);
@@ -382,7 +383,7 @@ export async function createThread(text: string, composer: Composer | null = use
     if (useCommentUi.getState().composer === composer) setCommentUi({ composer: null });
     setActive(thread.id);
     await handOver(thread, to, false, false, newThreadParts(typed, composer));
-    if (assign) await assignThread(threadById(thread.id) ?? thread, assign);
+    if (assign) announce(assignedLabel(assign, myName()));
     return true;
   } catch (error) {
     if (await keepForLater(error, { kind: 'create', input })) {
@@ -433,7 +434,7 @@ export async function reply(threadId: string, text: string, send?: boolean, assi
   const quiet = send === false;
   const to = addressees(body);
   try {
-    let thread = await comments.reply(threadId, body, to.length ? { to } : undefined);
+    let thread = await comments.reply(threadId, body, replyOptions(to, assign));
     if (thread.status === 'resolved') thread = await comments.setResolved(threadId, false);
     putThread(thread);
     docComments.store.setState(state => {
@@ -441,10 +442,10 @@ export async function reply(threadId: string, text: string, send?: boolean, assi
       return { replies };
     });
     await handOver(thread, to, false, quiet, sendParts(typed));
-    if (assign) await assignThread(threadById(threadId) ?? thread, assign);
+    if (assign) announce(assignedLabel(assign, myName()));
     return true;
   } catch (error) {
-    if (await keepForLater(error, { kind: 'reply', threadId, text: body, ...(to.length ? { to } : {}), ...(quiet ? { quiet } : {}) })) {
+    if (await keepForLater(error, { kind: 'reply', threadId, text: body, ...(to.length ? { to } : {}), ...(assign ? { assignee: assign } : {}), ...(quiet ? { quiet } : {}) })) {
       docComments.store.setState(state => {
         const { [threadId]: _kept, ...replies } = state.replies;
         return { replies };
@@ -457,6 +458,12 @@ export async function reply(threadId: string, text: string, send?: boolean, assi
   }
 }
 
+/** What a reply carries besides its text: who it asks, and whom it assigns the thread to. */
+function replyOptions(to: readonly string[], assignee: string | null): CommentReplyOptions | undefined {
+  if (!to.length && !assignee) return undefined;
+  return { ...(to.length ? { to: [...to] } : {}), ...(assignee ? { assignee } : {}) };
+}
+
 /**
  * Assigns the thread to `name` (`null`: to nobody) with a reply that says so and names them. It stays with people: the
  * agent reads it with the thread, and is not handed the thread for it.
@@ -466,7 +473,7 @@ export async function assignThread(thread: CommentThread, name: string | null): 
   const current = assigneeOf(thread);
   if (!comments || name === current) return false;
   try {
-    putThread(await comments.reply(thread.id, assignText(name, current), name === null ? undefined : { to: [name] }));
+    putThread(await comments.reply(thread.id, assignText(name, current), name === null ? { assignee: null } : { to: [name], assignee: name }));
     announce(name === null ? 'Comment unassigned' : assignedLabel(name, myName()));
     return true;
   } catch (error) {

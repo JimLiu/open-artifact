@@ -165,6 +165,8 @@ describe(TYPE, { skip: skip() }, () => {
     const picture = png();
     const ref = putDocBlob(ctx.root, picture);
     await call('update', ctx.root, { tab: ctx.tab, ops: [{ op: 'insert', target: { kind: 'root' }, source: { markdown: '![Review diagram](' + ref + ')' } }] });
+    // Word and PDF ask which tabs only in a doc of several.
+    if ((await tabs(ctx.root)).length < 2) await call('batch', ctx.root, { batch: [{ verb: 'create', object: 'file', payload: { name: 'Notes' } }] });
     const { url } = await ctx.cli.json(['open', ctx.root, '--json']);
     const browser = await launch();
     try {
@@ -172,13 +174,31 @@ describe(TYPE, { skip: skip() }, () => {
       await clickOn(page, buttonNamed('Artifact options'));
       await clickOn(page, buttonNamed('Export'));
       const rows = await page.evaluate("[...document.querySelectorAll('[data-export-row]')].map(b => b.dataset.exportRow)");
-      assert.ok(rows.includes('PDF (.pdf) · Whole document · US Letter'));
-      assert.ok(rows.includes('PDF (.pdf) · This tab · A4'));
-      await clickOn(page, buttonNamed('Markdown (.md) · This tab'));
+      assert.ok(rows.includes('PDF (.pdf) · US Letter'));
+      assert.ok(rows.includes('PDF (.pdf) · A4'));
+      assert.ok(!rows.some(row => /\btab\b|Whole document/.test(row)), `the rows still name a scope: ${rows.join(', ')}`);
+      const exportRow = label => `[...document.querySelectorAll('[data-export-row]')].find(b => b.dataset.exportRow === ${JSON.stringify(label)})`;
       const dir = path.join(ctx.home, 'Downloads');
-      assert.ok(await until(() => fs.existsSync(dir) && fs.readdirSync(dir).some(file => file.endsWith('.md'))),
-        `no .md in ${dir}: ${fs.existsSync(dir) ? fs.readdirSync(dir).join(', ') : 'no folder'}`);
-      const file = fs.readdirSync(dir).find(name => name.endsWith('.md'));
+      const saved = ext => (fs.existsSync(dir) ? fs.readdirSync(dir) : []).filter(file => file.endsWith(ext));
+      // In a doc of several tabs, Word asks in the page which to export; closing the question exports nothing.
+      const question = `[...document.querySelectorAll('[role="dialog"]')].find(d => d.textContent.includes('What would you like to include in the export?'))`;
+      await clickOn(page, exportRow('Word (.docx)'));
+      assert.ok(await until(async () => (await page.evaluateAll(`!!(${question})?.contains(document.activeElement)`)).includes(true), 8000), 'Word did not ask which tabs, with the keyboard in the question');
+      await page.press('Escape');
+      assert.ok(await until(async () => !(await page.evaluateAll(`!!(${question})`)).includes(true), 5000), 'Escape did not close the question');
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      assert.deepEqual(saved('.docx'), [], 'closing the question exported');
+      await clickOn(page, buttonNamed('Artifact options'));
+      await clickOn(page, buttonNamed('Export'));
+      await clickOn(page, exportRow('Word (.docx)'));
+      await clickInEditor(page, `[...document.querySelectorAll('[role="dialog"] button')].find(b => b.textContent.trim() === 'Export all tabs')`);
+      assert.ok(await until(() => saved('.docx').length === 1), `no .docx in ${dir}: ${saved('')}`);
+      // Markdown asks nothing: it is the open tab.
+      await clickOn(page, buttonNamed('Artifact options'));
+      await clickOn(page, buttonNamed('Export'));
+      await clickOn(page, exportRow('Markdown (.md)'));
+      assert.ok(await until(() => saved('.md').length > 0), `no .md in ${dir}: ${saved('')}`);
+      const file = saved('.md')[0];
       assert.match(fs.readFileSync(path.join(dir, file), 'utf8'), /None yet, \*\*so far/);
       await clickOn(page, buttonNamed('Artifact options'));
       await clickOn(page, buttonNamed('Duplicate'));
@@ -1731,6 +1751,9 @@ describe(`${TYPE} in Chrome: a table of contents' bar, and what inserting says`,
       await awhile();
       await selectFirst();
       assert.ok(await until(() => saidExactly('Table of contents selected'), 5000), 'a way on the reader has used was named again');
+      // Its bar sits beside it, not over the text: Escape still goes to the page's bar.
+      await page.press('Escape');
+      assert.ok(await page.waitFor(`document.activeElement?.closest('[role="toolbar"][aria-label="Page"]')`, 5000), 'Escape on a selected table of contents did not reach the page bar');
 
       // The slash menu says what it put in.
       const words = `[...document.querySelectorAll('.doc-text p')].find(p => p.textContent === 'Leaving words.')`;
@@ -1928,6 +1951,7 @@ describe(`${TYPE} in Chrome: the comments button's news, refused replies on sugg
       assert.ok(await page.waitFor(`document.activeElement === ${reply}`, 3000), 'the reply box has no focus');
       await page.cdp('Input.insertText', { text: 'Please book it, @Ana ' });
       assert.ok(await page.waitFor(`${assignBox}?.textContent.trim() === 'Assign to Ana' && !${assignBox}.querySelector('input').checked`, 5000), 'no Assign to Ana box');
+      assert.equal((await page.evaluateAll(`[...${card(bus.id)}.querySelectorAll('[data-comment-composer] label')].map(label => label.textContent.trim()).join('|')`)).find(Boolean), 'Assign to Ana', 'Send to agent did not give way to Assign to Ana');
       // The @ list may still offer Ana, over the box: Escape puts it away (and Enter then sends).
       const list = `document.querySelector('[data-comment-composer] [role="listbox"]')`;
       if ((await page.evaluateAll(`!!${list}`)).some(Boolean)) await page.press('Escape');
@@ -1937,9 +1961,11 @@ describe(`${TYPE} in Chrome: the comments button's news, refused replies on sugg
       // The box keeps the focus in the text, its caret at the end (a click there could land in the mention).
       assert.ok(await page.waitFor(`document.activeElement === ${reply} && ${reply}.selectionStart === ${reply}.value.length`, 2000), 'the reply box lost the focus');
       await page.press('Enter');
-      assert.ok(await page.waitFor(`${card(bus.id)}?.querySelector('[data-assigned="Ana"]')?.textContent.trim() === 'Assigned to Ana' && [...${card(bus.id)}.querySelectorAll('[data-assign-note]')].at(-1)?.textContent.startsWith('You assigned Ana')`, 8000), 'the reply did not assign Ana');
+      // The reply itself assigns her: one message, drawn as a message, not a note.
+      assert.ok(await page.waitFor(`${card(bus.id)}?.querySelector('[data-assigned="Ana"]')?.textContent.trim() === 'Assigned to Ana'`, 8000), 'the reply did not assign Ana');
+      assert.ok(await page.waitFor(`[...${card(bus.id)}.querySelectorAll('[data-assign-note]')].at(-1)?.textContent.startsWith('You are no longer assigned') && ${card(bus.id)}.textContent.includes('Please book it, @Ana')`, 2000), 'the reply was drawn as a note, or a note was added');
       saved = await threadOn('bus');
-      assert.deepEqual(saved.messages.slice(-2).map(message => [message.text, message.to]), [['Please book it, @Ana', ['Ana']], ['Assigned to @Ana', ['Ana']]]);
+      assert.deepEqual(saved.messages.slice(-2).map(message => [message.text, message.to, message.assignee]), [['This comment is no longer assigned.', undefined, null], ['Please book it, @Ana', ['Ana'], 'Ana']]);
       assert.deepEqual(page.problems, []);
     } finally {
       await browser.close();

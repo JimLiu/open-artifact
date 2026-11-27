@@ -9,17 +9,18 @@ import { toast } from '@open-artifact/ui';
 import { docClient } from '../app/doc-client.ts';
 import { session } from '../app/session.ts';
 import { getDocs, useDocs } from '../app/store.ts';
+import { type ExportScope, askExportScope, hasSeveralTabs } from './export-scope.ts';
 import { getTopBar, setTopBar } from './store.ts';
 import { allTabsFailure, couldntTitle, EXPORT_THIS_TAB, type ExportNoteLike, exportedTitle, exportFailure, notesText, otherNotes, printToPdfWords } from './words.ts';
 
 export interface ExportChoice {
   format: DocExportFormat;
-  /** The open tab only, or every tab. */
-  scope: 'tab' | 'doc';
+  scope: ExportScope;
   paper?: DocPaper;
 }
 
-export const exportKey = (choice: ExportChoice) => `${choice.scope}:${choice.format}:${choice.paper ?? ''}`;
+/** Which menu item an export is: its format and paper. */
+export const exportKey = (choice: Pick<ExportChoice, 'format' | 'paper'>) => `${choice.format}:${choice.paper ?? ''}`;
 
 const codeOf = (error: unknown): string | undefined =>
   error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' ? error.code : undefined;
@@ -142,4 +143,13 @@ export async function exportDoc(choice: ExportChoice): Promise<boolean> {
   } finally {
     setTopBar({ exporting: null });
   }
+}
+
+/** Exports `format`, asking first in a doc of several tabs; resolves `null` when the person closed the dialog. */
+export async function exportAsking(format: DocExportFormat, paper?: DocPaper): Promise<boolean | null> {
+  const withPaper = paper ? { paper } : {};
+  if (!hasSeveralTabs()) return exportDoc({ format, scope: 'doc', ...withPaper });
+  const scope = await askExportScope(format, paper);
+  if (scope === null) return null;
+  return exportDoc({ format, scope, ...withPaper });
 }

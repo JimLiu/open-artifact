@@ -40,9 +40,29 @@ describe('assigning a comment', () => {
     assert.equal(assignText('Ana', null), 'Assigned to @Ana');
     assert.equal(assignText('Ana', 'Bo Li'), 'Reassigned from @Bo Li to @Ana');
     assert.equal(assignText(null, 'Ana'), UNASSIGNED_TEXT);
-    assert.deepEqual(assignmentIn(assign('Ana', 'Bo')), { to: 'Bo' });
-    assert.deepEqual(assignmentIn(assign('Ana', 'Cy', 'Bo Li')), { to: 'Cy', from: 'Bo Li' });
-    assert.deepEqual(assignmentIn(assign('Ana', null)), { to: null });
+    assert.deepEqual(assignmentIn(assign('Ana', 'Bo')), { to: 'Bo', worded: true });
+    assert.deepEqual(assignmentIn(assign('Ana', 'Cy', 'Bo Li')), { to: 'Cy', from: 'Bo Li', worded: true });
+    assert.deepEqual(assignmentIn(assign('Ana', null)), { to: null, worded: true });
+  });
+
+  it('takes `assignee` for what a message changes, and draws it as a note only when its words are an assignment', () => {
+    const withField = (message: CommentMessage, assignee: string | null): CommentMessage => ({ ...message, assignee });
+    assert.deepEqual(assignmentIn(withField(person('Ana', 'Please look, @Bo', ['Bo']), 'Bo')), { to: 'Bo', worded: false });
+    assert.deepEqual(assignmentIn(withField(assign('Ana', 'Bo'), 'Bo')), { to: 'Bo', worded: true });
+    assert.deepEqual(assignmentIn(withField(assign('Ana', null), null)), { to: null, worded: true });
+    // The words name someone else: the field wins, and it is a message.
+    assert.deepEqual(assignmentIn(withField(person('Ana', 'Assigned to @Cy', ['Cy']), 'Bo')), { to: 'Bo', worded: false });
+
+    const first = withField(person('Ana', 'Fix the intro, @Bo', ['Bo']), 'Bo');
+    const root = thread([first]);
+    assert.equal(assigneeOf(root), 'Bo', 'a thread assigned as it starts');
+    assert.deepEqual([...assignNotes(root)], []);
+    const reply = withField(person('Bo', 'Over to you, @Cy', ['Cy']), 'Cy');
+    const off = withField(assign('Cy', null), null);
+    const notes = assignNotes(thread([first, reply, off]));
+    assert.deepEqual([...notes], [off.id]);
+    assert.equal(assigneeOf(thread([first, reply])), 'Cy');
+    assert.equal(assigneeOf(thread([first, reply, off])), null);
   });
 
   it('takes only the words it writes, with the one person they name, for an assignment', () => {
