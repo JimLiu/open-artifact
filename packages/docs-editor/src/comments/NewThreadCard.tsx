@@ -1,8 +1,8 @@
 /** The card of a thread being written: the words it will hang on (what the cells are, on several), and its text box. */
 import { ConfirmDialog } from '@open-artifact/ui';
 import { type ReactNode, type Ref, useState } from 'react';
-import { cancelComposer, createThread, mentionsAgent } from './actions.ts';
-import { Composer, type SendBoxSpec } from './Composer.tsx';
+import { assignableIn, cancelComposer, createThread, mentionsAgent } from './actions.ts';
+import { Composer, type SendBoxSpec, useAssignBox } from './Composer.tsx';
 import { canAskAgent, rememberSend, rememberedSend, setCommentUi, useCommentUi } from './store.ts';
 
 export function NewThreadCard({ cardRef }: { cardRef?: Ref<HTMLDivElement> }): ReactNode {
@@ -10,6 +10,7 @@ export function NewThreadCard({ cardRef }: { cardRef?: Ref<HTMLDivElement> }): R
   useCommentUi(state => state.agent);
   const [busy, setBusy] = useState(false);
   const [discard, setDiscard] = useState(false);
+  const assignBox = useAssignBox(!composer || (canAskAgent() && (mentionsAgent(composer.text) || (composer.send ?? rememberedSend()))) ? null : assignableIn(composer.text), null);
   if (!composer) return null;
   const setText = (text: string) => {
     const current = useCommentUi.getState().composer;
@@ -41,9 +42,10 @@ export function NewThreadCard({ cardRef }: { cardRef?: Ref<HTMLDivElement> }): R
         onChange={setText}
         busy={busy}
         sendBox={sendBox}
+        assignBox={assignBox?.spec}
         onSubmit={text => {
           setBusy(true);
-          void createThread(text, useCommentUi.getState().composer, sendBox?.checked ?? false).finally(() => setBusy(false));
+          void createThread(text, useCommentUi.getState().composer, sendBox?.checked ?? false, assignBox?.spec.checked ? assignBox.spec.who : null).finally(() => setBusy(false));
         }}
         onCancel={() => (composer.text.trim() ? setDiscard(true) : cancelComposer())}
       />

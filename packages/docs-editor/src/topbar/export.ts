@@ -10,7 +10,7 @@ import { docClient } from '../app/doc-client.ts';
 import { session } from '../app/session.ts';
 import { getDocs, useDocs } from '../app/store.ts';
 import { getTopBar, setTopBar } from './store.ts';
-import { couldntTitle, type ExportNoteLike, exportedTitle, exportFailure, notesText, otherNotes, printToPdfWords } from './words.ts';
+import { allTabsFailure, couldntTitle, EXPORT_THIS_TAB, type ExportNoteLike, exportedTitle, exportFailure, notesText, otherNotes, printToPdfWords } from './words.ts';
 
 export interface ExportChoice {
   format: DocExportFormat;
@@ -131,7 +131,13 @@ export async function exportDoc(choice: ExportChoice): Promise<boolean> {
     const code = codeOf(error);
     // `unsupported`: a host that prints no PDF on its side (a cloud host whose Shell is older than this page).
     if ((code === 'no_chrome' || code === 'unsupported') && choice.format === 'pdf' && (await printInBrowser(choice, tab).catch(() => false))) return true;
-    toast.add({ title: couldntTitle(choice.format), description: exportFailure(choice.format, choice.scope, code, messageOf(error)) });
+    const several = choice.scope === 'doc' && (getDocs().project?.files.length ?? 0) > 1;
+    const allTabs = several ? allTabsFailure(choice.format, code) : null;
+    toast.add({
+      title: couldntTitle(choice.format),
+      description: allTabs ?? exportFailure(choice.format, choice.scope, code, messageOf(error)),
+      ...(allTabs && getDocs().activeTab ? { actionProps: { children: EXPORT_THIS_TAB, onClick: () => void exportDoc({ ...choice, scope: 'tab' }) } } : {}),
+    });
     return false;
   } finally {
     setTopBar({ exporting: null });

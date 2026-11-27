@@ -75,6 +75,16 @@ describe('shell model', () => {
     assert.deepEqual(useShell.getState().report, {});
   });
 
+  it('passes the page unread mark on, but does not keep it for the next opening', t => {
+    t.after(() => useShell.setState(useShell.getInitialState(), true));
+    const store = useShell.getState();
+    store.setBoot(devBoot(artifact('unread'), { page: 'http://localhost/doc', page_url: 'http://localhost/doc' }, null));
+    const comments = { available: true, on: true, open: false, count: 1, pageButton: false, unread: true };
+    store.setReport({ ready: true, comments });
+    assert.equal(useShell.getState().report.comments?.unread, true);
+    assert.deepEqual(useShell.getState().rememberedChrome.comments, { available: true, pageButton: false, count: 1, on: false, open: false });
+  });
+
   it('opens the linked slide in the editor frame and scopes slide links to decks', () => {
     const boot = { id: 'deck', page: 'http://localhost:8000/', type: 'slides' };
     const address = 'http://localhost:8100/a/deck';

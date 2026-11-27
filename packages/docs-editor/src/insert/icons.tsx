@@ -14,6 +14,7 @@ import {
   SquareChevronDown,
   SquareCode,
   Table2,
+  TableOfContents,
   TextQuote,
   User,
 } from 'lucide-react';
@@ -29,6 +30,7 @@ const ICONS: Record<InsertIcon, LucideIcon> = {
   bullet: List,
   check: ListChecks,
   code: SquareCode,
+  contents: TableOfContents,
   date: CalendarDays,
   divider: SeparatorHorizontal,
   image: Image,

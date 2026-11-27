@@ -19,3 +19,21 @@ export function provideSuggestionReply(handler: SuggestionReplyHandler): () => v
     if (useSuggestionReply.getState().handler === handler) useSuggestionReply.setState({ handler: null });
   };
 }
+
+/** The words of replies on suggestions that the server refused after their box was closed, by `tab|suggestion`. */
+const kept = new Map<string, string>();
+
+const keyOf = (tab: string, suggestId: string) => `${tab}|${suggestId}`;
+
+/** Keeps a refused reply's words for its suggestion while the page is open. */
+export function keepReplyDraft(tab: string, suggestId: string, text: string): void {
+  if (text.trim()) kept.set(keyOf(tab, suggestId), text);
+}
+
+/** The words kept for a suggestion, handed back once (Reply on it again puts them in the box). */
+export function takeReplyDraft(tab: string, suggestId: string): string | null {
+  const key = keyOf(tab, suggestId);
+  const text = kept.get(key) ?? null;
+  kept.delete(key);
+  return text;
+}

@@ -42,6 +42,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       { label: 'Code', keys: ['Mod-e'] },
       { label: 'Link', keys: ['Mod-k'] },
       { label: 'Open the link', where: 'on a link', keys: ['Alt-Enter'] },
+      { label: 'Copy link to selection or current paragraph', keys: ['Mod-Alt-l'] },
       { label: 'Open a mentioned tab', where: 'on the mention', keys: ['Alt-Enter'] },
       { label: 'Move to the formatting bar, or the bar of the block the cursor is in', keys: ['F6', 'Mod-F6', 'Alt-F10'] },
       { label: 'Select all', keys: ['Mod-a'] },

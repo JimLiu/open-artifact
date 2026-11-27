@@ -21,6 +21,7 @@ import {
   type SuggestionInfo,
   type Version,
   type Writer,
+  CONTENTS_PER_FILE,
   DocAnchors,
   HISTORY_DIR,
   MarkdownError,
@@ -31,6 +32,7 @@ import {
   blockXml,
   blocksToMarkdown,
   committed,
+  contentsOf,
   docToDisk,
   findBlock,
   findChar,
@@ -1158,6 +1160,7 @@ export function exportMarkdown(store: DocStore, user: DocPerson, tabKey?: string
     for (const { block, parent } of walk(tab.blocks)) if (block.type === 'paragraph' && block.attrs?.heading && parent?.type !== 'cell') names.set(block.id, unique(githubSlug(shownWords(block.inline ?? [], context))));
   }
   const anchors = new DocAnchors(tabs);
+  let tables = 0;
   const body = tabs.map((tab, index) =>
     blocksToMarkdown(tab.blocks, {
       ...context,
@@ -1166,6 +1169,18 @@ export function exportMarkdown(store: DocStore, user: DocPerson, tabKey?: string
         const block = target ? (target.block ?? tabs[target.tab]!.blocks[0]) : undefined;
         const name = block ? names.get(block.id) : undefined;
         return name ? `#${name}` : null;
+      },
+      // A table of contents as a list of links to the headings it lists, nested as they are.
+      contents: () => {
+        const lines = contentsOf(tab.blocks);
+        if (!lines.length || ++tables > CONTENTS_PER_FILE) return null;
+        return lines
+          .map(({ heading, indent }) => {
+            const words = shownWords(heading.block.inline ?? [], context).replace(/([\\`*_[\]<>|~])/g, '\\$1');
+            const name = names.get(heading.block.id);
+            return `${'  '.repeat(indent)}- ${name ? `[${words}](#${name})` : words}`;
+          })
+          .join('\n');
       },
     }),
   );

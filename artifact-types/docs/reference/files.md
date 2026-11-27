@@ -44,5 +44,6 @@ elsewhere in the doc.
   person.
 - A PDF is printed by the Chrome on this computer (or Chromium, Edge, Brave; `OPEN_ARTIFACT_CHROME` names another
   program). With none it stops with `no_chrome`: export `html` and print that from any browser. Word needs nothing.
+  A PDF Chrome is still printing after two minutes stops with `too_slow`: export one tab at a time (`--tab`).
 - An export is a copy: it does not change with the doc. For someone off the local network, send an export (or
   `open-artifact archive <root>`, the whole folder to open again with `open`).

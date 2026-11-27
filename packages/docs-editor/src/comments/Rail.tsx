@@ -19,6 +19,7 @@ import { type MarkerRow, markerRows, stackCards } from '../margin/stack.ts';
 import { CommentList } from './CommentList.tsx';
 import { cancelComposer } from './actions.ts';
 import { NewThreadCard } from './NewThreadCard.tsx';
+import { useAnyUnread } from './reads.ts';
 import { type MarkedRange, liveRanges, rangesOf } from './plugin.ts';
 import { type Hold, NEW_THREAD, docComments, setActive, useCommentUi, useThreads } from './store.ts';
 import { ReactionChip, ThreadCard } from './ThreadCard.tsx';
@@ -343,6 +344,10 @@ function Marker({ row, items, open, onChoose }: { row: MarkerRow; items: Readonl
     .filter(Boolean)
     .join(', ');
   const Icon = comments ? MessageSquare : ListChecks;
+  // A card that names itself (a folded section's suggestions) says so when nothing else shares its line.
+  const own = ids.length === 1 ? items.get(ids[0]!)?.card?.label?.() : undefined;
+  const news = useAnyUnread(ids);
+  const name = `${own ?? `${label} on this line`}${news ? ', new activity' : ''}`;
   return (
     <div className="absolute right-3 flex items-center gap-1" style={{ top: row.top, height: MARKER_HEIGHT }} data-margin-marker={row.ids.join(' ')}>
       {reactions.map(thread => (
@@ -353,8 +358,8 @@ function Marker({ row, items, open, onChoose }: { row: MarkerRow; items: Readonl
       {ids.length ? (
         <button
           type="button"
-          aria-label={`${label} on this line`}
-          title={`${label} on this line`}
+          aria-label={name}
+          title={name}
           aria-pressed={!!open && ids.includes(open)}
           className={cn(
             'pointer-events-auto inline-flex h-full items-center gap-1 rounded-md px-1.5 text-[12px] text-chrome-muted transition-colors hover:bg-chrome-hover hover:text-chrome-fg',
@@ -363,7 +368,10 @@ function Marker({ row, items, open, onChoose }: { row: MarkerRow; items: Readonl
           onMouseDown={event => event.preventDefault()}
           onClick={() => onChoose(ids)}
         >
-          <Icon className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
+          <span className="relative inline-flex">
+            <Icon className="size-3.5" strokeWidth={1.75} aria-hidden="true" />
+            {news ? <span aria-hidden="true" data-unread-dot="" className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-chrome-accent" /> : null}
+          </span>
           {comments + others}
         </button>
       ) : null}

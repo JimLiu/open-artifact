@@ -7,6 +7,8 @@ export interface CodeLanguage {
   aliases: readonly string[];
   /** Words that find it in the slash menu only. */
   slashOnly?: readonly string[];
+  /** Named in the bar when a block has it, but offered in no list: the slash menu inserts it on its own. */
+  unlisted?: boolean;
 }
 
 export const CODE_LANGUAGES: readonly CodeLanguage[] = [
@@ -26,6 +28,7 @@ export const CODE_LANGUAGES: readonly CodeLanguage[] = [
   { key: 'typescript', label: 'TypeScript', aliases: ['ts', 'tsx'] },
   { key: 'xml', label: 'XML', aliases: [] },
   { key: 'yaml', label: 'YAML', aliases: ['yml'] },
+  { key: 'toc', label: 'Table of contents', aliases: [], unlisted: true },
 ];
 
 /** The languages a query of two letters or more names (by key, label, alias or slash word). */
@@ -34,9 +37,10 @@ export function languagesFor(query: string): CodeLanguage[] {
   if (wanted.length < 2) return [];
   return CODE_LANGUAGES.filter(
     language =>
-      language.key.startsWith(wanted) ||
+      !language.unlisted &&
+      (language.key.startsWith(wanted) ||
       language.label.toLowerCase().startsWith(wanted) ||
       language.aliases.some(alias => alias.startsWith(wanted)) ||
-      (language.slashOnly ?? []).some(word => word.startsWith(wanted)),
+      (language.slashOnly ?? []).some(word => word.startsWith(wanted))),
   );
 }

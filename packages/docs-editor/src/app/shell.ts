@@ -4,6 +4,7 @@ import type { ChromeFormat } from '@open-artifact/protocol';
 import type { DocExportFormat } from '@open-artifact/runtime/doc-api';
 import { docComments } from '../comments/store.ts';
 import { selectionCommentable } from '../comments/actions.ts';
+import { tabNews, useReads } from '../comments/reads.ts';
 import { useEditor } from '../editor/format.ts';
 import { followDocLink } from '../selbar/navigate.ts';
 import { exportDoc, mayExportDoc } from '../topbar/export.ts';
@@ -40,13 +41,13 @@ export function startDocShell(): void {
   const shell = maybeSession()?.shell;
   if (!shell) return;
   const report = () => {
-    const { project, writable, comments, saving } = getDocs();
+    const { project, writable, comments, saving, activeTab } = getDocs();
     const { available, threads } = docComments.store.getState();
     const states = Object.values(saving);
     const dirty = states.includes('unsaved') || states.includes('stopped');
     bridge.setShellReport({
       title: project?.name,
-      comments: { available, on: comments !== 'hidden', open: comments === 'all', count: openCount(threads), pageButton: false },
+      comments: { available, on: comments !== 'hidden', open: comments === 'all', count: openCount(threads), pageButton: false, unread: comments !== 'all' && tabNews(activeTab) },
       share: true, history: true, exports: !!maybeSession() && mayExportDoc(), formats: formats(), hasContent: !!project?.files.length,
       saved: dirty ? 'unsaved' : states.includes('reconnecting') ? 'reconnecting' : states.includes('saving') || states.includes('syncing') ? 'saving' : !writable ? 'readonly' : 'saved',
       leaveLosesWork: dirty || states.includes('saving'),
@@ -89,6 +90,7 @@ export function startDocShell(): void {
   report();
   useDocs.subscribe(report);
   docComments.store.subscribe(report);
+  useReads.subscribe(report);
   useEditor.subscribe(report);
   useTopBar.subscribe(report);
 }

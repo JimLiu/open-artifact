@@ -3,6 +3,7 @@
  * "Current version" row; a restore stands alone; otherwise consecutive versions by the same author on the same day
  * fold into one "{n} edits by <who>" row. Rows are then sectioned by day.
  */
+import { FIRST_REV, MAX_VERSIONS } from '@open-artifact/docs-core';
 import type { DocVersion } from '@open-artifact/runtime/doc-api';
 import { nameOfPerson } from '../app/people.ts';
 
@@ -67,6 +68,18 @@ export function sectionByDay(rows: readonly VersionRow[]): DaySection[] {
 export function versionBefore(versions: readonly DocVersion[], rev: number): DocVersion | null {
   const index = versions.findIndex(version => version.rev === rev);
   return index >= 0 ? (versions[index + 1] ?? null) : null;
+}
+
+/**
+ * What a version is compared with: the version just before it, else the tab as first saved, at FIRST_REV, for an oldest
+ * version written after the tab's first rev on a tab that was blank (not kept from before the history began, and with
+ * no older versions let go); `null` when there is nothing earlier.
+ */
+export function compareBase(versions: readonly DocVersion[], rev: number): number | null {
+  const before = versionBefore(versions, rev);
+  if (before) return before.rev;
+  const oldest = versions.at(-1);
+  return oldest?.rev === rev && rev > FIRST_REV && oldest.by !== 'system' && versions.length < MAX_VERSIONS ? FIRST_REV : null;
 }
 
 // ---- words ----------------------------------------------------------------------------------------------------------

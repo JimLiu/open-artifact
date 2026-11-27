@@ -9,6 +9,7 @@
  */
 import { BLOB_REF } from './blobs.ts';
 import { type IdSource, textToInline } from './content.ts';
+import { isContents } from './contents.ts';
 import { type Atom, type Block, type Inline, type Marks, isAtom, newBlock, textColorOf } from './model.ts';
 
 export type Chip = Record<string, unknown> & { type: string };
@@ -621,6 +622,11 @@ export interface ExportContext {
    * leave its words unlinked. Without it, as an agent reads the tab: the links as the doc holds them.
    */
   fragment?: (href: string) => string | null;
+  /**
+   * For a file: a table of contents as the file shows it, or null to leave it out. Without it, as an agent reads the
+   * tab: a `toc` code block.
+   */
+  contents?: (block: Block) => string | null;
 }
 
 const escapeMarkdown = (text: string) => text.replace(/([\\`*_[\]<>|~=])/g, '\\$1');
@@ -719,7 +725,7 @@ export function blocksToMarkdown(blocks: Block[], context: ExportContext = {}): 
     .join('\n\n');
 }
 
-function blockToMarkdown(block: Block, context: ExportContext): string {
+function blockToMarkdown(block: Block, context: ExportContext): string | null {
   const attrs = block.attrs ?? {};
   switch (block.type) {
     case 'paragraph': {
@@ -727,6 +733,7 @@ function blockToMarkdown(block: Block, context: ExportContext): string {
       return attrs.heading ? `${'#'.repeat(Number(attrs.heading))} ${text}` : text;
     }
     case 'codeBlock': {
+      if (context.contents && isContents(block)) return context.contents(block);
       const text = inlineToMarkdown(block.inline ?? [], context, true);
       const fence = text.includes('```') ? '~~~' : '```';
       return `${fence}${String(attrs.language ?? '')}\n${text}\n${fence}`;

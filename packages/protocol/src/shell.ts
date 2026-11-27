@@ -193,7 +193,11 @@ export interface ChromeReport {
   ready?: boolean;
   /** Current document title in a type-server shell. */
   title?: string;
-  comments?: { available: boolean; on: boolean; open: boolean; count: number; pageButton: boolean };
+  /**
+   * `unread`: the viewer has comment news they have not looked at yet (a new thread or reply by someone else); the
+   * Shell marks its comments button. Left out where the page does not keep track.
+   */
+  comments?: { available: boolean; on: boolean; open: boolean; count: number; pageButton: boolean; unread?: boolean };
   agent?: { available: boolean; listening: boolean; busy: boolean };
   /** The page has a version history panel. */
   history?: boolean;

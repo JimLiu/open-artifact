@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { MAX_VERSIONS } from '@open-artifact/docs-core';
 import type { DocVersion } from '@open-artifact/runtime/doc-api';
 import { learnNames } from '../src/app/people.ts';
-import { dayKey, dayLabel, editsLabel, foldVersions, restoredLabel, sectionByDay, versionBefore, whoOf } from '../src/history/groups.ts';
+import { compareBase, dayKey, dayLabel, editsLabel, foldVersions, restoredLabel, sectionByDay, versionBefore, whoOf } from '../src/history/groups.ts';
 
 const at = (day: number, hour: number, minute = 0) => new Date(2026, 10, day, hour, minute).toISOString();
 
@@ -66,6 +67,18 @@ describe('history rows', () => {
     const versions = [person(3, 'ana', at(18, 12)), person(2, 'ana', at(18, 11)), person(1, 'ana', at(18, 10))];
     assert.equal(versionBefore(versions, 3)?.rev, 2);
     assert.equal(versionBefore(versions, 1), null);
+  });
+
+  it('compares the oldest version with the tab as first saved when it came after rev 1', () => {
+    const versions = [agent(4, at(18, 11)), agent(2, at(18, 10))];
+    assert.equal(compareBase(versions, 4), 2);
+    assert.equal(compareBase(versions, 2), 1);
+    assert.equal(compareBase([person(1, 'ana', at(18, 10))], 1), null);
+    assert.equal(compareBase(versions, 3), null, 'a rev the list does not hold');
+    const kept: DocVersion = { rev: 3, by: 'system', at: at(18, 9) };
+    assert.equal(compareBase([agent(5, at(18, 11)), kept], 3), null, 'a tab that had text before its history began');
+    const full = Array.from({ length: MAX_VERSIONS }, (_, index) => agent(MAX_VERSIONS + 10 - index, at(18, 10)));
+    assert.equal(compareBase(full, full.at(-1)!.rev), null, 'older versions were let go');
   });
 });
 

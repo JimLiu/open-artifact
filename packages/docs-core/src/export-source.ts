@@ -6,6 +6,7 @@
  */
 import { DocAnchors, githubSlug, type LinkTarget, uniqueSlugs } from './anchors.ts';
 import { imageInfo } from './blobs.ts';
+import { CONTENTS_PER_FILE, contentsGrouped, contentsOf, isContents } from './contents.ts';
 import { type Atom, type Block, type Inline, isAtom, type Marks, sameMarks, walk } from './model.ts';
 
 export type Paper = 'a4' | 'letter';
@@ -62,6 +63,16 @@ export interface ExportAnchors {
   tabs: (Anchor | undefined)[];
   /** By `id`, as the links now name them. */
   byId: Map<string, Anchor>;
+  /** By a table of contents' block: the headings it lists, each with where it is in the file. */
+  contents?: Map<string, FileContentsLine[]>;
+}
+
+export interface FileContentsLine {
+  text: string;
+  indent: number;
+  /** Top lines of a table of contents with lines under them, drawn as the names of their groups. */
+  group: boolean;
+  anchor: Anchor | null;
 }
 
 /** Blocks a file holds nothing of: nowhere for a link to land. */
@@ -116,7 +127,17 @@ export function linkAnchors(tabs: ExportTab[]): { tabs: ExportTab[]; anchors: Ex
     }
     return { ...tab, blocks };
   });
-  return { tabs: linked, anchors };
+  // A table of contents links to its tab's headings, so each of them gets a place in the file.
+  const contents = new Map<string, FileContentsLine[]>();
+  linked.forEach((tab, index) => {
+    const tables = [...walk(tab.blocks)].filter(({ block }) => isContents(block)).slice(0, CONTENTS_PER_FILE - contents.size);
+    if (!tables.length) return;
+    const lines = contentsOf(tab.blocks);
+    const grouped = contentsGrouped(lines);
+    const drawn = lines.map(({ heading, indent }) => ({ text: plainText(heading.block), indent, group: grouped && indent === 0, anchor: anchorOf({ tab: index, block: heading.block }) }));
+    for (const { block } of tables) contents.set(block.id, drawn);
+  });
+  return { tabs: linked, anchors: { ...anchors, contents } };
 }
 
 /** Where a link goes in a file: a web address, or an anchor of the file. Undefined: its words alone. */

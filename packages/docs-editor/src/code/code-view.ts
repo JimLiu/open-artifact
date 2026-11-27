@@ -8,6 +8,7 @@ import type { Decoration, EditorView, NodeView, ViewMutationRecord } from 'prose
 import { createElement } from 'react';
 import { type Root, createRoot } from 'react-dom/client';
 import { CodeBar } from './CodeBar.tsx';
+import { isPageContents } from './contents.ts';
 import { highlightOf } from './highlight-plugin.ts';
 import { type LiveKind, liveKind } from './languages.ts';
 import { EMPTY_TEXT, LOADING_TEXT, type LiveResult, renderLater, renderNow } from './live.ts';
@@ -197,7 +198,7 @@ export class CodeBlockView implements NodeView {
   };
 
   update(node: PMNode, decorations: readonly Decoration[]): boolean {
-    if (node.type !== this.node.type) return false;
+    if (node.type !== this.node.type || isPageContents(node)) return false;
     this.node = node;
     this.active = isActive(decorations);
     this.draw();

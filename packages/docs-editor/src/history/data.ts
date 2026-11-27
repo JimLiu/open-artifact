@@ -5,7 +5,9 @@ import { docClient } from '../app/doc-client.ts';
 import { session } from '../app/session.ts';
 import { showTab } from '../app/start.ts';
 import { getDocs, useDocs } from '../app/store.ts';
-import { copyMembers, copyName, mintedTab } from './copy.ts';
+import { afterCopy, copyMembers, copyName, mintedTab } from './copy.ts';
+import { isFirstSaved } from './compare-target.ts';
+import { compareBase } from './groups.ts';
 import { type CompareWith, PAGE_VERSIONS, type Preview, getHistory, setHistory, versionKey } from './store.ts';
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -36,7 +38,7 @@ function keepPreviewInList(): void {
   if (!preview || !versions) return;
   const newest = versions[0];
   if (preview.current) {
-    if (newest && newest.rev !== preview.rev) setHistory({ preview: { ...preview, rev: newest.rev, at: newest.at, base: versions[1]?.rev ?? null } });
+    if (newest && newest.rev !== preview.rev) setHistory({ preview: { ...preview, rev: newest.rev, at: newest.at, base: compareBase(versions, newest.rev) } });
     return;
   }
   if (!versions.some(version => version.rev === preview.rev)) setHistory({ preview: null });
@@ -85,7 +87,8 @@ export function loadVersion(tab: string, rev: number): Promise<void> {
       setHistory(state => ({ docs: { ...state.docs, [key]: doc }, docErrors: withoutKey(state.docErrors, key) }));
     } catch (error) {
       setHistory(state => ({ docErrors: { ...state.docErrors, [key]: messageOf(error) } }));
-      if (getHistory().tab === tab) void loadHistory(tab);
+      // A version gone from the list sends it to be read again; the tab as first saved is in no list.
+      if (getHistory().tab === tab && !isFirstSaved(getHistory().versions, rev)) void loadHistory(tab);
     } finally {
       reading.delete(key);
     }
@@ -138,16 +141,29 @@ export async function copyPreview(): Promise<void> {
     if (!doc) throw new Error(getHistory().docErrors[versionKey(preview.tab, preview.rev)] ?? 'This version could not be read.');
     const answer = await docClient().call({ batch: copyMembers(copyName(file.name, preview.at), doc) });
     const tab = mintedTab(answer);
-    toast.add({ title: preview.count > 1 ? `Copied the newest of ${preview.count} versions` : 'Copy created' });
-    if (tab && (await tabListed(tab))) {
+    const listed = tab ? await tabListed(tab) : false;
+    // Decided once the copy can be opened: the person may have gone on meanwhile.
+    const next = afterCopy(preview, getHistory().preview);
+    if (tab && listed && next.open) {
       setHistory({ preview: null });
       showTab(tab);
+      toast.add({ title: next.title });
+    } else {
+      const made = afterCopy(preview, null);
+      toast.add({ title: made.title, ...(tab ? { actionProps: { children: 'Open', onClick: () => void openCopy(tab) } } : {}) });
     }
   } catch (error) {
     toast.add({ title: 'Couldn’t make a copy of this version. Try again.', description: messageOf(error) });
   } finally {
     setHistory({ busy: null });
   }
+}
+
+/** Opens a copy made earlier, once the doc lists it. */
+async function openCopy(tab: string): Promise<void> {
+  if (!(await tabListed(tab))) return;
+  setHistory({ preview: null });
+  showTab(tab);
 }
 
 /** Waits (a little) for the doc to list a new tab: it can't be opened before. */

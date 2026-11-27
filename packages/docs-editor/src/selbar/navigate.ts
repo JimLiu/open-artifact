@@ -2,11 +2,13 @@
 import { toast } from '@open-artifact/ui';
 import { TextSelection } from 'prosemirror-state';
 import type { EditorView } from 'prosemirror-view';
+import { docClient } from '../app/doc-client.ts';
 import { maybeSession } from '../app/session.ts';
 import { showTab } from '../app/start.ts';
 import { getDocs } from '../app/store.ts';
 import { useEditor } from '../editor/format.ts';
-import { type DocPlace, findPlace, parseDocHref } from './fragments.ts';
+import { type DocPlace, findPlace, parseDocHref, placeFragment } from './fragments.ts';
+import { washPlace } from './place-wash.ts';
 
 const WAIT_MS = 10_000;
 
@@ -26,6 +28,12 @@ function editorOf(tab: string): Promise<EditorView | null> {
       resolve(state.view);
     });
   });
+}
+
+/** Brings a place into view: its block, then a wash over the words it names. */
+function showPlace(view: EditorView, tab: string, place: DocPlace, pos: number): void {
+  scrollToBlock(view, pos);
+  washPlace(view, docClient().openTabOf(tab)?.binding.shadow ?? null, place);
 }
 
 /** Scrolls a block into view and puts the cursor at its start. */
@@ -61,7 +69,7 @@ async function goTo(place: DocPlace): Promise<void> {
     return;
   }
   if (tab !== active) showTab(tab);
-  const target = place.block ? place.block + (place.slug ? '~' + place.slug : '') : place.slug;
+  const target = placeFragment(place);
   const hash = '#' + tab + (target ? '.' + target : '');
   history.replaceState(history.state, '', hash);
   maybeSession()?.shell?.currentDocPlace(hash);
@@ -74,7 +82,7 @@ async function goTo(place: DocPlace): Promise<void> {
     return;
   }
   requestAnimationFrame(() => {
-    if (!view.isDestroyed && getDocs().activeTab === tab) scrollToBlock(view, pos);
+    if (!view.isDestroyed && getDocs().activeTab === tab) showPlace(view, tab, place, pos);
   });
 }
 
@@ -108,7 +116,7 @@ export function docLinkUrl(href: string): string {
   const place = parseDocHref(href);
   const tab = place?.tab ?? getDocs().activeTab;
   url.searchParams.delete('tab');
-  const fragment = place?.block ? place.block + (place.slug ? '~' + place.slug : '') : place?.slug ?? '';
+  const fragment = place ? placeFragment(place) : '';
   url.hash = tab ? tab + (fragment ? '.' + fragment : '') : fragment;
   return url.href;
 }
@@ -125,6 +133,7 @@ export function followAddressOnce(): void {
     if (place.tab && state.tab !== place.tab) return;
     const view = state.view;
     const pos = findPlace(view.state.doc, place);
-    if (pos !== null) requestAnimationFrame(() => { if (!view.isDestroyed) scrollToBlock(view, pos); });
+    const tab = state.tab;
+    if (pos !== null) requestAnimationFrame(() => { if (!view.isDestroyed) showPlace(view, tab, place, pos); });
   });
 }

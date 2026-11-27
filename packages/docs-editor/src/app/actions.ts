@@ -8,6 +8,7 @@ const handlers: EditorActions = {
   openReference: () => false,
   comment: () => false,
   toggleComments: () => false,
+  copyPlaceLink: () => false,
   shortcuts: () => false,
   slash: () => false,
 };
@@ -19,6 +20,7 @@ export const editorActions: EditorActions = {
   openReference: () => handlers.openReference(),
   comment: () => handlers.comment(),
   toggleComments: () => handlers.toggleComments(),
+  copyPlaceLink: () => handlers.copyPlaceLink(),
   shortcuts: () => handlers.shortcuts(),
   slash: () => handlers.slash(),
 };

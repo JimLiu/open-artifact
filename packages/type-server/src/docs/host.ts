@@ -7,6 +7,7 @@ import {
   type DateStyle,
   type DocState,
   DecisionJournal,
+  FIRST_REV,
   Refusal,
   applyOps,
   blockXml,
@@ -17,6 +18,7 @@ import {
   isChipKind,
   isText,
   proposalIds,
+  startedBlank,
   suggestionAsOf,
   walk,
 } from '@open-artifact/docs-core';
@@ -281,9 +283,17 @@ export class DocHost {
 
   version(tab: string, rev: number): DocVersionResponse {
     const tabId = this.tabOf(tab);
-    const doc = this.store.snapshot(tabId, rev);
+    const doc = this.store.snapshot(tabId, rev) ?? this.firstSaved(tabId, rev);
     if (!doc) throw new DocRequestError(404, 'not_found', `This tab keeps no version at rev ${rev}.`);
     return { tab: tabId, rev: doc.rev, doc: docToDisk(committed(doc)) as unknown as DocJsonObject };
+  }
+
+  /**
+   * A tab that was blank when its history began keeps no state at its first rev; read for a comparison, it is an empty
+   * tab. Only reading answers it: a restore or an agent's read at that rev still finds no version there.
+   */
+  private firstSaved(tabId: string, rev: number): DocState | null {
+    return rev === FIRST_REV && startedBlank(this.store.history(tabId)) ? { rev: FIRST_REV, blocks: [] } : null;
   }
 
   restore(tab: string, rev: number, ifRev: number | undefined, viewer: Viewer): DocRestoreResponse {

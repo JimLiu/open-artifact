@@ -44,6 +44,8 @@ export interface EditorActions {
   openReference(): boolean;
   comment(): boolean;
   toggleComments(): boolean;
+  /** Copies a link to the selection, or to the paragraph the cursor is in. */
+  copyPlaceLink(): boolean;
   shortcuts(): boolean;
   slash(): boolean;
 }
@@ -146,6 +148,7 @@ export function docPlugins(actions: EditorActions, options: { writable: boolean 
     'Mod-/': action(actions.shortcuts),
     'Mod-Alt-m': action(actions.comment),
     'Alt-Shift-c': action(actions.toggleComments),
+    'Mod-Alt-l': action(actions.copyPlaceLink),
   };
   const plugins = [
     docInputRules(),

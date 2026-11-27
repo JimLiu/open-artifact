@@ -20,6 +20,8 @@ export interface ChangeRange {
   summary: string;
   /** A whole block (else words or an inline item). */
   block: boolean;
+  /** Its words are drawn on it (a whole block: over it). */
+  noted?: true;
 }
 
 export interface PreviewDoc {
@@ -37,11 +39,15 @@ export function previewDocOf(state: DocState | Comparison): PreviewDoc {
   const partOf = (id: unknown) => (typeof id === 'string' && Object.hasOwn(parts, id) ? parts[id]! : null);
   const isChangeMark = (mark: Mark) => (mark.type === schema.marks.suggestIns || mark.type === schema.marks.suggestDel) && partOf(mark.attrs.suggestId) !== null;
   const changes: ChangeRange[] = [];
+  /** A block's words are drawn once, over it, not again over each block inside it (which carry its part too). */
+  const noted = new Set<string>();
   let lastKey: string | null = null;
   marked.descendants((node, pos) => {
     const part = node.isInline ? null : partOf(node.attrs.suggestId);
     if (part) {
-      changes.push({ from: pos, to: pos + node.nodeSize, change: part.change, look: part.look, summary: part.summary, block: true });
+      const note = part.noted && !noted.has(node.attrs.suggestId as string);
+      if (note) noted.add(node.attrs.suggestId as string);
+      changes.push({ from: pos, to: pos + node.nodeSize, change: part.change, look: part.look, summary: part.summary, block: true, ...(note ? { noted: true as const } : {}) });
       lastKey = null;
       return true;
     }
@@ -82,16 +88,22 @@ export function changeAttrs(range: ChangeRange, active: boolean): Record<string,
   };
   if (active) attrs.class += ' vh-active';
   if (active) attrs['data-diff-active'] = '';
-  if (range.look === 'fmt' || range.look === 'chg' || range.look === 'move') {
+  if (range.look === 'fmt' || range.look === 'chg' || range.look === 'move' || range.noted) {
     attrs.title = range.summary;
     attrs['data-diff-summary'] = range.summary;
   }
+  if (range.noted && range.block) attrs['data-diff-note'] = range.summary;
   return attrs;
 }
 
+/** Whether a node view is drawing a block the version dropped (its decorations, from `changesPlugin`). */
+export const blockDropped = (decorations: readonly Decoration[]): boolean =>
+  decorations.some(decoration => (decoration.spec as { diff?: ChangeLook }).diff === 'del');
+
 /**
  * Draws the changes: added words underlined, dropped ones struck through, reformatted ones dotted, whole blocks
- * barred, changed and moved blocks outlined, and the one the strip is on (`active`) ringed.
+ * barred, changed and moved blocks outlined, and the one the strip is on (`active`) ringed. A whole block's look rides
+ * along in its decoration's spec, for a node view that draws a dropped block its own way (`blockDropped`).
  */
 export function changesPlugin(changes: readonly ChangeRange[], active: string | null = null): Plugin {
   return new Plugin({
@@ -99,7 +111,7 @@ export function changesPlugin(changes: readonly ChangeRange[], active: string | 
       decorations(state) {
         const decorations = changes.map(change => {
           const attrs = changeAttrs(change, change.change === active);
-          return change.block ? Decoration.node(change.from, change.to, attrs) : Decoration.inline(change.from, change.to, { nodeName: INLINE_TAG[change.look] ?? 'span', ...attrs });
+          return change.block ? Decoration.node(change.from, change.to, attrs, { diff: change.look }) : Decoration.inline(change.from, change.to, { nodeName: INLINE_TAG[change.look] ?? 'span', ...attrs });
         });
         return DecorationSet.create(state.doc, decorations);
       },

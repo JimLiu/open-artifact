@@ -4,10 +4,14 @@
  */
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
-import type { DocSessionResponse } from '@open-artifact/runtime/doc-api';
+import type { DocProject, DocSessionResponse } from '@open-artifact/runtime/doc-api';
 import { droppedNotice, rescueWords, TOO_LARGE_WORDS } from '../src/saving/words.ts';
 import { type PageNode, docToPage } from '../src/sync/page.ts';
 import { type TabSync, onUndoLost } from '../src/sync/tab-sync.ts';
+import { getDocs, useDocs } from '../src/app/store.ts';
+import { type MarkStore, markKey } from '../src/saving/left-unsaved.ts';
+import { watchLeftUnsaved } from '../src/saving/reload-notice.ts';
+import { listenForLostUndo, restoreFromPage, useRescue } from '../src/saving/rescue.ts';
 import { type DocServer, type Page, startDocServer, texts } from './harness.ts';
 
 function typeAt(page: PageNode, block: number, offset: number, text: string): void {
@@ -117,6 +121,35 @@ describe('edits the server won’t take', () => {
       await doc.settle(b);
       assert.deepEqual(texts(b.sync.shadow), shown);
       await Promise.all([a.stop(), b.stop()]);
+    });
+
+    it('leaves a mark for the next load of the tab while it is halted, and lets it go once restored', async () => {
+      const kept = new Map<string, string>();
+      const marks: MarkStore = {
+        get length() {
+          return kept.size;
+        },
+        key: index => [...kept.keys()][index] ?? null,
+        getItem: key => kept.get(key) ?? null,
+        setItem: (key, value) => void kept.set(key, value),
+        removeItem: key => void kept.delete(key),
+      };
+      const project = getDocs().project;
+      useDocs.setState({ project: { id: 'doc-1' } as DocProject });
+      const stopRescue = listenForLostUndo();
+      const stopWatch = watchLeftUnsaved({ marks: () => marks, now: () => 1000, waitMs: 60_000 });
+      try {
+        const { a, b } = await halted();
+        assert.equal(kept.get(markKey('doc-1', a.sync.tab)), '1000');
+        assert.equal(await restoreFromPage(), 'restored');
+        assert.equal(kept.has(markKey('doc-1', a.sync.tab)), false);
+        await Promise.all([a.stop(), b.stop()]);
+      } finally {
+        stopWatch();
+        stopRescue();
+        useRescue.setState({ sync: null, state: 'asking' });
+        useDocs.setState({ project });
+      }
     });
 
     it('is not restored when the tab changed since', async () => {

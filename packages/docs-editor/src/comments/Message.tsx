@@ -1,17 +1,18 @@
 /** One message of a thread: who wrote it and when, its text (long ones folded), its reactions and what can be done with it. */
 import type { CommentMessage, CommentThread } from '@open-artifact/runtime';
-import { ChromeButton, ChromeMenu, ChromeMenuItem, ChromeMenuSeparator, Tip } from '@open-artifact/editor-kit/react';
+import { ChromeButton, ChromeMenu, ChromeMenuItem, ChromeMenuSeparator, ChromeSubmenu, Tip } from '@open-artifact/editor-kit/react';
 import { ConfirmDialog, cn } from '@open-artifact/ui';
 import { Check, Ellipsis, RotateCcw } from 'lucide-react';
 import { type ReactNode, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { copyLink, editMessage, remove, removePlace, resolve } from './actions.ts';
+import { assignThread, copyLink, editMessage, remove, removePlace, resolve } from './actions.ts';
+import { assignCandidates, assigneeOf } from './assign.ts';
 import { Composer, Initial, useMentionCandidates } from './Composer.tsx';
 import { hasMarkdown, inlineOnly, parseCommentMarkdown } from './markdown.ts';
 import { MarkdownBlocks, MarkdownInline, MentionChip } from './markdown-view.tsx';
 import { splitMentions } from './mentions.ts';
 import { ReactionButton, ReactionPills } from './Reactions.tsx';
 import { canComment, canRemoveAny, myName, setCommentUi, useCommentUi } from './store.ts';
-import { canDeleteMessage, canDeleteThread, canEditMessage } from './threads.ts';
+import { canDeleteMessage, canDeleteThread, canEditMessage, isReactionThread } from './threads.ts';
 import { commentDate, commentTime } from './time.ts';
 
 /**
@@ -63,6 +64,30 @@ export function MessageText({ text, lines = 6 }: { text: string; lines?: number 
 }
 
 export const JOINED_NOTE = 'joined without being asked';
+
+/** "Assign to": the people the thread can be given to, the one who has it checked, and "Unassign" while someone does. */
+function AssignMenu({ thread, me }: { thread: CommentThread; me: string }): ReactNode {
+  const listed = useMentionCandidates()
+    .filter(candidate => candidate.kind === 'person')
+    .map(candidate => candidate.name);
+  const current = assigneeOf(thread);
+  const names = assignCandidates({ me, thread, listed, current });
+  return (
+    <ChromeSubmenu label="Assign to">
+      {names.map(name => (
+        <ChromeMenuItem key={name} checked={name === current} onSelect={() => name !== current && void assignThread(thread, name)}>
+          {name === me ? `${name} (you)` : name}
+        </ChromeMenuItem>
+      ))}
+      {current !== null ? (
+        <>
+          <ChromeMenuSeparator />
+          <ChromeMenuItem onSelect={() => void assignThread(thread, null)}>Unassign</ChromeMenuItem>
+        </>
+      ) : null}
+    </ChromeSubmenu>
+  );
+}
 
 export interface MessageProps {
   thread: CommentThread;
@@ -129,6 +154,7 @@ export function Message({ thread, message, root, open, removablePlace }: Message
               <ChromeMenuItem onSelect={() => void removePlace(thread, removablePlace)}>Remove from these words</ChromeMenuItem>
             ) : null}
             {root && resolved && commenting ? <ChromeMenuItem onSelect={() => void resolve(thread.id, false)}>Reopen</ChromeMenuItem> : null}
+            {root && commenting && !resolved && me && !isReactionThread(thread) ? <AssignMenu thread={thread} me={me} /> : null}
             {deletable ? (
               <>
                 <ChromeMenuSeparator />

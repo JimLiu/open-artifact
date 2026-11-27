@@ -1,0 +1,11 @@
+/* The words a just-opened link names, washed for a moment, and their block outlined. */
+.doc-text .doc-place-wash {
+  background-color: var(--doc-mark);
+  border-radius: 2px;
+}
+
+.doc-text .doc-place-block {
+  outline: 2px solid color-mix(in srgb, var(--doc-accent) 45%, transparent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
