@@ -40,6 +40,10 @@
 - **直达链接**：在 URL 后附加 `#artboard-<name>`、`#play-<name>` 或 `#page-<id>` 直接定位到指定画板或页面。
 - **导出**：打开 **Share → Export** 导出 PNG、JPEG、PDF、Figma 采集 HTML 或整画布 ZIP。
 
+### 用的是 Gemini 模型？
+
+用 Gemini 模型时（在 [Antigravity](../../plugins/antigravity/README.md) 或其他应用里），建议给 Design 搭配 Google 的 [`gemini-frontend-design`](https://github.com/google-gemini/demolab/blob/main/skills/gemini-frontend-design/SKILL.md) skill：它负责视觉方向、配色、字体、布局和动效，Design 自带的 skill 负责画布怎么写。Open Artifact 不附带这个 skill，请按 [`google-gemini/demolab`](https://github.com/google-gemini/demolab) 仓库 README 的说明安装（只装这一个：`npx skills add google-gemini/demolab --skill gemini-frontend-design`）。没装也能正常用：Agent 开始设计前会提一次这个链接，方便你先装上；你不说话它就照常往下做。
+
 ## Agent 怎么用
 
 - **类型 ID**：`design`（`type_url: "open-artifact://type/design"`）
@@ -64,5 +68,6 @@
 2. 先写 `project/canvas.json` 和第一个画板并展示页面，之后按 `order` 顺序**每轮只写一个画板**，让用户清晰看到每个画板逐步落地。
 3. 图片、字体等素材必须通过 `upload` 上传为 `/_blob/<id>`，禁止使用 `data:` URI 或裸文件名。
 4. 完成后运行 `check` 并修复所有报错（如缺失 `support.js`、`$preview` 尺寸不匹配、无效 `/_blob/` 引用或过期的设计系统副本）。
+5. 用 Gemini 模型时，如果会话里已加载 `gemini-frontend-design` skill，就用它来定视觉；文件怎么写、图片怎么进画布、要检查什么，仍以 Design skill 的规则为准。没加载时，在开始设计前提一次它的链接（本来就要提问时，把它并进那一轮问题；否则说一句就直接开工，不等回复），没人要求就不要自行安装。
 
 完整 `.dc.html` 语法、布局、着色器与打印参考见 [artifact-types/design/SKILL.md](../../artifact-types/design/SKILL.md) 及 `artifact-types/design/reference/`。

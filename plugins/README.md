@@ -45,6 +45,10 @@ in the agent app's built-in browser (Codex, Cursor, Claude, Antigravity, VS Code
 it does when it has no browser of its own. When the person has turned on "Open agents' artifacts in this app" in Open
 Artifact Desktop (off by default), that browser step goes to the app instead (`opened_in: "desktop"`).
 
+On a Gemini model (Antigravity), design work pairs well with Google's `gemini-frontend-design` skill. No plugin
+here ships it: [the Antigravity guide](antigravity/README.md#recommended-with-gemini-models-gemini-frontend-design)
+has the link and how to install it.
+
 Building your own agent app rather than using one of these? Read
 [Integrating Open Artifact into an agent product](../docs/integrating.md): the same tools, pages in your UI, and
 comments into your sessions, on `@open-artifact/harness-kit` or over `open-artifact harness --stdio`.

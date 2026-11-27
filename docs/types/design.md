@@ -40,6 +40,10 @@
 - **Deep links**: Append `#artboard-<name>`, `#play-<name>`, or `#page-<id>` to the artifact URL to jump straight to a board or page.
 - **Export**: Use **Share → Export** for PNG, JPEG, PDF, Figma-ready HTML, or a full-canvas ZIP.
 
+### Using a Gemini model?
+
+On a Gemini model (in [Antigravity](../../plugins/antigravity/README.md) or another app), pair Design with Google's [`gemini-frontend-design`](https://github.com/google-gemini/demolab/blob/main/skills/gemini-frontend-design/SKILL.md) skill: it guides visual direction, color, typography, layout and motion, while the Design skill covers how the canvas is written. Open Artifact does not ship it; install it from [`google-gemini/demolab`](https://github.com/google-gemini/demolab) as that repository's README describes (for one skill: `npx skills add google-gemini/demolab --skill gemini-frontend-design`). Without it, the agent mentions the link once before it starts a design, so you can install it first, and goes on without it unless you say otherwise.
+
 ## How to use (for agents)
 
 - **Type ID**: `design` (`type_url: "open-artifact://type/design"`)
@@ -64,5 +68,6 @@
 2. Write `project/canvas.json` and the first artboard first, show the page, then write subsequent artboards **one per turn** in `order` so the user watches each artboard appear cleanly.
 3. Upload images, fonts, and external assets via `upload` (`/_blob/<id>`); never embed `data:` URIs or bare filenames.
 4. Run `check` after finishing and fix all errors (missing `support.js`, unmatched `$preview` dimensions, broken `/_blob/` URLs, or stale installed design systems).
+5. On a Gemini model, use the `gemini-frontend-design` skill for the look when it is loaded; the Design skill's rules still decide how files are written, how images get in and what is checked. When it is not loaded, mention its link once before designing (as one of your questions when you are asking any; otherwise say it and build without waiting) and never install it unasked.
 
 For full `.dc.html` syntax, layout, shader, and print references, read [artifact-types/design/SKILL.md](../../artifact-types/design/SKILL.md) and `artifact-types/design/reference/`.
