@@ -72,7 +72,7 @@ import { CropOverlay } from './CropOverlay.tsx';
 import { NodeEditor } from './NodeEditor.tsx';
 import { announce } from '../services/announce.ts';
 import { endsMode } from '../lib/mode-keys.ts';
-import { isTextField } from '@open-artifact/editor-kit';
+import { installRightDragPan, isTextField } from '@open-artifact/editor-kit';
 import { elementsIn, selectedBoardsOf, selectedNotesOf, withBoardElements, withObjects, type Selection } from '../lib/selection.ts';
 import { shiftBoard, shiftElement, shiftNotes } from '../services/selecting.ts';
 
@@ -562,6 +562,23 @@ export function Canvas() {
     };
     element.addEventListener('wheel', onWheel, { passive: false, capture: true });
     return () => element.removeEventListener('wheel', onWheel, true);
+  }, []);
+
+  // Right-button drag pans, leaving the selection alone; a right-click without travel opens the menu as before.
+  useEffect(() => {
+    const element = root.current;
+    if (!element) return;
+    return installRightDragPan(element, {
+      pan(dx, dy) {
+        const engine = activeEngine();
+        if (engine) {
+          engine.panBy(-dx, -dy);
+          return;
+        }
+        const view = useView.getState();
+        view.setCamera({ ...view.camera, x: view.camera.x + dx, y: view.camera.y + dy });
+      },
+    });
   }, []);
 
   /** Screen point relative to the canvas element. */

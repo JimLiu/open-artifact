@@ -30,6 +30,7 @@
 
 ### Edit, preview & export
 - **Pan, zoom & edit**: Navigate the infinite canvas, move frames, click text to edit directly, or switch pages in the sidebar.
+- **Move around the canvas**: Scroll or swipe with two fingers to pan, and **⌘ + scroll** (Ctrl + scroll) or pinch to zoom at the pointer. Drag with the **right** or **middle** mouse button, or hold **Space** and drag, to pan; a right-button drag leaves the selection alone and opens no menu, while a right-click without moving still opens the menu. **⌘0** / **⇧1** fit the canvas, **⇧2** zooms to the selection.
 - **Lock and arrange**: Press **⌘L** (Ctrl+L) to lock an artboard, note or element so it can't be moved, resized or deleted by accident; unlock it the same way or from the layers list. Reorder pages with **Move up / Move down** or by dragging them in the page list, and restack with **⌘]** / **⌘[** (one step) and **]** / **[** or **⌥⌘]** / **⌥⌘[** (to the front or back); artboards restack the same way. A locked note or artboard is skipped by Delete; only an all-locked selection refuses.
 - **Test prototypes**: Click the **Play** button in the toolbar to run interactive artboards and test responsive screen widths.
 - **Collaborate with your agent**: Pin comments directly onto an artboard and click **Send to agent**.

@@ -10,10 +10,11 @@
  * typing and the focus across a zoom step are scrolled into view.
  */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
 import { EyeOff } from 'lucide-react';
 import { isAncestorPath, isLocked, isTextual, nodeAt, pathKey, rotationOf, samePath, SLIDE_HEIGHT, SLIDE_WIDTH, type NodePath, type SlideNode } from '@open-artifact/slides-core';
 import { toast } from '@open-artifact/ui';
+import { installRightDragPan } from '@open-artifact/editor-kit';
 import { COMMENT_CURSOR } from '@open-artifact/editor-kit/react';
 import { SlideView, useElementSize, type RenderOptions } from '../render/SlideView.tsx';
 import { useDeck } from '../state/deck.ts';
@@ -68,6 +69,12 @@ export function Stage(): ReactNode {
   const showNotes = useView((s) => s.showNotes);
   const pan = useStageGesture((s) => (s.panning ? 'drag' : s.spaceHeld ? 'ready' : undefined));
   const scroller = useRef<HTMLDivElement>(null);
+  // The stage once it is on the page (it is a blank until the slide loads), for the listeners that need it.
+  const [stageElement, setStageElement] = useState<HTMLDivElement | null>(null);
+  const stageRef = useCallback((element: HTMLDivElement | null) => {
+    scroller.current = element;
+    setStageElement(element);
+  }, []);
   const rootRef = useRef<HTMLDivElement>(null);
   const [root, setRoot] = useState<HTMLElement | null>(null);
   const size = useElementSize(scroller);
@@ -91,7 +98,7 @@ export function Stage(): ReactNode {
 
   // ⌘/Ctrl + wheel (and trackpad pinch) zooms.
   useEffect(() => {
-    const el = scroller.current;
+    const el = stageElement;
     if (!el) return;
     const onWheel = (event: WheelEvent): void => {
       if (!(event.ctrlKey || event.metaKey)) return;
@@ -101,7 +108,24 @@ export function Stage(): ReactNode {
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, []);
+  }, [stageElement]);
+
+  // The right button drags the stage too, when it has room to scroll (a right-click without travel opens the menu).
+  useEffect(() => {
+    const el = stageElement;
+    if (!el) return;
+    return installRightDragPan(el, {
+      accepts: (event) =>
+        !useStageGesture.getState().spaceHeld &&
+        !(event.target as Element).closest('[data-open-artifact-comment-ui], [data-open-artifact-notes]') &&
+        (el.scrollWidth > el.clientWidth || el.scrollHeight > el.clientHeight),
+      pan(dx, dy) {
+        el.scrollLeft -= dx;
+        el.scrollTop -= dy;
+      },
+      onPanning: (panning) => useStageGesture.getState().set(panning ? { panning, hover: null } : { panning }),
+    });
+  }, [stageElement]);
 
   const slide = draft && draft.slideId === current ? draft.slide : (scaled ?? entry?.slide);
   const ctx = useMemo<StageContext | null>(() => (root && current ? { root, scale, slideId: current } : null), [root, scale, current]);
@@ -296,7 +320,7 @@ export function Stage(): ReactNode {
   return (
     <ContextMenu menu={commentsOn ? null : <StageMenuItems />} className="absolute inset-0">
       <div
-        ref={scroller}
+        ref={stageRef}
         data-open-artifact-stage
         className="absolute inset-0 overflow-auto bg-stage outline-none"
         data-open-artifact-pan={pan}

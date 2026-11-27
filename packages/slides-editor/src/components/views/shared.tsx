@@ -8,6 +8,7 @@ import { memo, useEffect, useRef, useState, type PointerEvent as ReactPointerEve
 import { AlertTriangle, EyeOff, ListPlus, MessageCircle, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
 import { LIMITS, normalizeDescription, slideTitle, type SectionEntry } from '@open-artifact/slides-core';
 import { IconButton, Menu, MenuItem, cn, isComposingKey } from '@open-artifact/ui';
+import { MOD } from '@open-artifact/editor-kit';
 import { useDeck } from '../../state/deck.ts';
 import { useView } from '../../state/view.ts';
 import type { PeerView } from '../../services/agent.ts';
@@ -40,6 +41,9 @@ export interface SlideTileProps {
 }
 
 /** One slide in the grid or on the canvas. */
+/** The Canvas view's zoom readout tooltip: how to zoom and pan with the pointer. */
+export const CANVAS_NAV_TIP = `${MOD}scroll or pinch zooms at the pointer. Scroll, or drag with the right or middle button, to pan`;
+
 export const SlideTile = memo(function SlideTile({ id, index, comments, peers, dragging, dropBefore, dropAfter, onPointerDown, onOpen, width }: SlideTileProps): ReactNode {
   const entry = useDeck((s) => s.slides[id]);
   const current = useView((s) => s.current === id);

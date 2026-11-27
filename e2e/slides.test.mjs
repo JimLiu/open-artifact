@@ -1355,6 +1355,74 @@ describe('slides', { skip: skipFor('slides') }, () => {
       }
     });
 
+    it('zooms the stage with Ctrl and the wheel (a pinch), once the slide has loaded', async () => {
+      const tab = await openDeck();
+      try {
+        const width = () => tab.evaluate(`${stage}.scrollWidth`);
+        const before = await width();
+        const [x, y] = await middle(tab, back);
+        for (let n = 0; n < 6; n++) await tab.cdp('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: 0, deltaY: -40, modifiers: 2 });
+        assert.ok(await tab.waitFor(`${stage}.scrollWidth > ${stage}.clientWidth + 100`, 3000), `the stage did not zoom: ${before} → ${await width()}`);
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await tab.close();
+      }
+    });
+
+    it('pans the Canvas view with a right-button drag, opening no menu', async () => {
+      const tab = await openDeck();
+      try {
+        await tab.click(...(await middle(tab, `document.querySelector('[aria-label="View"]')`)));
+        assert.ok(await tab.waitFor(menuItem('Canvas')));
+        await tab.evaluate(`${menuItem('Canvas')}.click()`);
+        const board = `document.querySelector('[data-open-artifact-canvas-engine]')`;
+        assert.ok(await tab.waitFor(`${board} && window.__openArtifactCanvasEngine?.().tiles > 0`, 10000), 'the Canvas view did not come up');
+        await pause(300);
+        const camera = () => tab.evaluate('window.__openArtifactCanvasEngine().camera');
+        const start = await camera();
+        const [x, y] = await middle(tab, board);
+        await tab.dragMouse([x, y], [x + 100, y + 50], { button: 'right' });
+        // The camera is the board point at the view's corner: the board follows the pointer, so it goes the other way.
+        assert.ok(await tab.waitFor(`(c => Math.abs(c.x - ${start.x - 100 / start.zoom}) <= 2 && Math.abs(c.y - ${start.y - 50 / start.zoom}) <= 2)(window.__openArtifactCanvasEngine().camera)`, 5000),
+          `the camera went from ${JSON.stringify(start)} to ${JSON.stringify(await camera())}`);
+        await pause(300);
+        assert.equal(await tab.evaluate(`Boolean(document.querySelector('[role="menu"]'))`), false, 'a menu opened');
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await tab.close();
+      }
+    });
+
+    it('drags the zoomed stage with the right button, keeping the selection and opening no menu; a right-click still opens the menu', async () => {
+      const tab = await openDeck();
+      try {
+        await selectBack(tab);
+        assert.equal(await zoomIn(tab), true, 'zooming in left nothing to scroll');
+        const frame = `[...document.querySelector('[data-open-artifact-overlay]').children].find(el => el.classList.contains('border-accent'))`;
+        const offBack = `(() => { const f = (${frame}).getBoundingClientRect(), b = (${back}).getBoundingClientRect(); return Math.max(Math.abs(f.left - b.left), Math.abs(f.top - b.top)); })()`;
+        const left = await tab.evaluate(`${stage}.scrollLeft`);
+        const dx = left > 150 ? 120 : -120;
+        // Pressed on another element: a right-click there would select it for its menu.
+        const [x, y] = await middle(tab, stageNode(1));
+        await tab.dragMouse([x, y], [x + dx, y], { button: 'right' });
+        const after = await tab.evaluate(`${stage}.scrollLeft`);
+        assert.ok(Math.abs(after - (left - dx)) <= 2, `scrolled from ${left} to ${after} by ${dx}`);
+        assert.ok(await tab.waitFor(`!${stage}.hasAttribute('data-open-artifact-pan')`), 'the stage stayed in a drag after the button was let go');
+        await pause(300);
+        assert.ok(await tab.waitFor(`${selectedCount} === 1 && ${offBack} < 3`), 'the drag changed the selection');
+        assert.equal(await tab.evaluate(`Boolean(document.querySelector('[role="menu"]'))`), false, 'a menu opened');
+
+        // Without travel, it is a right-click: the menu opens for the element under the pointer.
+        await tab.rightClick(...(await middle(tab, back)));
+        assert.ok(await tab.waitFor(`${menuItem('Lock')}`), 'a right-click on the zoomed stage opened no menu');
+        await tab.press('Escape');
+        assert.equal(shapes(), SHAPES);
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await tab.close();
+      }
+    });
+
     it('leaves Space alone while a menu is open anywhere on the page', async () => {
       const tab = await openDeck();
       try {

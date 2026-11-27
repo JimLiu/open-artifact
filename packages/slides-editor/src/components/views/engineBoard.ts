@@ -31,6 +31,7 @@
  */
 
 import type { CameraState, CanvasEngine, CanvasEvents, CanvasItem, HoleRect, Point } from '@open-artifact/canvas-engine';
+import { installRightDragPan } from '@open-artifact/editor-kit';
 import { parseColor } from '@open-artifact/canvas-engine/protocol';
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import { reconcileSections, sectionGroups, sectionsOf, SLIDE_HEIGHT, SLIDE_WIDTH, type Slide } from '@open-artifact/slides-core';
@@ -677,6 +678,13 @@ export class EngineBoard {
         if (e.target !== canvas) e.stopPropagation();
       },
       true,
+    );
+    // The right button drags the canvas, over slides too; a right-click without travel opens the menu as before.
+    this.#cleanup.push(
+      installRightDragPan(surface, {
+        accepts: (e) => !(e.target as Element).closest('[data-canvas-controls]'),
+        pan: (dx, dy) => this.#engine?.panBy(-dx, -dy),
+      }),
     );
   }
 

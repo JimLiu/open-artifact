@@ -99,6 +99,7 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
   - zoomed out below 30 %, an artboard shows a snapshot at its own size and in its web font, and zooming back in shows the same frame without booting it again;
   - a snapshot of an artboard set in a big CJK web font carries a subset of the font that still draws the artboard's ideographs;
   - Pages → Add page writes the page to `canvas.json`;
+  - a right-button drag that starts on an element of the artboard pans the canvas by the distance dragged, keeps the selection where it was, and opens no menu; a right-click without travel still opens the menu;
   - an unreadable `canvas.json` shows the banner, and the file is left unchanged.
 
 **Design system only** (`design-system.test.mjs`)
@@ -334,6 +335,12 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 
 - A board of its own. The page's event stream (a WebSocket, wrapped before the page's scripts run) is closed, and its reconnects are sent to a port nobody listens on. Meanwhile the agent edits one element's file and deletes another's, and the page still shows the old board.
 - Once reconnects are let through, the page shows the edit and drops the deleted element with no reload: the stream's first event says where the store stands, and the page reads the board again because it missed something.
+
+**Moving the view with the right button** (`slides.test.mjs` and `whiteboard.test.mjs`, Chrome only)
+
+- Slides: on the shared deck, ctrl + wheel over the slide zooms the stage once the slide has loaded. Before, the stage's wheel listener was set up while the slide was still loading, so it never was.
+- Slides: zoomed in until the slide is wider than the stage, a right-button drag that starts on another element scrolls the stage by the distance dragged, keeps the selection, and opens no menu; a right-click without travel still opens the element's menu. In the Canvas view, a right-button drag moves the camera with the pointer and opens no menu.
+- Whiteboard: with one shape selected, a right-button drag that starts on another shape moves the camera with the pointer, keeps the selection, and opens no menu; a right-click without travel then selects the shape under the pointer and opens its menu.
 
 **The Chrome harness itself** (`browser-lib.test.mjs`, Chrome only)
 

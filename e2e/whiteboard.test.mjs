@@ -1119,6 +1119,34 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
     });
     after(async () => { await run.run(['stop', board]); });
 
+    it('pans the board with a right-button drag, keeping the selection and opening no menu; a right-click still opens the menu', async () => {
+      const p = await fresh();
+      const camera = () => p.evaluate('window.__openArtifactWhiteboard.state().camera');
+      const centre = id => p.evaluate(`(() => { const r = ${byId(id)}.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
+      try {
+        await selectOnly(p, 'cut');
+        const start = await camera();
+        // Pressed on another shape: a right-click there would select it for its menu.
+        const from = await centre('other');
+        await p.dragMouse(from, [from[0] + 120, from[1] - 60], { button: 'right' });
+        // The camera is the board point at the view's corner: the board follows the pointer, so it goes the other way.
+        assert.ok(await p.waitFor(`(c => Math.abs(c.x - ${start.x - 120 / start.zoom}) <= 2 && Math.abs(c.y - ${start.y + 60 / start.zoom}) <= 2)(window.__openArtifactWhiteboard.state().camera)`, 5000),
+          `the camera went from ${JSON.stringify(start)} to ${JSON.stringify(await camera())}`);
+        assert.equal((await camera()).zoom, start.zoom);
+        await new Promise(resolve => setTimeout(resolve, 300));
+        assert.equal(await p.evaluate(`Boolean(document.querySelector('[role="menu"]'))`), false, 'a menu opened after the drag');
+        assert.deepEqual(await selection(p), ['cut'], 'the drag changed the selection');
+        assert.equal(await p.evaluate(`document.querySelector('[data-testid="board-surface"]').hasAttribute('data-wb-grabbing')`), false, 'the board stayed grabbed');
+
+        // Without travel, it is a right-click: the shape under the pointer is selected and its menu opens.
+        await p.rightClick(...await centre('other'));
+        assert.ok(await p.waitFor(`document.querySelector('[role="menu"] [role="menuitem"]')`, 5000), 'a right-click opened no menu');
+        assert.deepEqual(await selection(p), ['other']);
+        await p.press('Escape');
+        assert.deepEqual(p.problems, []);
+      } finally { await p.close(); }
+    });
+
     it('clips a shape too small for its words and shows them all on a card while it is selected', async () => {
       const p = await fresh();
       try {

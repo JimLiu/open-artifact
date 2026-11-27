@@ -8,8 +8,9 @@
  */
 
 import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
+import { installRightDragPan } from '@open-artifact/editor-kit';
 import { COMMENT_CURSOR } from '@open-artifact/editor-kit/react';
-import { cameraLayerTransform } from '../lib/camera.ts';
+import { cameraLayerTransform, panBy } from '../lib/camera.ts';
 import { useCamera } from '../state/camera.ts';
 import { effectiveTool, useTool } from '../state/tool.ts';
 import { attachViewportGestures } from '../services/viewport.ts';
@@ -194,6 +195,24 @@ export function BoardSurface({ elements, children, overlay }: BoardSurfaceProps)
       element.removeEventListener('lostpointercapture', onLost);
       window.removeEventListener('keydown', onKey, { capture: true });
     };
+  }, []);
+
+  // The right button drags the board, leaving the selection alone; a right-click without travel opens the menu as before.
+  useEffect(() => {
+    const element = surface.current;
+    if (!element) return;
+    return installRightDragPan(element, {
+      accepts: (event) =>
+        !active.current && element.dataset.wbPinching === undefined && !(event.target instanceof Element && event.target.closest('[data-wb-chrome],[data-no-pan]')),
+      pan(dx, dy) {
+        const state = useCamera.getState();
+        state.setCamera(panBy(state.camera, dx, dy));
+      },
+      onPanning(panning) {
+        if (panning) element.dataset.wbGrabbing = '';
+        else delete element.dataset.wbGrabbing;
+      },
+    });
   }, []);
 
   // Pointer position for paste targets and cursor chat.

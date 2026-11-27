@@ -456,7 +456,7 @@ function ZoomMenu() {
   return (
     <ChromeMenu
       align="end"
-      tip={{ label: `Zoom: ${MOD}0 or ⇧1 fit, ⇧2 zoom to selection, ${MOD}+ / ${MOD}− step` }}
+      tip={{ label: `Zoom: ${MOD}0 or ⇧1 fit, ⇧2 zoom to selection, ${MOD}+ / ${MOD}− step, ${MOD}scroll or pinch at the pointer` }}
       trigger={
         <ChromeButton className="pl-2 pr-2 tabular-nums" aria-label={`Zoom ${percent}%`}>
             <span className="grid">
@@ -548,6 +548,8 @@ function SaveStatus() {
 interface ToolSpec {
   tool: Tool;
   label: string;
+  /** The tooltip, when it says more than the label. */
+  tip?: string;
   key: string;
   icon: ReactNode;
 }
@@ -556,7 +558,7 @@ const ICON = { className: 'size-5', strokeWidth: 1.5 } as const;
 
 // The pen and image tools are also available from the keyboard.
 const SELECT: ToolSpec = { tool: 'select', label: 'Select', key: 'V', icon: <CursorIcon /> };
-const HAND: ToolSpec = { tool: 'hand', label: 'Hand, or hold Space', key: 'H', icon: <Hand {...ICON} /> };
+const HAND: ToolSpec = { tool: 'hand', label: 'Hand, or hold Space', tip: 'Hand, or hold Space. Dragging with the right or middle button pans too', key: 'H', icon: <Hand {...ICON} /> };
 const CREATE: ToolSpec[] = [
   { tool: 'title', label: 'Text', key: 'T', icon: <TextIcon /> },
   { tool: 'board', label: 'Artboard', key: 'A', icon: <FrameIcon /> },
@@ -589,7 +591,7 @@ function ToolButton({ spec, children, optionsFor = [] }: { spec: ToolSpec; child
   const options = useView((s) => s.tool === spec.tool || optionsFor.includes(s.tool));
   return (
     <span className="relative inline-flex">
-      <Tip label={spec.label} shortcut={spec.key} side={tipSide}>
+      <Tip label={spec.tip ?? spec.label} shortcut={spec.key} side={tipSide}>
         <ChromeButton
           size="lg"
           square
