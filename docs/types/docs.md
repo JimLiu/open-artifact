@@ -31,7 +31,7 @@ Or start with no agent: on the home page, click **New artifact**, pick **Docs**,
 
 ### Edit, review suggestions & export
 - **Write & organize**: Edit directly in the rich-text editor, add tabs/subtabs in the sidebar, insert dates, dropdowns, or checklists.
-- **Review suggestions**: Accept or reject proposed edits inline, or pin comments on words/suggestions and click **Send to agent**.
+- **Review suggestions**: Accept or reject proposed edits inline, or pin comments on words/suggestions and click **Send to agent**. If the connection drops, Docs sends your comment or reply when it reconnects. A new comment keeps the selection you made when you sent it.
 - **Import files**: Ask your agent to import an existing `.md`, `.docx`, or `.pdf` as a new tab.
 - **Export**: Open **Share → Export** to download Markdown, Word (`.docx`), PDF, or HTML.
 
