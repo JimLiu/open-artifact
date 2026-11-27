@@ -313,13 +313,13 @@ async function sendKept(entry: OutboxEntry): Promise<void> {
   if (entry.kind === 'create') {
     const thread = await comments.create(entry.input);
     putThread(thread);
-    await handOver(thread, entry.input.to ?? []).catch(() => undefined);
+    await handOver(thread, entry.input.to ?? [], false, false, entry.parts).catch(() => undefined);
     return;
   }
   let thread = await comments.reply(entry.threadId, entry.text, replyOptions(entry.to ?? [], entry.assignee ?? null));
   if (thread.status === 'resolved') thread = await comments.setResolved(entry.threadId, false);
   putThread(thread);
-  await handOver(thread, entry.to ?? [], false, entry.quiet === true).catch(() => undefined);
+  await handOver(thread, entry.to ?? [], false, entry.quiet === true, entry.parts).catch(() => undefined);
 }
 
 const outboxHandlers = {
@@ -368,6 +368,7 @@ export async function createThread(text: string, composer: Composer | null = use
   const body = send && canAskAgent() ? toAgent(typed) : typed;
   if (refusedAsTooLong(body)) return false;
   const to = addressees(body);
+  const parts = newThreadParts(typed, composer);
   const input = {
     anchor: docComments.adapter.serialize(composer.anchor),
     label: composer.label,
@@ -382,11 +383,11 @@ export async function createThread(text: string, composer: Composer | null = use
     putThread(thread);
     if (useCommentUi.getState().composer === composer) setCommentUi({ composer: null });
     setActive(thread.id);
-    await handOver(thread, to, false, false, newThreadParts(typed, composer));
+    await handOver(thread, to, false, false, parts);
     if (assign) announce(assignedLabel(assign, myName()));
     return true;
   } catch (error) {
-    if (await keepForLater(error, { kind: 'create', input })) {
+    if (await keepForLater(error, { kind: 'create', input, parts })) {
       if (useCommentUi.getState().composer === composer) setCommentUi({ composer: null });
       return true;
     }
@@ -433,6 +434,7 @@ export async function reply(threadId: string, text: string, send?: boolean, assi
   if (refusedAsTooLong(body)) return false;
   const quiet = send === false;
   const to = addressees(body);
+  const parts = sendParts(typed);
   try {
     let thread = await comments.reply(threadId, body, replyOptions(to, assign));
     if (thread.status === 'resolved') thread = await comments.setResolved(threadId, false);
@@ -441,11 +443,11 @@ export async function reply(threadId: string, text: string, send?: boolean, assi
       const { [threadId]: _sent, ...replies } = state.replies;
       return { replies };
     });
-    await handOver(thread, to, false, quiet, sendParts(typed));
+    await handOver(thread, to, false, quiet, parts);
     if (assign) announce(assignedLabel(assign, myName()));
     return true;
   } catch (error) {
-    if (await keepForLater(error, { kind: 'reply', threadId, text: body, ...(to.length ? { to } : {}), ...(assign ? { assignee: assign } : {}), ...(quiet ? { quiet } : {}) })) {
+    if (await keepForLater(error, { kind: 'reply', threadId, text: body, parts, ...(to.length ? { to } : {}), ...(assign ? { assignee: assign } : {}), ...(quiet ? { quiet } : {}) })) {
       docComments.store.setState(state => {
         const { [threadId]: _kept, ...replies } = state.replies;
         return { replies };
