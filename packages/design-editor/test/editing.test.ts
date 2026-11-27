@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { parseDcDocument } from '@open-artifact/dc';
 import { applyOp } from '../src/lib/ops.ts';
-import { clipboardData, payloadFromHtml, type ClipboardPayload } from '../src/lib/clipboard-data.ts';
+import { clipboardData, joinedPayload, payloadFromHtml, type ClipboardPayload, type ElementsPayload } from '../src/lib/clipboard-data.ts';
 import { combineSelection, flowDrop, marqueeHits, type MarqueeCandidate } from '../src/lib/gestures.ts';
 
 const board = (template: string) => `<!doctype html>
@@ -60,6 +60,28 @@ describe('clipboard', () => {
     assert.ok(html.endsWith(text));
     const { standalone: _dropped, ...kept } = payload;
     assert.deepEqual(payloadFromHtml(html), kept);
+  });
+
+  it('keeps the elements of a selection across files in one payload, each artboard\'s apart', () => {
+    const a: ElementsPayload = { kind: 'elements', board: 'A.dc.html', html: ['<p>One</p>'], standalone: '<p style="color: red">One</p>', at: { x: 0, y: 0 } };
+    const b: ElementsPayload = { kind: 'elements', board: 'B.dc.html', html: ['<div>Two</div>'], at: { x: 900, y: 0 } };
+    const payload = joinedPayload([a, b])!;
+    assert.equal(payload.kind, 'mixed');
+    const { html, text } = clipboardData(payload);
+    // Other apps get the elements.
+    assert.ok(html.endsWith('<p style="color: red">One</p>\n<div>Two</div>'));
+    assert.equal(text, '<p style="color: red">One</p>\n<div>Two</div>');
+    const back = payloadFromHtml(html)!;
+    assert.equal(back.kind, 'mixed');
+    assert.deepEqual(back.kind === 'mixed' && back.elements.map((part) => [part.board, part.html, part.at, part.standalone]), [['A.dc.html', ['<p>One</p>'], { x: 0, y: 0 }, undefined], ['B.dc.html', ['<div>Two</div>'], { x: 900, y: 0 }, undefined]]);
+  });
+
+  it('gives copied elements of several artboards the simplest payload that holds them', () => {
+    const a: ElementsPayload = { kind: 'elements', board: 'A.dc.html', html: ['<p>One</p>'] };
+    const empty: ElementsPayload = { kind: 'elements', board: 'B.dc.html', html: [] };
+    assert.equal(joinedPayload([a, empty]), a);
+    assert.equal(joinedPayload([empty]), null);
+    assert.equal(joinedPayload([]), null);
   });
 
   it('ignores foreign HTML', () => {

@@ -650,7 +650,7 @@ export async function launch({ chrome = findChrome(), width = 1440, height = 900
     async function press(key, { ctrl = false, meta = false, shift = false, alt = false, commands } = {}) {
       const letter = /^[a-z]$/.test(key);
       const brackets = { '[': ['BracketLeft', 219], ']': ['BracketRight', 221], '\\': ['Backslash', 220] }[key];
-      const keyCode = letter ? key.toUpperCase().charCodeAt(0) : brackets ? brackets[1] : { Backspace: 8, Tab: 9, Enter: 13, Escape: 27, End: 35, Home: 36, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Delete: 46, F6: 117 }[key];
+      const keyCode = letter ? key.toUpperCase().charCodeAt(0) : brackets ? brackets[1] : { Backspace: 8, Tab: 9, Enter: 13, Escape: 27, End: 35, Home: 36, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Delete: 46, F2: 113, F6: 117 }[key];
       if (!keyCode) throw new Error(`press: no key code for ${key}`);
       const code = letter ? `Key${key.toUpperCase()}` : brackets ? brackets[0] : key;
       const modifiers = (alt ? 1 : 0) | (ctrl ? 2 : 0) | (meta ? 4 : 0) | (shift ? 8 : 0);

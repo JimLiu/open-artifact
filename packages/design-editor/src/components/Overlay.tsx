@@ -389,7 +389,7 @@ function SelectionOverlay({ engine }: { engine: boolean }) {
         </div>
       ) : null}
       {hoverBoxes.map((rect, index) => (
-        <div key={`h${index}`} className="absolute border border-accent/70" style={projectBox(camera, rect)} />
+        <div key={`h${index}`} data-hover-box="" className="absolute border border-accent/70" style={projectBox(camera, rect)} />
       ))}
       <HoverLink link={hoverLink} />
       {elementBoxesOnScreen.map((box, index) => (

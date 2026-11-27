@@ -38,7 +38,7 @@ import {
   Trash2,
   Underline,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { attributeValue, elementKind, hasDynamicStyle, isTextEditable, resolveElement, styleMap, type HtmlElement, type StylePatch, type TextFormat } from '@open-artifact/dc';
 import { cn, isComposingKey } from '@open-artifact/ui';
 import { useDocument } from '../state/document.ts';
@@ -51,6 +51,7 @@ import { crossFileActionLabel, paintRoles, selectionCounts, type MixedSelection,
 import { KEEP_TEXT_EDIT, applyEditedTextLink, cancelEditedTextLink, commitTextEdit, formatEditedText } from '../services/text-edit.ts';
 import { cancelScale, commitScale, setScaleFactor, useScale } from '../services/scale.ts';
 import { parseScaleInput } from '../lib/scale.ts';
+import { BAR_MARGIN, barLeft, barLimit } from '../lib/bar-place.ts';
 import { ChromeButton, ChromeMenu, ChromeMenuItem, FoldDivider, FoldGroup, FoldToolbar, MOD, Tip, TipGroup, useFolded } from '@open-artifact/editor-kit/react';
 import { toggleSelectionLock, useDeleteLockedWhy, useLockedWhy, useSelectionLock } from '../services/locks.ts';
 import { PColor, PIconButton, PInput, PSegments, isTransparent, roundPx, toHex, withoutUnit } from './fields.tsx';
@@ -1086,15 +1087,45 @@ export function SelectionBar({ box }: { box: SelectionBarBox }) {
 const barSide = (box: SelectionBarBox): 'above' | 'below' => (box.top - BAR_SPACE >= 8 ? 'above' : 'below');
 const barTop = (box: SelectionBarBox): number => (barSide(box) === 'above' ? box.top - BAR_SPACE : box.top + box.height + 8);
 
+/**
+ * Where the strip stands across: centred over the selection and kept inside
+ * the room it floats in, measured again when the strip or the room changes
+ * size. `limit` is the strip's widest, for it to fold what does not fit.
+ */
+function useBarPlace(box: SelectionBarBox) {
+  // A callback ref: the strip may first render nothing and come later.
+  const [node, ref] = useState<HTMLDivElement | null>(null);
+  const [size, setSize] = useState<{ strip: number; room: number } | null>(null);
+  useLayoutEffect(() => {
+    const room = node?.offsetParent;
+    if (!node || !(room instanceof HTMLElement)) return;
+    const measure = () => {
+      const next = { strip: node.offsetWidth, room: room.clientWidth };
+      setSize((prev) => (prev && prev.strip === next.strip && prev.room === next.room ? prev : next));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    observer.observe(room);
+    return () => observer.disconnect();
+  }, [node]);
+  return {
+    ref,
+    left: size ? barLeft(box, size.strip, size.room) : Math.max(BAR_MARGIN, box.left),
+    limit: size ? barLimit(size.room) : undefined,
+  };
+}
+
 /** What a mixed selection holds, as text: the "More tools" card closes when it changes. */
 const mixedKey = (selection: MixedSelection): string =>
   [...selection.boards, ...selection.notes, ...selection.elements.map((entry) => `${entry.board}:${entry.items.map((item) => item.tid).join(',')}`)].join(' ');
 
 function MixedBar({ box, selection, readOnly }: { box: SelectionBarBox; selection: MixedSelection; readOnly: boolean }) {
+  const place = useBarPlace(box);
   return (
-    <div className="pointer-events-auto absolute z-10" style={{ left: Math.max(8, box.left), top: barTop(box) }} onPointerDown={(event) => event.stopPropagation()} data-selection-bar="">
+    <div ref={place.ref} className="pointer-events-auto absolute z-10 w-max" style={{ left: place.left, top: barTop(box) }} onPointerDown={(event) => event.stopPropagation()} data-selection-bar="">
       <TipGroup>
-        <FoldToolbar aria-label="Selection" data-focus-region="selection" rowClassName="gap-1 p-1" fold foldKey={mixedKey(selection)} placed={barSide(box)}>
+        <FoldToolbar aria-label="Selection" data-focus-region="selection" rowClassName="gap-1 p-1" fold foldKey={mixedKey(selection)} placed={barSide(box)} limit={place.limit}>
           <LockButton readOnly={readOnly} />
           <MixedStrip selection={selection} readOnly={readOnly} />
         </FoldToolbar>
@@ -1114,6 +1145,7 @@ function ElementsBar({ box }: { box: SelectionBarBox }) {
   const readOnly = useDocument((s) => s.readOnly);
   const scaling = useScale((s) => s.session !== null);
   const textEdit = useView((s) => s.textEdit);
+  const place = useBarPlace(box);
 
   const element = useMemo(() => (source && first ? resolveElement(templateOf(source), first.tid, first.path) : null), [source, first]);
   const computed = useMemo(
@@ -1161,8 +1193,9 @@ function ElementsBar({ box }: { box: SelectionBarBox }) {
 
   return (
     <div
-      className="pointer-events-auto absolute z-10"
-      style={{ left: Math.max(8, box.left), top }}
+      ref={place.ref}
+      className="pointer-events-auto absolute z-10 w-max"
+      style={{ left: place.left, top }}
       onPointerDown={(event) => event.stopPropagation()}
       // Keeps focus in the board while text is edited: the buttons act on its selection.
       onMouseDown={(event) => {
@@ -1172,7 +1205,7 @@ function ElementsBar({ box }: { box: SelectionBarBox }) {
       {...{ [KEEP_TEXT_EDIT]: '' }}
     >
       <TipGroup>
-        <FoldToolbar aria-label="Selection" data-focus-region="selection" rowClassName="gap-1 p-1" key={key} fold foldKey={key} placed={barSide(box)}>
+        <FoldToolbar aria-label="Selection" data-focus-region="selection" rowClassName="gap-1 p-1" fold foldKey={key} placed={barSide(box)} limit={place.limit}>
           {scaling || editing ? null : <LockButton readOnly={readOnly} />}
           {scaling ? (
             <ScaleStrip />

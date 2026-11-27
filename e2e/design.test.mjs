@@ -1646,6 +1646,77 @@ editorSuite({
       }
     });
 
+    it('the selection bar stays inside the view on both sides when the view narrows', T, async () => {
+      const { url } = await ctx.openNew('bar-inside', (_ctx, root) => {
+        copyFixture('design', root);
+        // A heading at the artboard's right side: the bar centred over it would run past the right edge.
+        fs.writeFileSync(path.join(root, BOARD), fs.readFileSync(path.join(root, BOARD), 'utf8').replace(/<x-dc>[\s\S]*?<\/x-dc>/, `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="position: relative; width: 880px; height: 560px"><h1 id="edge" style="position: absolute; right: 20px; top: 200px; margin: 0; font-size: 20px">Edge</h1></div></x-dc>`));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#edge')`, settle: 800 });
+      const bar = `document.querySelector('[data-selection-bar]')`;
+      const inside = `(() => {
+        const box = ${bar}?.getBoundingClientRect(), room = ${bar}?.offsetParent?.getBoundingClientRect();
+        return box && room && box.width > 0 ? [Math.round(box.left), Math.round(box.right), Math.round(room.left), Math.round(room.right), innerWidth] : null;
+      })()`;
+      const fits = got => got && got[0] >= Math.max(0, got[2]) + 7 && got[1] <= Math.min(got[4], got[3]) - 7;
+      try {
+        await page.click(...await page.evaluate(middleIn('Main.dc.html', '#edge')));
+        assert.ok(await page.waitFor(buttonNamed('Lock'), 5000), 'the heading is selected');
+        assert.ok(await until(async () => fits(await page.evaluate(inside)), 5000), `the bar stays inside: ${await page.evaluate(inside)}`);
+        await page.cdp('Emulation.setDeviceMetricsOverride', { width: 360, height: 720, deviceScaleFactor: 1, mobile: false });
+        assert.ok(await page.waitFor('innerWidth === 360'));
+        assert.ok(await until(async () => fits(await page.evaluate(inside)), 5000), `in a narrow view the bar keeps clear of both edges: ${await page.evaluate(inside)}`);
+        assert.deepEqual(page.problems, []);
+      } finally {
+        await page.cdp('Emulation.clearDeviceMetricsOverride').catch(() => {});
+        await page.close();
+      }
+    });
+
+    it('More tools: a click leads into the card; Tab or F6 out of it, or another selection, closes it', T, async () => {
+      const { url } = await ctx.openNew('fold-close');
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
+      const bar = `document.querySelector('[data-selection-bar] [role=toolbar]')`;
+      const toggle = `(${bar})?.querySelector('[data-fold-toggle]')`;
+      const card = `(${bar})?.querySelector('[data-fold-card]')`;
+      const first = `[...(${card}).querySelectorAll('button')].find(b => !b.disabled && b.getAttribute('tabindex') !== '-1')`;
+      const where = () => page.evaluate('document.activeElement?.outerHTML.slice(0, 120)');
+      // A click of the main mouse button (detail 1), sent to the button.
+      const open = async () => {
+        await page.evaluate(`(${toggle}).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1, button: 0 })); 1`);
+        assert.ok(await page.waitFor(`${card}?.hidden === false && document.activeElement === (${first})`, 3000), `a click on More tools left the focus on ${await where()}`);
+      };
+      try {
+        await page.click(...await elementAt(page, 'h1'));
+        assert.ok(await page.waitFor(bar, 5000), 'the heading is selected');
+        await page.cdp('Emulation.setDeviceMetricsOverride', { width: 360, height: 720, deviceScaleFactor: 1, mobile: false });
+        assert.ok(await page.waitFor('innerWidth === 360'));
+        assert.ok(await page.waitFor(`${bar}?.hasAttribute('data-folded')`, 5000), 'the bar did not fold');
+        assert.ok(await page.waitFor(`${toggle}?.getClientRects().length > 0`, 5000), 'no More tools button');
+        assert.equal(await page.evaluate(`${card}.getAttribute('role')`), 'group');
+        assert.equal(await page.evaluate(`${toggle}.getAttribute('aria-controls') === ${card}.id`), true, 'More tools names its card');
+        // The strip measures again for a moment after it folds; controls moving then would drop the focus.
+        await new Promise(resolve => setTimeout(resolve, 400));
+        await open();
+        // Tab past the card's last control: the card closes.
+        await page.evaluate(`(([...(${card}).querySelectorAll('button, input')].filter(b => !b.disabled && b.getAttribute('tabindex') !== '-1').at(-1))).focus(); 1`);
+        await page.press('Tab');
+        assert.ok(await page.waitFor(`${card}?.hidden === true`, 3000), `Tab out of the card left it open (focus on ${await where()})`);
+        await open();
+        await page.press('F6');
+        assert.ok(await page.waitFor(`${card}?.hidden === true`, 3000), 'F6 out of the card left it open');
+        await open();
+        // ⌘A from the card selects everything: the card closes and the focus goes back to More tools.
+        await page.press('a', { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' });
+        assert.ok(await page.waitFor(`${card}?.hidden !== false`, 3000), 'another selection left the card open');
+        assert.ok(await page.waitFor(`document.activeElement === ${toggle}`, 3000), `the focus went to ${await where()}`);
+        assert.deepEqual(page.problems, []);
+      } finally {
+        await page.cdp('Emulation.clearDeviceMetricsOverride').catch(() => {});
+        await page.close();
+      }
+    });
+
     it('Enter and Space press the focused button of the selection bar and of its More tools card, leaving the selection where it is', T, async () => {
       const { url } = await ctx.openNew('bar-keys');
       const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
@@ -2219,7 +2290,7 @@ editorSuite({
         paintBoard(_ctx, root);
         withBoard(root, 'Second.dc.html', `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="width: 880px; height: 560px; padding: 40px; box-sizing: border-box"><div id="box" style="width: 160px; height: 80px; background-color: rgb(0, 0, 200)"></div></div></x-dc>`);
         const canvas = canvasOf(root);
-        canvas.notes = { ...canvas.notes, memo: { x: 0, y: 700, text: 'Mixed note' } };
+        canvas.notes = { ...canvas.notes, memo: { kind: 'rect', x: 0, y: 700, w: 160, h: 100, title: 'Mixed note' } };
         fs.writeFileSync(path.join(root, 'project/canvas.json'), JSON.stringify(canvas));
       });
       const ready = `document.querySelector('iframe[data-board="Second.dc.html"]')?.contentDocument?.querySelector('#box') && document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#box')`;
@@ -2242,7 +2313,10 @@ editorSuite({
         await page.click(note.x, note.y, { shift: true });
         // Different fills read Mixed; the bar, and its Properties button, stay away while the panel is open.
         assert.ok(await page.waitFor(`document.querySelector('input[aria-label="Fill"]')?.placeholder === 'Mixed'`, 5000), 'the fill row reads Mixed');
-        assert.ok(await page.waitFor(textIn('2 elements on 2 artboards and 1 canvas object'), 5000), 'the panel names what is selected');
+        assert.ok(await page.waitFor(textIn('2 elements on 2 artboards and 1 note'), 5000), 'the panel names what is selected');
+        assert.equal(await page.evaluate(`document.querySelector('[data-properties-panel] [aria-label="Position"]')?.hasAttribute('data-disabled')`), true, 'Position is off with a canvas object in the selection');
+        assert.equal(await page.evaluate(`document.querySelector('[data-properties-panel] [aria-label="Position"]')?.closest('div')?.parentElement?.querySelector('[title]')?.title`), 'Canvas objects are placed freely on the canvas', 'it says why');
+        assert.equal(await page.evaluate(`[...document.querySelectorAll('[data-properties-panel] button')].some(b => b.textContent.trim() === 'Delete')`), false, 'the panel has no Delete of its own');
         assert.ok(await page.waitFor(buttonNamed(duplicate), 5000), `with the panel open the bar still offers “${duplicate}”`);
         assert.equal(await page.evaluate(`Boolean(document.querySelector('[data-selection-bar] [aria-label="Properties"]'))`), false, 'no Properties button while the panel is open');
         await page.press('\\', mod);
@@ -2300,6 +2374,365 @@ editorSuite({
         await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
         await page.press('z', mod);
         assert.ok(await until(() => at('Main.dc.html', 'a').join() === '100,100' && at('Second.dc.html', 'c').join() === '100,100' && canvasOf(root).notes.memo.x === 0 && canvasOf(root).notes.memo.y === 700, 10000), `one ⌘Z put everything back: ${at('Main.dc.html', 'a')} ${at('Second.dc.html', 'c')} ${JSON.stringify(canvasOf(root).notes.memo)}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    // Two artboards with a box each and a rectangle note: the start of the tests of a selection across files.
+    const positionedBox = (color, extra = '') => `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="position: relative; width: 880px; height: 560px"><div id="box" style="position: absolute; left: 100px; top: 100px; width: 160px; height: 80px; background-color: ${color}${extra}"></div></div></x-dc>`;
+    const acrossFiles = (change = () => {}) => (_ctx, root) => {
+      copyFixture('design', root);
+      fs.writeFileSync(path.join(root, BOARD), fs.readFileSync(path.join(root, BOARD), 'utf8').replace(/<x-dc>[\s\S]*?<\/x-dc>/, positionedBox('rgb(200, 0, 0)', '; border: 4px solid rgb(0, 0, 200)')));
+      withBoard(root, 'Second.dc.html', positionedBox('rgb(0, 0, 200)'));
+      const canvas = canvasOf(root);
+      canvas.notes = { ...canvas.notes, memo: { kind: 'rect', x: 0, y: 700, w: 160, h: 100, title: 'Across note', css: { 'background-color': 'rgb(0, 160, 0)' } } };
+      change(canvas, root);
+      fs.writeFileSync(path.join(root, 'project/canvas.json'), JSON.stringify(canvas));
+    };
+    const ACROSS_READY = `document.querySelector('iframe[data-board="Second.dc.html"]')?.contentDocument?.querySelector('#box') && document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#box')`;
+    const ACROSS_ALL = 'Delete 2 elements on 2 artboards and 1 canvas object';
+    /** Selects both boxes and the note (the note through the layers list, which is closed again, with the focus back on the canvas). */
+    const selectAcross = async (page, all = ACROSS_ALL) => {
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const row = `[...document.querySelectorAll('[role=tree][aria-label="Layers"] [role=treeitem]')].find(el => el.textContent.includes('Across note'))`;
+      await page.click(...await page.evaluate(middleIn('Main.dc.html', '#box')));
+      assert.ok(await page.waitFor(buttonNamed('Lock')), 'the first box is selected');
+      await page.click(...await page.evaluate(middleIn('Second.dc.html', '#box')), { shift: true });
+      assert.ok(await page.waitFor(buttonNamed('Delete 2 elements on 2 artboards'), 5000), 'Shift adds the other box');
+      await page.press('\\', mod);
+      assert.ok(await page.waitFor(row, 5000), 'the layers list shows the note');
+      const note = await middleOf(page, row);
+      await page.click(note.x, note.y, { shift: true });
+      await page.evaluate(`document.querySelector('[data-canvas-surface]').focus(); 1`);
+      await page.press('\\', mod);
+      assert.ok(await page.waitFor(buttonNamed(all), 5000), `${all} is offered`);
+      return mod;
+    };
+    const fileText = (root, name) => fs.readFileSync(path.join(root, 'project', name), 'utf8');
+    const boxStyle = (root, name) => /id="box" style="([^"]*)"/.exec(fileText(root, name))?.[1] ?? '';
+
+    it('a selection across files: ⌘C copies its elements, ⌘X takes them away and keeps the note selected, ⌘V puts each back in its own artboard', T, async () => {
+      const { root, url } = await ctx.openNew('across-clipboard', acrossFiles());
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: ACROSS_READY, settle: 800 });
+      const noteRow = `[...document.querySelectorAll('[role=tree][aria-label="Layers"] [role=treeitem]')].find(el => el.textContent.includes('Across note'))`;
+      try {
+        const mod = await selectAcross(page);
+        const copied = await copyEvent(page);
+        const payload = Buffer.from(/data-open-artifact-design="([^"]+)"/.exec(copied)?.[1] ?? '', 'base64').toString('utf8');
+        assert.ok(payload.includes('rgb(200, 0, 0)') && payload.includes('rgb(0, 0, 200)'), `the copy holds both boxes: ${payload.slice(0, 300)}`);
+        assert.ok(!payload.includes('Across note'), 'the copy leaves the note out');
+        await page.evaluate(`(() => { const dt = new DataTransfer(); document.querySelector('[data-canvas-surface]').dispatchEvent(new ClipboardEvent('cut', { clipboardData: dt, bubbles: true, cancelable: true })); })()`);
+        assert.ok(await until(() => !fileText(root, 'Main.dc.html').includes('id="box"') && !fileText(root, 'Second.dc.html').includes('id="box"'), 10000), 'the cut took both boxes');
+        assert.ok(canvasOf(root).notes.memo && Object.keys(canvasOf(root).boards).length === 2, 'the note and the artboards stayed');
+        await page.press('\\', mod);
+        assert.ok(await page.waitFor(`${noteRow}?.getAttribute('aria-selected') === 'true'`, 5000), 'the note stays selected');
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus(); 1`);
+        await page.press('\\', mod);
+        // One undo brings back the elements of both files.
+        await page.press('z', mod);
+        assert.ok(await until(() => fileText(root, 'Main.dc.html').includes('id="box"') && fileText(root, 'Second.dc.html').includes('id="box"'), 10000), 'one ⌘Z put both boxes back');
+        await page.press('z', { ...mod, shift: true });
+        assert.ok(await until(() => !fileText(root, 'Main.dc.html').includes('id="box"') && !fileText(root, 'Second.dc.html').includes('id="box"'), 10000), 'redo took them again');
+        const notes = Object.keys(canvasOf(root).notes).length;
+        await pasteEvent(page, copied);
+        assert.ok(await until(() => fileText(root, 'Main.dc.html').includes('rgb(200, 0, 0)') && fileText(root, 'Second.dc.html').includes('rgb(0, 0, 200)'), 10000), `each box went back to its artboard: ${fileText(root, 'Second.dc.html')}`);
+        assert.ok(await page.waitFor(buttonNamed('Delete 2 elements on 2 artboards'), 5000), 'what was pasted is selected');
+        assert.equal(Object.keys(canvasOf(root).notes).length, notes, 'the paste added no note');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('a cut across files with a locked element in it is refused, and nothing changes', T, async () => {
+      const { root, url } = await ctx.openNew('across-locked', acrossFiles((_canvas, root) => {
+        fs.writeFileSync(path.join(root, 'project/Second.dc.html'), fileText(root, 'Second.dc.html').replace('<div id="box"', '<div id="box" data-label="Locked box" data-locked="true"'));
+      }));
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: ACROSS_READY, settle: 800 });
+      const cut = `(() => { const dt = new DataTransfer(); document.querySelector('[data-canvas-surface]').dispatchEvent(new ClipboardEvent('cut', { clipboardData: dt, bubbles: true, cancelable: true })); return dt.getData('text/html'); })()`;
+      try {
+        // Locked layers let clicks through on the canvas: they are added from the layers list.
+        const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+        const row = words => `[...document.querySelectorAll('[role=tree][aria-label="Layers"] [role=treeitem]')].find(el => el.textContent.includes(${JSON.stringify(words)}))`;
+        await page.click(...await page.evaluate(middleIn('Main.dc.html', '#box')));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the free box is selected');
+        await page.press('\\', mod);
+        // The other artboard's rows open one level at a time.
+        for (let n = 0; n < 4 && !(await page.evaluate(`Boolean(${row('Locked box')})`)); n++) {
+          await clickOn(page, `[...document.querySelectorAll('[role=tree][aria-label="Layers"] [role=treeitem][aria-expanded="false"]')].at(-1)?.querySelector('[aria-label="Expand"]')`, 'Expand');
+          await pause(150);
+        }
+        for (const words of ['Locked box', 'Across note']) {
+          assert.ok(await page.waitFor(row(words), 5000), `the layers list shows ${words}: ${await page.evaluate(`[...document.querySelectorAll('[role=tree][aria-label="Layers"] [role=treeitem]')].map(el => el.getAttribute('aria-label') + '|' + el.textContent + '|' + el.getAttribute('aria-expanded')).join(' ; ')`)}`);
+          const at = await middleOf(page, row(words));
+          await page.click(at.x, at.y, { shift: true });
+        }
+        assert.ok(await page.waitFor(buttonNamed(ACROSS_ALL), 5000), 'both boxes and the note are selected');
+        const before = { main: fileText(root, 'Main.dc.html'), second: fileText(root, 'Second.dc.html'), notes: JSON.stringify(canvasOf(root).notes) };
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus(); 1`);
+        const written = await page.evaluate(cut);
+        assert.ok(await page.waitFor(textIn('Locked: unlock first'), 5000), 'the cut says why it was refused');
+        assert.equal(written, '', 'nothing was copied');
+        await pause(400);
+        assert.deepEqual({ main: fileText(root, 'Main.dc.html'), second: fileText(root, 'Second.dc.html'), notes: JSON.stringify(canvasOf(root).notes) }, before, 'nothing changed');
+        assert.ok(await page.waitFor(buttonNamed(ACROSS_ALL), 5000), 'the selection stays');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('⇧X and X across files swap and take away the fills of each part, one undo step each', T, async () => {
+      const { root, url } = await ctx.openNew('across-paint', acrossFiles());
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: ACROSS_READY, settle: 800 });
+      try {
+        const mod = await selectAcross(page);
+        await page.press('x', { shift: true });
+        assert.ok(await until(() => /background-color: rgb\(0, 0, 200\)/.test(boxStyle(root, 'Main.dc.html')) && canvasOf(root).notes.memo.css?.['background-color'] !== 'rgb(0, 160, 0)', 10000), `⇧X swapped the box’s and the note’s fills: ${boxStyle(root, 'Main.dc.html')} ${JSON.stringify(canvasOf(root).notes.memo)}`);
+        await page.press('z', mod);
+        assert.ok(await until(() => /background-color: rgb\(200, 0, 0\)/.test(boxStyle(root, 'Main.dc.html')) && canvasOf(root).notes.memo.css?.['background-color'] === 'rgb(0, 160, 0)', 10000), 'one ⌘Z undid the swap everywhere');
+        await page.press('x');
+        assert.ok(await until(() => /background-color: transparent/.test(boxStyle(root, 'Main.dc.html')) && /background-color: transparent/.test(boxStyle(root, 'Second.dc.html')) && !canvasOf(root).notes.memo.css?.['background-color'], 10000), `X took every fill away: ${boxStyle(root, 'Second.dc.html')} ${JSON.stringify(canvasOf(root).notes.memo)}`);
+        await page.press('z', mod);
+        assert.ok(await until(() => /rgb\(0, 0, 200\)/.test(boxStyle(root, 'Second.dc.html')) && canvasOf(root).notes.memo.css?.['background-color'] === 'rgb(0, 160, 0)', 10000), 'one ⌘Z gave every fill back');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('the panel’s Fill across files paints the boxes and the shape note as one undo step', T, async () => {
+      const { root, url } = await ctx.openNew('across-fill', acrossFiles());
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: ACROSS_READY, settle: 800 });
+      const fill = `document.querySelector('[data-properties-panel] input[aria-label="Fill"]')`;
+      try {
+        const mod = await selectAcross(page);
+        await page.press('\\', mod);
+        assert.ok(await page.waitFor(`${fill}?.placeholder === 'Mixed'`, 5000), 'the Fill row reads Mixed');
+        assert.equal(await page.evaluate(`document.querySelector('[data-properties-panel] input[aria-label="Stroke"]')`), null, 'a shape note has no Stroke row of the element kind, so the row goes');
+        await typeInto(page, fill, '#123456');
+        await page.press('Enter');
+        assert.ok(await until(() => /background-color: #123456/.test(boxStyle(root, 'Main.dc.html')) && /background-color: #123456/.test(boxStyle(root, 'Second.dc.html')) && canvasOf(root).notes.memo.css?.['background-color'] === '#123456', 10000), `every part took the fill: ${boxStyle(root, 'Main.dc.html')} ${JSON.stringify(canvasOf(root).notes.memo.css)}`);
+        await page.press('z', mod);
+        assert.ok(await until(() => /rgb\(200, 0, 0\)/.test(boxStyle(root, 'Main.dc.html')) && /rgb\(0, 0, 200\)/.test(boxStyle(root, 'Second.dc.html')) && canvasOf(root).notes.memo.css?.['background-color'] === 'rgb(0, 160, 0)', 10000), `one ⌘Z undid it everywhere: ${boxStyle(root, 'Main.dc.html')} | ${boxStyle(root, 'Second.dc.html')} | ${JSON.stringify(canvasOf(root).notes.memo)}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('across files: ⌘D duplicates every part, the arrows move them all as one step, ⌘A selects the canvas objects and Escape lets go', T, async () => {
+      const { root, url } = await ctx.openNew('across-keys', acrossFiles());
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: ACROSS_READY, settle: 800 });
+      const count = (name) => (fileText(root, name).match(/id="box/g) ?? []).length;
+      const left = (name) => Number(/left: (-?[\d.]+)px/.exec(boxStyle(root, name))?.[1]);
+      try {
+        const mod = await selectAcross(page);
+        await page.press('ArrowRight', { shift: true });
+        assert.ok(await until(() => left('Main.dc.html') === 110 && left('Second.dc.html') === 110 && canvasOf(root).notes.memo.x === 10, 10000), `⇧→ moved each part 10px: ${left('Main.dc.html')} ${left('Second.dc.html')} ${canvasOf(root).notes.memo.x}`);
+        await page.press('z', mod);
+        assert.ok(await until(() => left('Main.dc.html') === 100 && left('Second.dc.html') === 100 && canvasOf(root).notes.memo.x === 0, 10000), 'one ⌘Z moved them all back');
+        await page.press('d', mod);
+        assert.ok(await until(() => count('Main.dc.html') === 2 && count('Second.dc.html') === 2 && Object.keys(canvasOf(root).notes).length === 2, 10000), '⌘D duplicated both boxes and the note');
+        const picked = `['Main.dc.html', 'Second.dc.html'].filter(name => document.querySelector('[data-board-title="' + name + '"] .text-accent')).length`;
+        await page.press('a', mod);
+        assert.ok(await page.waitFor(`${picked} === 2 && !(${buttonNamed('Delete 4 elements on 2 artboards and 2 canvas objects')})`, 5000), '⌘A selects the canvas objects of the page, the artboards among them');
+        await page.press('Escape');
+        assert.ok(await page.waitFor(`${picked} === 0`, 5000), 'Escape let the selection go');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('a right click on a selection across files offers what each file does for its part', T, async () => {
+      const { root, url } = await ctx.openNew('across-menu', acrossFiles());
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: ACROSS_READY, settle: 800 });
+      try {
+        await selectAcross(page);
+        await page.rightClick(...await page.evaluate(middleIn('Main.dc.html', '#box')));
+        assert.ok(await page.waitFor(`[...document.querySelectorAll('[role=menuitem]')].some(item => item.textContent.includes('Flip horizontal'))`, 5000), 'the menu opened');
+        const items = await page.evaluate(`[...document.querySelectorAll('[role=menuitem]')].map(item => item.textContent.replace(/[⌘⌥⇧⌫].*$/, '').trim())`);
+        for (const want of ['Paste', 'Duplicate', 'Lock', 'Flip horizontal', 'Delete']) assert.ok(items.some(item => item.startsWith(want)), `the menu offers ${want}: ${items}`);
+        assert.ok(!items.some(item => item.startsWith('Group')), `no element-only item: ${items}`);
+        await clickOn(page, `[...document.querySelectorAll('[role=menuitem]')].find(item => item.textContent.startsWith('Delete'))`, 'Delete');
+        assert.ok(await until(() => !fileText(root, 'Main.dc.html').includes('id="box"') && !fileText(root, 'Second.dc.html').includes('id="box"') && !canvasOf(root).notes.memo, 10000), 'Delete from the menu took every part');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('several artboards in the panel: values they differ in read Mixed, Position is off, a signed radius changes each one, different guides say so', T, async () => {
+      const { root, url } = await ctx.openNew('boards-panel', (_ctx, root) => {
+        copyFixture('design', root);
+        withBoard(root, 'Second.dc.html', positionedBox('rgb(0, 0, 200)'));
+        const canvas = canvasOf(root);
+        canvas.boards['Main.dc.html'].radius = 2;
+        canvas.boards['Second.dc.html'].radius = 6;
+        canvas.boards['Second.dc.html'].w = canvas.boards['Main.dc.html'].w + 40;
+        canvas.boards['Main.dc.html'].guides = [{ kind: 'grid', size: 8 }];
+        fs.writeFileSync(path.join(root, 'project/canvas.json'), JSON.stringify(canvas));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Second.dc.html"]')?.contentDocument?.querySelector('#box')`, settle: 800 });
+      const field = label => `document.querySelector('[data-properties-panel] input[aria-label="${label}"]')`;
+      try {
+        await page.click(...await titleOf(page, 'Main.dc.html'));
+        await page.click(...await titleOf(page, 'Second.dc.html'), { shift: true });
+        const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+        await page.press('\\', mod);
+        assert.ok(await page.waitFor(textIn('2 artboards'), 5000), 'the panel shows the two artboards');
+        assert.equal(await page.evaluate(`${field('W')}.placeholder`), 'Mixed', 'their widths differ');
+        assert.equal(await page.evaluate(`${field('H')}.value`), String(canvasOf(root).boards['Main.dc.html'].h), 'their heights are the same');
+        assert.equal(await page.evaluate(`${field('X')}.disabled && ${field('Y')}.disabled`), true, 'Position is off');
+        assert.ok(await page.evaluate(textIn('The selected artboards have different guides—select one artboard to edit its guides')), 'different guides say so');
+        assert.equal(await page.evaluate(`${field('Corner radius')}.placeholder`), 'Mixed');
+        await typeInto(page, field('Corner radius'), '+4');
+        await page.press('Enter');
+        assert.ok(await until(() => canvasOf(root).boards['Main.dc.html'].radius === 6 && canvasOf(root).boards['Second.dc.html'].radius === 10, 10000), `each radius grew by 4: ${canvasOf(root).boards['Main.dc.html'].radius} ${canvasOf(root).boards['Second.dc.html'].radius}`);
+        assert.ok(await page.waitFor(textIn('Corner radius changed on 2 artboards'), 5000), 'the change is said');
+        await clickOn(page, `document.querySelector('[data-properties-panel] [aria-label="Interactive"]')`, 'Interactive');
+        assert.ok(await until(() => canvasOf(root).boards['Main.dc.html'].is_interactive === true && canvasOf(root).boards['Second.dc.html'].is_interactive === true, 10000), 'Interactive turns on for both');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('ungrouping writes on each positioned child the text and container styles it had from the group', T, async () => {
+      const { root, url } = await ctx.openNew('ungroup-carry', (_ctx, root) => {
+        copyFixture('design', root);
+        fs.writeFileSync(path.join(root, BOARD), fs.readFileSync(path.join(root, BOARD), 'utf8').replace(/<x-dc>[\s\S]*?<\/x-dc>/, `<x-dc><helmet><style>body{margin:0} .wrap { position: absolute; left: 40px; top: 40px; width: 400px; height: 200px; color: rgb(200, 0, 0); font-size: 30px } .wrap > .tile { background-color: rgb(0, 128, 0); border-radius: 12px }</style></helmet><div style="position: relative; width: 880px; height: 560px"><div class="wrap" id="wrap"><div class="tile" id="t1" style="position: absolute; left: 20px; top: 20px; width: 120px; height: 60px">One</div><div class="tile" id="t2" style="position: absolute; left: 160px; top: 20px; width: 120px; height: 60px">Two</div></div></div></x-dc>`));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#t2')`, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const t1 = () => /id="t1" style="([^"]*)"/.exec(fileText(root, 'Main.dc.html'))?.[1] ?? '';
+      try {
+        // The group's own padding: a click there selects it.
+        await page.click(...await page.evaluate(`(() => {
+          const frame = document.querySelector('iframe[data-board="Main.dc.html"]');
+          const rect = frame.getBoundingClientRect();
+          const box = frame.contentDocument.querySelector('#wrap').getBoundingClientRect();
+          const zoom = rect.width / frame.offsetWidth;
+          return [rect.left + (box.left + 6) * zoom, rect.top + (box.top + 6) * zoom];
+        })()`));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the group is selected');
+        await page.press('g', { ...mod, shift: true });
+        assert.ok(await until(() => !fileText(root, 'Main.dc.html').includes('id="wrap"'), 10000), `the group was taken apart: ${fileText(root, 'Main.dc.html')}`);
+        const style = t1();
+        for (const want of [/(^|; )color: rgb\(200, 0, 0\)/, /font-size: 30px/, /background-color: rgb\(0, 128, 0\)/, /border-top-left-radius: 12px/, /border-bottom-right-radius: 12px/, /left: 60px/, /top: 60px/]) assert.match(style, want, `the first child kept ${want}: ${style}`);
+        assert.ok(await page.waitFor(`getComputedStyle(document.querySelector('iframe[data-board="Main.dc.html"]').contentDocument.querySelector('#t1')).backgroundColor === 'rgb(0, 128, 0)'`, 5000), 'the child still shows its background');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('ungrouping a positioned group lifts its flowing children out where they were, with the styles the group gave them', T, async () => {
+      const { root, url } = await ctx.openNew('ungroup-flow', (_ctx, root) => {
+        copyFixture('design', root);
+        fs.writeFileSync(path.join(root, BOARD), fs.readFileSync(path.join(root, BOARD), 'utf8').replace(/<x-dc>[\s\S]*?<\/x-dc>/, `<x-dc><helmet><style>body{margin:0} .wrap { position: absolute; left: 40px; top: 40px; padding: 20px; display: flex; gap: 10px; color: rgb(200, 0, 0); font-size: 30px } .wrap > .tile { background-color: rgb(0, 128, 0); border-radius: 12px }</style></helmet><div style="position: relative; width: 880px; height: 560px"><div class="wrap" id="wrap"><div class="tile" id="t1" style="width: 120px; height: 60px">One</div><div class="tile" id="t2" style="width: 120px; height: 60px">Two</div></div></div></x-dc>`));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#t2')`, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const styleOf = id => new RegExp(`id="${id}" style="([^"]*)"`).exec(fileText(root, 'Main.dc.html'))?.[1] ?? '';
+      try {
+        const before = await page.evaluate(boxIn('Main.dc.html', '#t2'));
+        await page.click(...await page.evaluate(`(() => {
+          const frame = document.querySelector('iframe[data-board="Main.dc.html"]');
+          const rect = frame.getBoundingClientRect();
+          const box = frame.contentDocument.querySelector('#wrap').getBoundingClientRect();
+          const zoom = rect.width / frame.offsetWidth;
+          return [rect.left + (box.left + 6) * zoom, rect.top + (box.top + 6) * zoom];
+        })()`));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the group is selected');
+        await page.press('g', { ...mod, shift: true });
+        assert.ok(await until(() => !fileText(root, 'Main.dc.html').includes('id="wrap"'), 10000), `the group was taken apart: ${fileText(root, 'Main.dc.html')}`);
+        const style = styleOf('t2');
+        for (const want of [/position: absolute/, /(^|; )color: rgb\(200, 0, 0\)/, /font-size: 30px/, /background-color: rgb\(0, 128, 0\)/, /border-top-left-radius: 12px/]) assert.match(style, want, `the second child kept ${want}: ${style}`);
+        assert.ok(await page.waitFor(`(b => Math.abs(b[0] - ${before[0]}) <= 1 && Math.abs(b[1] - ${before[1]}) <= 1)(${boxIn('Main.dc.html', '#t2')})`, 5000), `the child stays where it was: ${before} ${await page.evaluate(boxIn('Main.dc.html', '#t2'))}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('ungrouping an absolute group beside flowing siblings lifts its flowing children out where they were, and the siblings stay put', T, async () => {
+      const { root, url } = await ctx.openNew('ungroup-beside-flow', (_ctx, root) => {
+        copyFixture('design', root);
+        fs.writeFileSync(path.join(root, BOARD), fs.readFileSync(path.join(root, BOARD), 'utf8').replace(/<x-dc>[\s\S]*?<\/x-dc>/, `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="position: relative; width: 880px; height: 560px; padding: 30px; box-sizing: border-box"><p id="intro" style="margin: 0; height: 40px">Intro</p><div id="wrap" style="position: absolute; left: 300px; top: 150px; padding: 20px; color: rgb(200, 0, 0)"><h2 id="head" style="margin: 0; font-size: 24px">Head</h2><p id="body" style="margin: 0">Body text</p></div><p id="after" style="margin: 0">After</p></div></x-dc>`));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#body')`, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const styleOf = id => new RegExp(`id="${id}" style="([^"]*)"`).exec(fileText(root, 'Main.dc.html'))?.[1] ?? '';
+      const boxes = () => page.evaluate(`[${['#head', '#body', '#intro', '#after'].map(sel => boxIn('Main.dc.html', sel)).join(', ')}]`);
+      try {
+        const before = await boxes();
+        await page.click(...await page.evaluate(`(() => {
+          const frame = document.querySelector('iframe[data-board="Main.dc.html"]');
+          const rect = frame.getBoundingClientRect();
+          const box = frame.contentDocument.querySelector('#wrap').getBoundingClientRect();
+          const zoom = rect.width / frame.offsetWidth;
+          return [rect.left + (box.left + 6) * zoom, rect.top + (box.top + 6) * zoom];
+        })()`));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the group is selected');
+        await page.press('g', { ...mod, shift: true });
+        assert.ok(await until(() => !fileText(root, 'Main.dc.html').includes('id="wrap"'), 10000), `the group was taken apart: ${fileText(root, 'Main.dc.html')}`);
+        for (const id of ['head', 'body']) assert.match(styleOf(id), /position: absolute/, `#${id} was lifted out: ${styleOf(id)}`);
+        assert.match(styleOf('head'), /(^|; )color: rgb\(200, 0, 0\)/, `the heading kept the group's colour: ${styleOf('head')}`);
+        assert.doesNotMatch(styleOf('after'), /position/, 'the sibling stays in the flow');
+        const near = (a, b) => a.every((value, i) => Math.abs(value - b[i]) <= 1);
+        assert.ok(await until(async () => (await boxes()).every((box, i) => near(box, before[i])), 5000), `everything stays where it was: ${JSON.stringify(before)} ${JSON.stringify(await boxes())}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('a layer dragged in the layers list out of a grid into a free box stays where it was, with its size and the look the grid gave it', T, async () => {
+      const { root, url } = await ctx.openNew('outline-out-of-grid', (_ctx, root) => {
+        copyFixture('design', root);
+        fs.writeFileSync(path.join(root, BOARD), fs.readFileSync(path.join(root, BOARD), 'utf8').replace(/<x-dc>[\s\S]*?<\/x-dc>/, `<x-dc><helmet><style>body{margin:0} .grid { display: grid; grid-template-columns: 200px 200px; gap: 8px } .grid > .cell { background-color: rgb(0, 128, 0); height: 50px }</style></helmet><div style="width: 880px; height: 560px; padding: 40px; box-sizing: border-box"><div class="grid" id="grid"><div class="cell" id="c1">Cell one</div><div class="cell" id="c2">Cell two</div></div><div id="free" data-label="Free area" style="position: absolute; left: 500px; top: 200px; width: 300px; height: 200px"></div></div></x-dc>`));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#c2')`, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const mouse = pointer(page);
+      const rowOf = words => `[...document.querySelectorAll('[data-outline-row="Main.dc.html"]')].find(row => row.textContent.includes(${JSON.stringify(words)}))`;
+      const c1 = () => /id="c1" style="([^"]*)"/.exec(fileText(root, 'Main.dc.html'))?.[1] ?? '';
+      try {
+        await page.click(...await page.evaluate(middleIn('Main.dc.html', '#c1')));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the cell is selected');
+        await page.press('\\', mod);
+        assert.ok(await page.waitFor(`${rowOf('Cell one')} && ${rowOf('Free area')}`, 5000), 'the layers list shows the cell and the free box');
+        const before = await page.evaluate(boxIn('Main.dc.html', '#c1'));
+        const from = await middleOf(page, rowOf('Cell one'));
+        const to = await middleOf(page, rowOf('Free area'));
+        await mouse.move(from.x, from.y);
+        await mouse.down(from.x, from.y);
+        for (let n = 1; n <= 8; n++) await mouse.move(from.x + ((to.x - from.x) * n) / 8, from.y + ((to.y - from.y) * n) / 8, 0, 1);
+        await mouse.up(to.x, to.y);
+        assert.ok(await until(() => /id="free"[^>]*>\s*<div class="cell" id="c1"/.test(fileText(root, 'Main.dc.html')), 10000), `the cell moved into the free box: ${fileText(root, 'Main.dc.html')}`);
+        const style = c1();
+        for (const want of [/position: absolute/, /width: 200px/, /background-color: rgb\(0, 128, 0\)/]) assert.match(style, want, `the cell kept ${want}: ${style}`);
+        assert.ok(await page.waitFor(`(b => Math.abs(b[0] - ${before[0]}) <= 1 && Math.abs(b[1] - ${before[1]}) <= 1)(${boxIn('Main.dc.html', '#c1')})`, 5000), `the cell stays where it was on screen: ${JSON.stringify(before)} ${JSON.stringify(await page.evaluate(boxIn('Main.dc.html', '#c1')))}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('the layers list takes the keyboard: one tab stop, arrows walk and open rows, the focused row rings its layer, Enter selects, F2 renames and gives the focus back', T, async () => {
+      const { root, url } = await ctx.openNew('outline-keys', paintBoard);
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#box')`, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const rows = `[...document.querySelectorAll('[role=tree][aria-label="Layers"] [role=treeitem]')]`;
+      const focused = `document.activeElement?.getAttribute('role') === 'treeitem' ? document.activeElement.textContent.trim() : null`;
+      try {
+        await page.click(...await page.evaluate(middleIn('Main.dc.html', 'h1')));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the heading is selected');
+        await page.press('\\', mod);
+        assert.ok(await page.waitFor(`${rows}.some(row => row.getAttribute('aria-selected') === 'true')`, 5000), 'the layers list shows the heading');
+        assert.equal(await page.evaluate(`${rows}.filter(row => row.tabIndex === 0).length`), 1, 'one row is the tab stop');
+        assert.equal(await page.evaluate(`${rows}.find(row => row.tabIndex === 0).getAttribute('aria-selected')`), 'true', 'the selected row is the tab stop');
+        await page.evaluate(`${rows}.find(row => row.tabIndex === 0).focus(); 1`);
+        await page.press('ArrowDown');
+        assert.ok(await page.waitFor(`(${focused})?.startsWith('Paragraph') || (${focused})?.includes('Paragraph')`, 3000), `↓ went to the paragraph’s row: ${await page.evaluate(focused)}`);
+        assert.ok(await page.waitFor(`document.querySelector('[data-hover-box]')`, 3000), 'the focused element row marks its element on the canvas');
+        assert.ok(await page.evaluate(`Boolean(document.querySelector('iframe[data-board="Main.dc.html"]').contentDocument.querySelector('h1'))`), 'the arrows moved nothing on the canvas');
+        await page.press('Enter');
+        assert.ok(await page.waitFor(`${rows}.find(row => row.textContent.includes('Paragraph'))?.getAttribute('aria-selected') === 'true'`, 3000), 'Enter selected the paragraph');
+        await page.press('Home');
+        assert.ok(await page.waitFor(`document.activeElement === ${rows}[0]`, 3000), 'Home went to the first row');
+        assert.ok(await page.waitFor(`document.querySelector('[data-hover-ring]')`, 3000), 'the focused artboard row rings its artboard on the canvas');
+        await page.press('ArrowLeft');
+        assert.ok(await page.waitFor(`${rows}[0].getAttribute('aria-expanded') === 'false'`, 3000), '← closed the artboard’s row');
+        await page.press('ArrowRight');
+        assert.ok(await page.waitFor(`${rows}[0].getAttribute('aria-expanded') === 'true'`, 3000), '→ opened it again');
+        await page.press('End');
+        await page.press('F2');
+        assert.ok(await page.waitFor(`document.activeElement?.matches('input[aria-label^="Rename"]')`, 3000), 'F2 opened the rename field');
+        await page.press('Escape');
+        assert.ok(await page.waitFor(`document.activeElement?.getAttribute('role') === 'treeitem'`, 3000), `Escape gave the focus back to the row: ${await page.evaluate('document.activeElement?.outerHTML.slice(0, 80)')}`);
+        await page.press('Delete');
+        assert.ok(await until(() => !fs.readFileSync(path.join(root, BOARD), 'utf8').includes('Paragraph'), 10000), 'Delete from a focused row still deletes the selection');
         assert.deepEqual(page.problems, []);
       } finally { await page.close(); }
     });

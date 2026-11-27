@@ -49,6 +49,7 @@ import { cardExit } from './services/card-exit.ts';
 import { announce } from './services/announce.ts';
 import { COMMITTED_ATTRIBUTE, committedFieldPasses, textHandoffMessage, textHandoffOf } from './lib/input-handoff.ts';
 import { commitTextEdit } from './services/text-edit.ts';
+import { outlineKeepsKey } from './lib/outline-keys.ts';
 import { escapeGoesHome, regionStepOf } from './lib/focus-regions.ts';
 import { focusHome, regionAt, rememberRegionFocus, stepRegion } from './services/focus-regions.ts';
 import { boardsReached, elementGroupsOf } from './lib/selection.ts';
@@ -347,6 +348,8 @@ export function installKeyboard(): () => void {
   };
   const down = (event: KeyboardEvent): void => {
     held(event);
+    // A focused row of the layers list walks the list with these; Delete, ⌘C and the rest still reach the canvas.
+    if ((event.target as Element | null)?.matches?.('[role="treeitem"]') && outlineKeepsKey({ key: event.key, shift: event.shiftKey, meta: event.metaKey || event.ctrlKey, alt: event.altKey })) return;
     if (event.key === ' ' && !isTextField(event.target) && !inDialog(event.target)) {
       useView.getState().setSpacePan(spacePanAfter(useView.getState().spacePan, event as KeyboardEvent & HeldKeyEvent));
       // A tap of Space still presses the focused button (the canvas keeps the key up from it once the hold has panned).

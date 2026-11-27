@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { flowGroupStyle, isTablePart, pixels, positionedGroup, staysByPosition, writeBackPatch, type MeasuredElement } from '../src/lib/layout-write-back.ts';
+import { canLeaveFlow, carriedStyles, flowGroupStyle, isTablePart, liftedOnUngroup, pixels, positionedGroup, staysByPosition, writeBackPatch, type MeasuredElement } from '../src/lib/layout-write-back.ts';
 
 const element = (over: Partial<MeasuredElement> = {}): MeasuredElement => ({
   tag: 'div',
@@ -78,5 +78,65 @@ describe('groups', () => {
     assert.equal(staysByPosition(block, { display: 'grid', positioned: true, root: false, others: [] }), false);
     assert.equal(staysByPosition(block, { display: 'block', positioned: false, root: true, others: [] }), true);
     assert.equal(staysByPosition({ ...block, repeated: true }, { display: 'block', positioned: true, root: false, others: [] }), false);
+  });
+
+  it('lifts flowing children out of an ungrouped group only when it was absolute or fixed and all of them can go', () => {
+    const flow = { tag: 'p', position: 'static', display: 'block', repeated: false };
+    const placed = { tag: 'div', position: 'absolute', display: 'block', repeated: false };
+    assert.deepEqual(liftedOnUngroup({ position: 'absolute' }, [flow, placed]), [true, true]);
+    assert.deepEqual(liftedOnUngroup({ position: 'fixed' }, [flow]), [true]);
+    // A group in the flow, or a relative one, leaves its flowing children to the flow.
+    assert.deepEqual(liftedOnUngroup({ position: 'static' }, [flow, placed]), [false, true]);
+    assert.deepEqual(liftedOnUngroup({ position: 'relative' }, [flow]), [false]);
+    // One child that cannot leave the flow keeps all of them in it.
+    assert.deepEqual(liftedOnUngroup({ position: 'absolute' }, [flow, { ...flow, repeated: true }, placed]), [false, false, true]);
+    assert.deepEqual(liftedOnUngroup({ position: 'absolute' }, [flow, { ...flow, tag: 'span', display: 'inline' }]), [false, false]);
+    assert.deepEqual(liftedOnUngroup({ position: 'absolute', blocked: true }, [flow]), [false]);
+    // Hidden children neither stop the others nor are written.
+    assert.deepEqual(liftedOnUngroup({ position: 'absolute' }, [flow, { ...flow, display: 'none' }]), [true, false]);
+    assert.equal(canLeaveFlow({ tag: 'li', display: 'list-item', repeated: false }), false);
+  });
+});
+
+describe('styles an element takes with it', () => {
+  const box = { 'background-color': 'rgb(255, 0, 0)', 'border-style': 'solid', 'border-color': 'rgb(0, 0, 255)', 'border-top-width': '2px', 'border-right-width': '2px', 'border-bottom-width': '2px', 'border-left-width': '2px', 'border-top-left-radius': '8px', 'border-top-right-radius': '8px', 'border-bottom-right-radius': '8px', 'border-bottom-left-radius': '8px' };
+  const bare = { 'background-color': 'rgba(0, 0, 0, 0)', 'border-style': 'none', 'border-color': 'rgb(0, 0, 0)', 'border-top-width': '0px', 'border-right-width': '0px', 'border-bottom-width': '0px', 'border-left-width': '0px', 'border-top-left-radius': '0px', 'border-top-right-radius': '0px', 'border-bottom-right-radius': '0px', 'border-bottom-left-radius': '0px' };
+
+  it('keeps the background, a whole border and all four corners its old place gave it', () => {
+    assert.deepEqual(carriedStyles(element({ computed: { ...element().computed, ...box }, there: bare })), box);
+  });
+
+  it('takes nothing where the new place shows the same, or when nothing was measured there', () => {
+    assert.deepEqual(carriedStyles(element({ computed: { ...element().computed, ...box }, there: box })), {});
+    assert.deepEqual(carriedStyles(element({ computed: { ...element().computed, ...box } })), {});
+  });
+
+  it('leaves what the author wrote, and a border with no width to show', () => {
+    const own = element({ inline: { background: 'red', 'border-radius': '8px' }, computed: { ...element().computed, ...box }, there: bare });
+    assert.deepEqual(Object.keys(carriedStyles(own)), ['border-style', 'border-color', 'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width']);
+    const unseen = element({ computed: { ...element().computed, ...box, 'border-top-width': '0px', 'border-right-width': '0px', 'border-bottom-width': '0px', 'border-left-width': '0px', 'border-color': 'rgb(9, 9, 9)' }, there: bare });
+    assert.equal(carriedStyles(unseen)['border-color'], undefined);
+  });
+
+  it('carries a border or corners only when every part reads', () => {
+    const partial = element({ computed: { ...element().computed, ...box, 'border-style': '', 'border-top-right-radius': '' }, there: bare });
+    assert.deepEqual(carriedStyles(partial), { 'background-color': 'rgb(255, 0, 0)' });
+  });
+
+  it('compares text styles with the copy measured there, else with the new parent', () => {
+    const text = { ...element().computed, color: 'rgb(1, 2, 3)', 'font-size': '20px' };
+    assert.deepEqual(carriedStyles(element({ computed: text, there: { color: 'rgb(1, 2, 3)', 'font-size': '16px' } })), { 'font-size': '20px' });
+    assert.deepEqual(carriedStyles(element({ computed: text }), { color: 'rgb(0, 0, 0)', 'font-size': '20px' }), { color: 'rgb(1, 2, 3)' });
+  });
+
+  it('gives a component only its place and size', () => {
+    const patch = writeBackPatch(element({ tag: 'x-import', computed: { ...element().computed, ...box, color: 'red' }, there: { ...bare, color: 'blue' } }));
+    assert.deepEqual(Object.keys(patch ?? {}).sort(), ['left', 'margin', 'position', 'top', 'width']);
+  });
+
+  it('writes the carried styles with the place, unless that would take away an expression', () => {
+    const patch = writeBackPatch(element({ computed: { ...element().computed, ...box }, there: bare }));
+    assert.equal(patch?.['background-color'], 'rgb(255, 0, 0)');
+    assert.equal(writeBackPatch(element({ inline: { left: '{{x}}px', position: 'absolute' }, computed: { position: 'absolute', 'margin-left': '0px', 'margin-top': '0px' } })), null);
   });
 });

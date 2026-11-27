@@ -108,4 +108,16 @@ describe('swap report', () => {
     assert.deepEqual(swapReport(['hidden'], 0), { toast: 'This isn’t shown on the page right now. Show it first.' });
     assert.deepEqual(swapReport(['in-code'], 1), { toast: 'Colors set in code can’t be swapped here. Ask the agent in chat to swap them. The rest swapped.' });
   });
+
+  it('skips “wouldn’t change it” for a reason that says more, and keeps quiet about it when some swapped', () => {
+    assert.deepEqual(swapReport(['nothing', 'component'], 0), { toast: 'Open the component to swap its fill and stroke.' });
+    assert.deepEqual(swapReport(['nothing', 'unfit'], 2), { toast: 'Lines, pictures, notes, and artboards can’t swap fill and stroke. The rest swapped.' });
+    assert.deepEqual(swapReport(['nothing'], 0), { toast: 'Swapping wouldn’t change it.' });
+    assert.deepEqual(swapReport(['nothing'], 1), { announce: 'Fill and stroke swapped' });
+  });
+
+  it('tells a failed write apart from a part that went through', () => {
+    assert.deepEqual(swapReport(['unfit'], 0, true), { toast: 'Couldn’t swap the fill and stroke. Try again.' });
+    assert.deepEqual(swapReport([], 3, true), { toast: 'Part of the selection couldn’t be swapped. Undo if you want it all to match.' });
+  });
 });

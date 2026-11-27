@@ -13,7 +13,7 @@
  */
 
 import { Box, ChevronRight, Eye, EyeOff, GitBranch, Hash, Image, LayoutGrid, Lock, Repeat, Shapes, StretchHorizontal, StretchVertical, Type } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { boardsOnPage, groupSelectionUnits, isLockedObject, noteGroupIndex, notesOnPage } from '@open-artifact/design-core';
 import { cn, isComposingKey } from '@open-artifact/ui';
 import { useDocument } from '../state/document.ts';
@@ -32,6 +32,22 @@ import { moveLayers } from '../services/structure.ts';
 import { canTakeRows, joinFromOutline, moveElementsInto, useOutlineInto } from '../services/outline-move.ts';
 import type { LooseObjects } from '../lib/join.ts';
 import { rowsCanLeave } from '../lib/outline-into.ts';
+import { outlineKeepsKey, outlineKeyStep, type OutlineRowState } from '../lib/outline-keys.ts';
+
+/** The row the layers list's one tab stop is on (`data-row-key`). */
+const TabStop = createContext<{ key: string | null; set(key: string): void }>({ key: null, set() {} });
+
+const rowsOf = (tree: Element | null): HTMLElement[] => (tree ? [...tree.querySelectorAll<HTMLElement>('[role="treeitem"]')] : []);
+const rowState = (row: HTMLElement): OutlineRowState => ({
+  level: Number(row.getAttribute('aria-level')) || 1,
+  expandable: row.hasAttribute('aria-expanded'),
+  open: row.getAttribute('aria-expanded') === 'true',
+});
+const focusRow = (row: HTMLElement | undefined): void => {
+  if (!row) return;
+  row.focus({ preventScroll: true });
+  row.scrollIntoView({ block: 'nearest' });
+};
 
 const GLYPH_PROPS = { className: 'size-3.5', strokeWidth: 1.75 } as const;
 
@@ -76,7 +92,10 @@ function TreeRow({
   onToggleHidden,
   locked = false,
   onUnlock,
+  rowKey,
 }: {
+  /** Names the row for the list's tab stop (`data-row-key`). */
+  rowKey: string;
   level: number;
   name: string;
   detail?: string;
@@ -115,8 +134,40 @@ function TreeRow({
   onUnlock?(): void;
 }) {
   const [renaming, setRenaming] = useState(false);
+  const tabStop = useContext(TabStop);
+  const self = useRef<HTMLDivElement>(null);
+  /** The row rings its layer on the canvas while it has the keyboard focus. */
+  const keyed = useRef(false);
+  /** A rename ended with Enter or Escape: the focus goes back to the row. */
+  const refocus = useRef(false);
+  useEffect(() => {
+    if (renaming || !refocus.current) return;
+    refocus.current = false;
+    self.current?.focus({ preventScroll: true });
+  }, [renaming]);
+  useEffect(() => () => {
+    if (keyed.current) onHover(false);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const keyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (event.target !== event.currentTarget || isComposingKey(event.nativeEvent)) return;
+    const rows = rowsOf(event.currentTarget.closest('[role="tree"]'));
+    const press = { key: event.key, shift: event.shiftKey, meta: event.metaKey || event.ctrlKey, alt: event.altKey };
+    if (!outlineKeepsKey(press)) return;
+    // The list keeps these keys even where they do nothing (the last row's ↓ moves nothing on the canvas).
+    event.preventDefault();
+    const step = outlineKeyStep(rows.map(rowState), rows.indexOf(event.currentTarget), press);
+    if (!step) return;
+    if (step.kind === 'focus') focusRow(rows[step.index]);
+    else if (step.kind === 'open') onToggle();
+    else if (step.kind === 'select') {
+      if (!event.repeat) onSelect(step.additive);
+    } else if (editable && onRename) setRenaming(true);
+  };
   return (
     <div
+      ref={self}
+      data-row-key={rowKey}
+      tabIndex={tabStop.key === rowKey ? 0 : -1}
       aria-label={locked ? `${detail ? `${name} ${detail}` : name}, Locked` : undefined}
       data-outline-row={row?.board}
       data-outline-tid={row?.tid}
@@ -129,7 +180,10 @@ function TreeRow({
       data-outline-selected={selected || undefined}
       onMouseDown={(event) => {
         if (event.button !== 0 || renaming) return;
+        // A click leaves the keys with the canvas, unless the list already has the focus.
         event.preventDefault();
+        tabStop.set(rowKey);
+        if (event.currentTarget.ownerDocument.activeElement?.closest('[role="tree"]')) event.currentTarget.focus({ preventScroll: true });
         onSelect(event.shiftKey || event.metaKey || event.ctrlKey);
         onPress?.(event);
       }}
@@ -138,14 +192,23 @@ function TreeRow({
         event.preventDefault();
         setRenaming(true);
       }}
-      onKeyDown={(event) => {
-        if (event.key === 'F2' && editable && onRename) setRenaming(true);
+      onKeyDown={keyDown}
+      onFocus={(event) => {
+        if (event.target !== event.currentTarget) return;
+        tabStop.set(rowKey);
+        keyed.current = event.currentTarget.matches(':focus-visible');
+        if (keyed.current) onHover(true);
+      }}
+      onBlur={(event) => {
+        if (event.target !== event.currentTarget || !keyed.current) return;
+        keyed.current = false;
+        onHover(false);
       }}
       // A finger on a row marks nothing on the canvas.
       onPointerEnter={(event) => onHover(event.pointerType !== 'touch')}
       onPointerLeave={() => onHover(false)}
       className={cn(
-        'group/row relative flex h-6 cursor-default select-none items-center rounded-[6px] pr-1 text-[12px] leading-4',
+        'group/row relative flex h-6 cursor-default select-none items-center rounded-[6px] pr-1 text-[12px] leading-4 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-chrome-accent',
         selected ? cn('bg-chrome-selected text-chrome-fg', bold && 'font-medium') : cn('text-chrome-secondary', hovered ? 'bg-chrome-hover' : 'hover:bg-chrome-hover'),
         (drop === 'inside' || into) && 'outline outline-2 -outline-offset-2 outline-chrome-accent',
       )}
@@ -181,10 +244,12 @@ function TreeRow({
             event.stopPropagation();
             if (isComposingKey(event.nativeEvent)) return;
             if (event.key === 'Enter') {
+              refocus.current = true;
               onRename?.(event.currentTarget.value);
               setRenaming(false);
             } else if (event.key === 'Escape') {
               event.preventDefault();
+              refocus.current = true;
               setRenaming(false);
             }
           }}
@@ -479,6 +544,7 @@ function BoardTree({ path, flipped, flip, unflip, carry, autoOpen }: { path: str
       return (
         <div key={node.tid} role="group">
           <TreeRow
+            rowKey={key}
             level={level}
             name={node.name}
             detail={node.detail}
@@ -511,6 +577,7 @@ function BoardTree({ path, flipped, flip, unflip, carry, autoOpen }: { path: str
   return (
     <div role="group">
       <TreeRow
+        rowKey={boardKey}
         level={0}
         name={entry.title || path.replace(/\.dc\.html$/, '')}
         glyph="artboard"
@@ -548,6 +615,15 @@ export function Outline() {
   }, [canvas, page]);
   const [flipped, setFlipped] = useState<Set<string>>(() => new Set());
   const scroller = useRef<HTMLDivElement>(null);
+  const [stop, setStop] = useState<string | null>(null);
+  const tabStop = useMemo(() => ({ key: stop, set: setStop }), [stop]);
+  // The list keeps one tab stop: the row last focused or clicked while it shows, else the selected row, else the first.
+  useLayoutEffect(() => {
+    const rows = rowsOf(scroller.current);
+    if (!rows.length || rows.some((row) => row.tabIndex === 0)) return;
+    const next = (rows.find((row) => row.hasAttribute('data-outline-selected')) ?? rows[0]!).dataset.rowKey ?? null;
+    if (next !== stop) setStop(next);
+  });
 
   const reached = boardsReached(selection);
   const activeBoard = reached.length === 1 ? reached[0] : null;
@@ -630,12 +706,13 @@ export function Outline() {
     const note = canvas.notes[id]!;
     const name = note.title || note.text?.split('\n')[0] || note.alt || note.href || note.kind || 'Sticky';
     const glyph = note.kind === 'image' ? 'image' : !note.kind || ['link', 'title1', 'sticky'].includes(note.kind) ? 'text' : 'shape';
-    return <TreeRow key={id} level={level} name={name} glyph={glyph} selected={selectedNotes.includes(id)}
+    return <TreeRow key={id} rowKey={`n:${id}`} level={level} name={name} glyph={glyph} selected={selectedNotes.includes(id)}
       hovered={false} open={false} hasChildren={false} onHover={on => hoverNote(on ? id : null)} onToggle={() => {}} onSelect={add => selectNotes([id], add)}
       editable={!readOnly} onPress={pressLoose(draggedNotes([id]), null)} locked={isLockedObject(note)} onUnlock={() => unlockObjects([], [id])} />;
   };
 
   return (
+    <TabStop.Provider value={tabStop}>
     <div ref={scroller} role="tree" aria-label="Layers" className="h-full overflow-y-auto px-1.5 py-1.5" onMouseLeave={clearHover}>
       {boards.map(path => <BoardTree key={path} path={path} flipped={flipped} flip={flip} unflip={unflip} carry={carry} autoOpen={boards.length === 1 || path === activeBoard} />)}
       {units.map(({ group, ids }) => {
@@ -643,12 +720,13 @@ export function Outline() {
         const key = 'g:' + group;
         const open = flipped.has(key);
         return <div key={key} role="group">
-          <TreeRow level={0} name="Group" detail={String(ids.length)} glyph="frame" selected={ids.every(id => selectedNotes.includes(id))}
+          <TreeRow rowKey={key} level={0} name="Group" detail={String(ids.length)} glyph="frame" selected={ids.every(id => selectedNotes.includes(id))}
             hovered={false} open={open} hasChildren onHover={on => hoverNote(on ? ids[0]! : null)} onToggle={() => flip(key)} onSelect={add => selectNotes(ids, add)} onPress={pressLoose(draggedNotes(ids), null)} />
           {open && ids.map(id => noteRow(id, 1))}
         </div>;
       })}
       {!boards.length && !units.length ? <div className="px-2 py-1 text-[12px] text-chrome-muted">No elements yet</div> : null}
     </div>
+    </TabStop.Provider>
   );
 }

@@ -284,7 +284,7 @@ export const FoldToolbar = forwardRef<HTMLDivElement, FoldToolbarProps>(function
   const [folded, setFolded] = useState(false);
   const [open, setOpen] = useState(false);
   const [escapeDown, setEscapeDown] = useState(false);
-  const fromKeyboard = useRef(false);
+  const opening = useRef(false);
   const tabbing = useRef(false);
   const remeasure = useRef<() => void>(() => undefined);
   const place = useRef<() => void>(() => undefined);
@@ -389,13 +389,13 @@ export const FoldToolbar = forwardRef<HTMLDivElement, FoldToolbarProps>(function
     if (open) place.current();
   });
 
-  // Opened from the keyboard: the focus goes to the card's first button (else its first field), in view.
+  // Opened with More tools (a click or a key): the focus goes to the card's first button (else its first field), in view.
   useLayoutEffect(() => {
     const cardRow = cardRowRef.current;
     if (open && cardRow) cardRow.scrollLeft = 0;
-    const keyboard = fromKeyboard.current;
-    fromKeyboard.current = false;
-    if (!open || !keyboard || !cardRow) return;
+    const pressed = opening.current;
+    opening.current = false;
+    if (!open || !pressed || !cardRow) return;
     const enabled = (selector: string): HTMLElement[] => [...cardRow.querySelectorAll<HTMLElement>(selector)].filter((element) => !element.matches(':disabled, [tabindex="-1"]'));
     const first = firstInCard(enabled('button'), enabled('input, select, textarea'));
     if (!first) return;
@@ -412,8 +412,8 @@ export const FoldToolbar = forwardRef<HTMLDivElement, FoldToolbarProps>(function
   };
 
   const toggle = (event: MouseEvent<HTMLButtonElement>): void => {
-    // A click with no pointer behind it (Enter, Space, a screen reader) opens the card from the keyboard.
-    fromKeyboard.current = event.detail === 0;
+    // Only the main button clicks: a press of it, with the mouse or the keyboard, leads into the card.
+    opening.current = event.button === 0;
     if (cardRef.current?.contains(document.activeElement)) toggleRef.current?.focus({ preventScroll: true });
     setOpen((was) => !was);
   };

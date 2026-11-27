@@ -23,7 +23,7 @@ import {
 } from '@open-artifact/dc';
 import { addNoteCopies, isLockedObject, noteFontSize, notesOnPage, withoutLock } from '@open-artifact/design-core';
 import { create } from 'zustand';
-import { clipboardData, payloadFromHtml, remapBoardReferences, type ClipboardPayload } from '../lib/clipboard-data.ts';
+import { clipboardData, joinedPayload, payloadFromHtml, remapBoardReferences, type ClipboardPayload, type ElementsPayload, type MixedPayload, type ObjectsPayload } from '../lib/clipboard-data.ts';
 import { toast } from '@open-artifact/ui';
 import { placeImages } from './images.ts';
 import { freeBoardName } from '../lib/frame.ts';
@@ -32,9 +32,10 @@ import { pasteRoute, type PasteContext, type PasteField } from '../lib/paste-rou
 import type { Address } from '../lib/ops.ts';
 import { isElementLocked, LOCKED_REASON, withoutLocks } from '../lib/locks.ts';
 import { useDocument } from '../state/document.ts';
-import { useView, type ElementSelection } from '../state/view.ts';
+import { useView, type ElementSelection, type Selection } from '../state/view.ts';
+import { elementsIn, selectionFrom, type BoardElements } from '../lib/selection.ts';
 import { templateOf } from './agent.ts';
-import { addNote, deleteSelection, edit, selectedElements, viewportCenter } from './commands.ts';
+import { addNote, anyElementLocked, deleteSelection, edit, removeMixedElements, resolvedGroups, selectedElements, tryEdit, viewportCenter } from './commands.ts';
 import { boardApi, frameOf } from './frames.ts';
 import { maybeSession } from './session.ts';
 import { liveElementOf, standaloneHtml } from './capture.ts';
@@ -58,16 +59,26 @@ export function hasClipboard(): boolean {
 
 /* --------------------------------- copy ---------------------------------- */
 
-/** The payload of the current selection, or `null` when nothing is selected. */
-export function selectionPayload(): ClipboardPayload | null {
-  const { selection } = useView.getState();
-  const doc = useDocument.getState();
+/** The payload of a selection (the current one by default), or `null` when nothing is selected. */
+export function selectionPayload(selection: Selection = useView.getState().selection): ClipboardPayload | null {
   if (selection.kind === 'elements') {
-    const selected = selectedElements();
+    const [selected] = resolvedGroups([selection]);
     if (!selected) return null;
     return elementsPayload(selected.board, selected.model, selected.elements, selection.items);
   }
+  if (selection.kind === 'mixed') {
+    const canvas = useDocument.getState().canvas;
+    const elements = resolvedGroups(selection.elements).map((group) => {
+      const part = elementsPayload(group.board, group.model, group.elements, elementsIn(selection, group.board));
+      // Where the artboard sat: pasted as layers into one artboard, the parts keep their places on the canvas.
+      const entry = canvas.boards[group.board];
+      return entry ? { ...part, at: { x: entry.x, y: entry.y } } : part;
+    });
+    // Copies carry the elements only: artboards and notes are not copied along.
+    return joinedPayload(elements);
+  }
   if (selection.kind === 'objects' && (selection.boards.length || selection.notes.length)) {
+    const doc = useDocument.getState();
     const boards = selection.boards.flatMap((path) => {
       const entry = doc.canvas.boards[path];
       const source = doc.boards[path]?.source;
@@ -87,10 +98,10 @@ const here = () => location.pathname;
 const MAX_STANDALONE = 2 * 1024 * 1024;
 
 /** The payload of copied elements, with what they need to look the same elsewhere. */
-export function elementsPayload(board: string, model: TemplateModel, elements: HtmlElement[], items: readonly ElementSelection[]): ClipboardPayload {
+export function elementsPayload(board: string, model: TemplateModel, elements: HtmlElement[], items: readonly ElementSelection[]): ElementsPayload {
   // Copies never carry a lock.
   const html = elements.map((el) => withoutLocks(elementSource(model, el)));
-  const payload: Extract<ClipboardPayload, { kind: 'elements' }> = { kind: 'elements', board, html, from: here() };
+  const payload: ElementsPayload = { kind: 'elements', board, html, from: here() };
   try {
     const itemOf = (el: HtmlElement): ElementSelection => {
       const tid = model.tidOf.get(el)!;
@@ -116,7 +127,7 @@ export function elementsPayload(board: string, model: TemplateModel, elements: H
 }
 
 /** The markup to paste into an artboard: the source in its own artboard, else what renders the same there. */
-function markupFor(payload: Extract<ClipboardPayload, { kind: 'elements' }>, board: string, html = payload.html): { html: string; helmet?: string } {
+function markupFor(payload: ElementsPayload, board: string, html = payload.html): { html: string; helmet?: string } {
   const same = payload.board === board && (payload.from ?? here()) === here();
   if (same) return { html: html.join('\n') };
   return {
@@ -132,9 +143,26 @@ export function copySelection(): ClipboardPayload | null {
   return payload;
 }
 
-/** Copies, then deletes the selection; nothing when any of it is locked. */
+/**
+ * Copies, then deletes the selection; nothing when any of it is locked.
+ * A selection across files cuts its elements only: its artboards and notes
+ * stay selected.
+ */
 export function cutSelection(): ClipboardPayload | null {
-  if (useDocument.getState().readOnly || refuseIfLocked()) return null;
+  if (useDocument.getState().readOnly) return null;
+  const { selection } = useView.getState();
+  if (selection.kind === 'mixed') {
+    if (anyElementLocked(selection.elements)) {
+      refuseLocked();
+      return null;
+    }
+    const payload = selectionPayload(selection);
+    if (!payload) return null;
+    memory = payload;
+    if (removeMixedElements(selection)) announce('Cut');
+    return payload;
+  }
+  if (refuseIfLocked()) return null;
   const payload = copySelection();
   if (payload) deleteSelection();
   return payload;
@@ -224,7 +252,7 @@ function pastePlace(fallbackBoard: string | null, html: string): PasteTarget | n
 }
 
 /** Inserts copied elements at the paste target and selects them. */
-function pasteElements(payload: Extract<ClipboardPayload, { kind: 'elements' }>): boolean {
+function pasteElements(payload: ElementsPayload): boolean {
   const where = pasteTarget(payload.board, payload.html.join('\n'));
   if (where === 'locked') {
     refuseLocked();
@@ -243,7 +271,7 @@ function pasteElements(payload: Extract<ClipboardPayload, { kind: 'elements' }>)
  * Adds copies of artboards and notes to the current page, offset from the
  * originals, or centred on `at` (a world point).
  */
-function pasteObjects(payload: Extract<ClipboardPayload, { kind: 'objects' }>, at?: { x: number; y: number }): void {
+function pasteObjects(payload: ObjectsPayload, at?: { x: number; y: number }): void {
   const doc = useDocument.getState();
   const all = at ? boundsOf([...payload.boards.map(({ entry }) => ({ x: entry.x, y: entry.y, w: entry.w, h: entry.h })), ...payload.notes.map((note) => ({ x: note.x, y: note.y, w: note.w ?? 0, h: note.h ?? 0 }))]) : null;
   const shift = all && at ? { x: Math.round(at.x - all.x - all.w / 2), y: Math.round(at.y - all.y - all.h / 2) } : null;
@@ -279,7 +307,61 @@ function pasteObjects(payload: Extract<ClipboardPayload, { kind: 'objects' }>, a
   view.select({ kind: 'objects', boards, notes });
 }
 
-type BoardPaste = Extract<ClipboardPayload, { kind: 'objects' }>;
+/** Where pasted elements go in one artboard: after its selected elements, else at the end of its root. */
+function placeIn(board: string): PasteTarget | null {
+  const source = useDocument.getState().boards[board]?.source;
+  if (!source) return null;
+  const model = templateOf(source);
+  const selected = elementsIn(useView.getState().selection, board);
+  const [group] = selected.length ? resolvedGroups([{ board, items: selected }]) : [];
+  const last = group?.elements[group.elements.length - 1];
+  if (last) return { board, target: { tid: model.tidOf.get(last)!, path: elementPath(model, last) }, position: 'after' };
+  const root = rootElement(model);
+  return { board, target: root ? { tid: model.tidOf.get(root)!, path: [elementChildren(model.nodes).indexOf(root)] } : null, position: 'last-child' };
+}
+
+/** Toast when the elements of a selection across files had nowhere to go. */
+export const MIXED_PASTE_PARTLY = 'Pasted — elements whose artboard isn’t here or is locked were left out';
+
+/**
+ * Pastes the elements of a selection across files as one undo step: each
+ * artboard's elements go back into that artboard (when it is here and not
+ * locked); selects what was pasted.
+ */
+function pasteMixed(payload: MixedPayload): void {
+  const doc = useDocument.getState();
+  let left = 0;
+  const made = doc.transact((cancel) => {
+    const elements: BoardElements[] = [];
+    for (const part of payload.elements) {
+      const entry = useDocument.getState().canvas.boards[part.board];
+      const where = entry && !isLockedObject(entry) ? placeIn(part.board) : null;
+      if (!where) {
+        left++;
+        continue;
+      }
+      const { html, helmet } = markupFor(part, where.board);
+      const at = settledInsert(where.board, where, html);
+      const outcome = tryEdit(where.board, { kind: 'insert', target: at.target, position: at.position, html, helmet });
+      if (outcome.kind === 'done' && outcome.created.length) elements.push({ board: where.board, items: outcome.created.map((address) => ({ ...address, instance: 0 })) });
+      else left++;
+    }
+    if (!elements.length) {
+      cancel();
+      return null;
+    }
+    return { boards: [], notes: [], elements };
+  });
+  if (!made) {
+    toast.add({ title: 'Select an artboard to paste into' });
+    return;
+  }
+  useView.getState().select(selectionFrom(made));
+  if (left) toast.add({ title: MIXED_PASTE_PARTLY });
+  else announce('Pasted');
+}
+
+type BoardPaste = ObjectsPayload;
 export const useBoardPaste = create<{ pending: BoardPaste | null }>(() => ({ pending: null }));
 export function finishBoardPaste(accept: boolean): void {
   const { pending } = useBoardPaste.getState();
@@ -304,6 +386,7 @@ export function pastePayload(payload: ClipboardPayload, menuBoard: string | null
     }
   }
   if (payload.kind === 'elements') pasteElements(payload);
+  else if (payload.kind === 'mixed') pasteMixed(payload);
   else if (payload.externalCode) useBoardPaste.setState({ pending: payload });
   else pasteObjects(payload);
 }

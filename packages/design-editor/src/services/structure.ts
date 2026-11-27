@@ -16,6 +16,7 @@ import {
   flowGroupStyle,
   isImportTag,
   isTablePart,
+  liftedOnUngroup,
   positionedGroup,
   staysByPosition,
   writeBackPatch,
@@ -67,7 +68,27 @@ const measured = (element: HtmlElement, box: MeasuredBox): MeasuredElement => ({
   inline: styleMap(attributeValue(element, 'style') ?? ''),
   box: { left: box.left, top: box.top, width: box.width, height: box.height },
   computed: box.computed,
+  ...(box.there ? { there: box.there } : {}),
 });
+
+/** The tid of the element that lays out what is placed in `parent` (`null` for the artboard). */
+const layoutTid = (model: TemplateModel, parent: HtmlElement | null): number | null => {
+  const up = layoutParent(parent);
+  return up ? model.tidOf.get(up)! : null;
+};
+
+/**
+ * What an element is measured and written back as: an `sc-if` as the one
+ * element it shows (`null` while it shows nothing, or more than one), an
+ * `sc-for` not at all, anything else as itself.
+ */
+function shownAs(board: string, model: TemplateModel, element: HtmlElement): HtmlElement | null {
+  if (element.tag === 'sc-for' || element.tag === 'helmet') return null;
+  if (element.tag !== 'sc-if') return element;
+  const inner = elementChildren(element).filter((child) => child.tag !== 'helmet');
+  if (inner.length !== 1 || isWrapper(inner[0]!)) return null;
+  return boardApi(board)?.inspect(model.tidOf.get(inner[0]!)!) ? inner[0]! : null;
+}
 
 /** Applies per-element style patches as one edit (no edit when there are none). */
 function writeBack(board: string, edits: { target: Address; patch: StylePatch }[]): boolean {
@@ -140,7 +161,7 @@ export function groupSelection(): void {
   }
   // A positioned group: measured against the box it will be placed in.
   const tids = elements.map((element) => model.tidOf.get(element)!);
-  const boxes = api.measure(tids, containingBlock(board, model, last.parent));
+  const boxes = api.measure(tids, containingBlock(board, model, last.parent), { parent: layoutTid(model, last.parent), wrap: true });
   if (!boxes) {
     toast.add({ title: GROUP_REFUSALS.unmeasured });
     return;
@@ -239,23 +260,35 @@ export function ungroupSelection(): void {
   const edits: { target: Address; patch: StylePatch }[] = [];
   const childTids: number[] = [];
   for (const group of elements) {
-    const children = elementChildren(group).filter((child) => !isWrapper(child) && child.tag !== 'helmet');
+    // A conditional child is measured and kept in place as the element it shows.
+    const own = elementChildren(group).filter((child) => child.tag !== 'helmet');
+    const children = own.flatMap((child) => shownAs(board, model, child) ?? []);
     childTids.push(...elementChildren(group).map((child) => model.tidOf.get(child)!));
     if (!children.length) continue;
-    const boxes = api.measure(children.map((child) => model.tidOf.get(child)!), containingBlock(board, model, group.parent));
+    const boxes = api.measure(children.map((child) => model.tidOf.get(child)!), containingBlock(board, model, group.parent), { parent: layoutTid(model, group.parent) });
     if (!boxes) {
       toast.add({ title: UNGROUP_REFUSALS.unmeasured });
       return;
     }
-    const container = containerFacts(board, model, group.parent, children);
     const inherited = inheritedIn(board, model, group.parent);
+    // Positioned children stay where they were; flowing ones are lifted out only from an absolute
+    // or fixed group whose children can all leave the flow, and then all of them or none.
+    const lifted = liftedOnUngroup(
+      { position: api.inspect(model.tidOf.get(group)!)?.computed.position ?? 'static', blocked: children.length < own.length },
+      children.map((child, i) => ({ tag: child.tag, position: boxes[i]!.computed.position ?? 'static', display: boxes[i]!.computed.display ?? '', repeated: isRepeated(child) })),
+    );
+    const flowing: { target: Address; patch: StylePatch }[] = [];
+    let flowFits = true;
     children.forEach((child, i) => {
+      if (!lifted[i]) return;
       const box = boxes[i]!;
-      const stays = isPositioned(box.computed.position) || staysByPosition({ tag: child.tag, display: box.computed.display ?? '', repeated: isRepeated(child) }, container);
-      if (!stays) return;
       const patch = writeBackPatch(measured(child, box), inherited);
-      if (patch) edits.push({ target: addressOf(model, child), patch });
+      if (isPositioned(box.computed.position)) {
+        if (patch) edits.push({ target: addressOf(model, child), patch });
+      } else if (patch) flowing.push({ target: addressOf(model, child), patch });
+      else flowFits = false;
     });
+    if (flowFits) edits.push(...flowing);
   }
   const groupTids = elements.map((element) => model.tidOf.get(element)!);
   const done = useDocument.getState().transact((cancel) => {
@@ -331,8 +364,13 @@ export function moveLayers(board: string, op: Extract<BoardOp, { kind: 'move' }>
   const newLayout = into && !isWrapper(target) ? target : layoutParent(newParent);
   const same = elements.every((element) => layoutParent(element.parent) === newLayout);
   if (same || (newLayout && isImportTag(newLayout.tag))) return edit(board, op, { selectCreated: true });
-  const movable = elements.filter((element) => !isWrapper(element));
-  const boxes = api && movable.length ? api.measure(movable.map((element) => model.tidOf.get(element)!), containingBlock(board, model, newLayout)) : movable.length ? null : [];
+  // A conditional layer is measured and kept in place as the element it shows.
+  const movable = elements.flatMap((element) => {
+    const shown = shownAs(board, model, element);
+    return shown ? [{ element, shown }] : [];
+  });
+  const tids = movable.map(({ shown }) => model.tidOf.get(shown)!);
+  const boxes = api && movable.length ? api.measure(tids, containingBlock(board, model, newLayout), { parent: newLayout ? model.tidOf.get(newLayout)! : null }) : movable.length ? null : [];
   if (!boxes) {
     toast.add({ title: MOVE_UNMEASURED });
     return false;
@@ -340,16 +378,23 @@ export function moveLayers(board: string, op: Extract<BoardOp, { kind: 'move' }>
   const container = containerFacts(board, model, newLayout, elements);
   const inherited = inheritedIn(board, model, newLayout);
   const patches = new Map<number, StylePatch>();
-  movable.forEach((element, i) => {
+  movable.forEach(({ element, shown }, i) => {
     const box = boxes[i]!;
-    const stays = isPositioned(box.computed.position) || staysByPosition({ tag: element.tag, display: box.computed.display ?? '', repeated: isRepeated(element) }, container);
-    const patch = stays ? writeBackPatch(measured(element, box), inherited) : null;
+    const stays = isPositioned(box.computed.position) || staysByPosition({ tag: shown.tag, display: box.computed.display ?? '', repeated: isRepeated(element) }, container);
+    const patch = stays ? writeBackPatch(measured(shown, box), inherited) : null;
     if (patch) patches.set(op.targets.indexOf(op.targets.find((address) => address.tid === model.tidOf.get(element))!), patch);
   });
   const moved = useDocument.getState().transact((cancel) => {
     const outcome = tryEdit(board, op);
     if (outcome.kind !== 'done') return outcome;
-    const edits = [...patches].flatMap(([index, patch]) => (outcome.created[index] ? [{ target: outcome.created[index]!, patch }] : []));
+    const after = templateOf(useDocument.getState().boards[board]!.source!);
+    // A moved conditional layer takes its patch on the element it shows.
+    const writtenOn = (address: Address): Address => {
+      const element = resolveElement(after, address.tid, address.path);
+      const inner = element?.tag === 'sc-if' ? elementChildren(element).filter((child) => child.tag !== 'helmet')[0] : undefined;
+      return inner ? addressOf(after, inner) : address;
+    };
+    const edits = [...patches].flatMap(([index, patch]) => (outcome.created[index] ? [{ target: writtenOn(outcome.created[index]!), patch }] : []));
     if (writeBack(board, edits)) return outcome;
     cancel();
     return { kind: 'failed' as const };

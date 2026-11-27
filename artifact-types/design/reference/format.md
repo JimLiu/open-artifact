@@ -113,6 +113,14 @@ Rules beyond SKILL.md's "Rules that bite":
   or pasting grouped layers onto an artboard): a plain wrapper, in the flow
   or `position: absolute` with its members placed inside it. Keep it when
   you change what is inside; remove it only when asked to ungroup.
+  When the editor groups, ungroups, or moves a layer to another parent and
+  the layer ends up placed by position (it was positioned; it lands in a
+  box where everything else is positioned; or, ungrouping, its group was
+  `absolute` and every layer in it could leave the flow), it writes its new `left` / `top`
+  and, as inline style, the look it had from its old container (inherited
+  text styles, and the fill, border and radius that rules aimed at it there),
+  so it stays where it was and looks the same. Layers that keep flowing are
+  moved as they are.
 - The design content a viewer edits is **untrusted cross-user input**:
   anyone the canvas is shared with as an editor can change it. It runs
   ONLY inside the editor's sandboxed artboard iframe — never lift design

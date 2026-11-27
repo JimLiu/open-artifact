@@ -38,7 +38,6 @@ import {
   RotateCcw,
   Save,
   Scan,
-  Trash2,
   X,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -67,11 +66,13 @@ import { useDocument } from '../state/document.ts';
 import { useView } from '../state/view.ts';
 import { boardApi } from '../services/frames.ts';
 import { templateOf } from '../services/agent.ts';
-import { alignMode, deleteSelection, edit, rememberRectRadius, runAlign, styleSelection, updateBoard } from '../services/commands.ts';
+import { alignMode, anyElementLocked, edit, mixedComputed, rememberRectRadius, runAlign, styleMixed, styleSelection, updateBoard } from '../services/commands.ts';
 import { hasCssBorder, NOTE_RECT_RADIUS, shapeFill } from '../lib/note-look.ts';
 import { ALIGN_ACTIONS, alignShortcut, alignTip, type AlignAction } from '../lib/align.ts';
-import { mixedElementKinds, mixedPaintValues, paintMixed } from '../services/paint.ts';
-import { MIXED, inspectorRoute, mergedValue, selectionCounts, sharedPaintRoles, type MixedSelection, type PaintRole } from '../lib/selection.ts';
+import { mixedElementKinds, mixedPaintValues, noteFillValues, paintMixed } from '../services/paint.ts';
+import { changedBy, GUIDES_DIFFER, mixedRoles, MIXED_ACROSS, POSITION_ACROSS, positionBlocked, radiiAfter, radiusSaid, READ_SETTLE_MS, SIZED_BY_CONTENT, sharedGuides, sharedValue, typedChange } from '../lib/mixed-panel.ts';
+import { announce } from '../services/announce.ts';
+import { MIXED, inspectorRoute, mergedValue, selectionCounts, type MixedSelection, type ObjectsSelection, type PaintRole } from '../lib/selection.ts';
 import { zoomToBoards } from '../services/viewport.ts';
 import { isPathNote, NOTE_PALETTE, noteStroke } from '../lib/notes.ts';
 import { describeElement, detailOf, selectorOf } from '../lib/outline.ts';
@@ -971,6 +972,124 @@ function BoardInspector({ path }: { path: string }) {
   );
 }
 
+/** Changes several artboards' entries as one step. */
+function updateBoards(change: (entry: BoardEntry) => Partial<BoardEntry>, paths: readonly string[]): void {
+  useDocument.getState().updateCanvas((canvas) => {
+    const boards = { ...canvas.boards };
+    for (const path of paths) {
+      const entry = boards[path];
+      if (!entry) continue;
+      const patch = change(entry);
+      const next: BoardEntry = { ...entry, ...patch };
+      for (const [key, value] of Object.entries(patch)) if (value === undefined) delete next[key];
+      boards[path] = next;
+    }
+    return { ...canvas, boards };
+  });
+}
+
+/**
+ * Several artboards: the rows they share. A value they differ in reads
+ * `Mixed`; a number typed goes to each (a signed one, `+4`, changes each
+ * from its own value). Position is off: canvas objects are placed by
+ * dragging them.
+ */
+function BoardsInspector({ paths }: { paths: readonly string[] }) {
+  const boards = useDocument((s) => s.canvas.boards);
+  const pages = useDocument((s) => s.canvas.pages);
+  const readOnly = useDocument((s) => s.readOnly);
+  const entries = paths.flatMap((path) => (boards[path] ? [boards[path]] : []));
+  if (!entries.length) return null;
+  const lockedWhy = entries.some((entry) => isLockedObject(entry)) ? LOCKED_REASON : undefined;
+  const sizeWhy = entries.some((entry) => entry.frameless) ? SIZED_BY_CONTENT : lockedWhy;
+  const shown = (values: readonly (number | string | undefined)[], none = '') => sharedValue(values, (value) => (value === undefined ? none : String(value)));
+  const mixedTitle = (value: string, why?: string) => why ?? (value === MIXED ? MIXED_ACROSS : undefined);
+  const numberField = (key: 'x' | 'y' | 'w' | 'h', label: string, why: string | undefined) => {
+    const value = shown(entries.map((entry) => entry[key]));
+    return (
+      <PInput
+        aria-label={label}
+        prefix={label}
+        value={value === MIXED ? '' : value}
+        placeholder={value === MIXED ? MIXED : undefined}
+        disabled={readOnly || Boolean(why)}
+        onCommit={(text) => {
+          const change = typedChange(text);
+          if (change) updateBoards((entry) => ({ [key]: changedBy(entry[key], change, key === 'w' || key === 'h' ? 1 : -Infinity) }), paths);
+        }}
+      />
+    );
+  };
+  const page = shown(entries.map((entry) => entry.page ?? pages[0]?.id));
+  const radius = shown(entries.map((entry) => entry.radius), '0');
+  const sizes = [shown(entries.map((entry) => entry.w)), shown(entries.map((entry) => entry.h))];
+  const guides = sharedGuides(entries);
+  const interactive = shown(entries.map((entry) => String(Boolean(entry.is_interactive))));
+  const fill = shown(entries.map((entry) => String(entry.expand === 'fill')));
+  return (
+    <>
+      <PSection title={`${entries.length} artboards`}>
+        <PRow label="Position" title={POSITION_ACROSS}>
+          {numberField('x', 'X', POSITION_ACROSS)}
+          {numberField('y', 'Y', POSITION_ACROSS)}
+        </PRow>
+        <PRow label="Size" title={mixedTitle(sizes.includes(MIXED) ? MIXED : '', sizeWhy)}>
+          {numberField('w', 'W', sizeWhy)}
+          {numberField('h', 'H', sizeWhy)}
+        </PRow>
+        {pages.length > 1 ? (
+          <PRow label="Page" title={mixedTitle(page)}>
+            <PSelect
+              aria-label="Page"
+              value={page === MIXED ? '' : page}
+              placeholder={MIXED}
+              options={pages.map((p) => ({ value: p.id, label: p.name }))}
+              disabled={readOnly}
+              onChange={(value) => value && updateBoards(() => ({ page: value === pages[0]!.id ? undefined : value }), paths)}
+            />
+          </PRow>
+        ) : null}
+        <PRow label="Radius" title={mixedTitle(radius)}>
+          <PInput
+            aria-label="Corner radius"
+            value={radius === MIXED || radius === '0' ? '' : radius}
+            placeholder={radius === MIXED ? MIXED : '0'}
+            unit="px"
+            disabled={readOnly}
+            onCommit={(text) => {
+              const change = typedChange(text || '0');
+              if (!change) return;
+              const after = radiiAfter(entries.map((entry) => entry.radius), change);
+              updateBoards((entry) => ({ radius: after[entries.indexOf(entry)] }), paths);
+              announce(radiusSaid(after));
+            }}
+          />
+        </PRow>
+      </PSection>
+      {guides ? (
+        <GuideInspector guides={guides} readOnly={readOnly} change={(next) => updateBoards(() => ({ guides: next.length ? next : undefined }), paths)} />
+      ) : (
+        <PSection title="Layout guides">
+          <PNote className="py-1">{GUIDES_DIFFER}</PNote>
+        </PSection>
+      )}
+      <PSection title="Prototype">
+        <PRow label="Interactive" title={mixedTitle(interactive)}>
+          <Switch label="Interactive" checked={interactive === 'true'} disabled={readOnly} onChange={(on) => updateBoards(() => ({ is_interactive: on || undefined }), paths)} />
+        </PRow>
+        <PRow label="Fill window" title={mixedTitle(fill)}>
+          <Switch label="Fill the window when opened" checked={fill === 'true'} disabled={readOnly} onChange={(on) => updateBoards(() => ({ expand: on ? 'fill' : undefined }), paths)} />
+        </PRow>
+        <div className="flex gap-1.5 px-3 pt-1.5">
+          <PButton onClick={() => zoomToBoards([...paths])}>
+            <Maximize2 className="size-3.5" /> Zoom to
+          </PButton>
+        </div>
+      </PSection>
+    </>
+  );
+}
+
 /* ------------------------------- note inspector ---------------------------- */
 
 const SIZES: { value: Exclude<NoteSize, number>; label: string }[] = [
@@ -1213,43 +1332,83 @@ function CanvasInspector() {
 const MIXED_ROW_LABELS: Record<PaintRole, string> = { text: 'Text color', fill: 'Fill', stroke: 'Stroke' };
 
 /**
- * A selection across files: the color rows every element has, showing
- * their one value or `Mixed`; a change goes to each element (one undo
- * step). The rest is edited one artboard at a time.
+ * A count that moves on once these inputs have stayed the same for a
+ * moment: merged rows read the artboards again then, not on every render.
  */
-function MixedInspector({ selection }: { selection: MixedSelection }) {
+function useSettledTick(inputs: readonly unknown[]): number {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const timer = setTimeout(() => setTick((count) => count + 1), READ_SETTLE_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, inputs);
+  return tick;
+}
+
+/**
+ * A selection across files, or artboards with notes: the rows every
+ * member has, showing their one value or `Mixed`; a change goes to each
+ * member (one undo step). Notes join the Fill row when they are shapes;
+ * artboards have no color rows. Position is off with canvas objects or
+ * pieces in the selection, and for locked elements.
+ */
+function MixedInspector({ selection }: { selection: MixedSelection | ObjectsSelection }) {
   const readOnly = useDocument((s) => s.readOnly);
-  // Re-read when the artboards change or re-render.
+  const canvas = useDocument((s) => s.canvas);
+  // Re-read once the artboards settle after a change or a re-render.
   const boards = useDocument((s) => s.boards);
   const layoutTick = useView((s) => s.layoutTick);
+  const settled = useSettledTick([boards, layoutTick]);
+  const elements = selection.kind === 'mixed' ? selection.elements : [];
+  const across = { elements, notes: selection.notes };
   const counts = selectionCounts(selection);
+  const notes = selection.notes.flatMap((id) => (canvas.notes[id] ? [canvas.notes[id]] : []));
+  const pieces = elements.filter((group) => canvas.boards[group.board]?.frameless).length;
   const rows = useMemo(
-    () => sharedPaintRoles(mixedElementKinds(selection)).map((role) => ({ role, value: mergedValue(mixedPaintValues(selection, role)) })),
+    () =>
+      mixedRoles(mixedElementKinds(across), notes, selection.boards.length).map((role) => ({
+        role,
+        value: mergedValue([...mixedPaintValues(across, role), ...(role === 'fill' ? noteFillValues(selection.notes) : [])]),
+      })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [selection, boards, layoutTick],
+    [selection, canvas.notes, settled],
   );
-  const parts = [`${counts.elements} ${counts.elements === 1 ? 'element' : 'elements'}`];
+  const position = useMemo(
+    () => (elements.length ? { value: mergedValue(mixedComputed(elements, 'position')), locked: anyElementLocked(elements) } : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selection, settled],
+  );
+  const positionWhy = positionBlocked({ objects: counts.objects, pieces }) ? POSITION_ACROSS : position?.locked ? LOCKED_REASON : undefined;
+  const parts = counts.elements ? [`${counts.elements} ${counts.elements === 1 ? 'element' : 'elements'}`] : [];
   if (counts.elementBoards > 1) parts.push(`on ${counts.elementBoards} artboards`);
-  if (counts.objects) parts.push(`and ${counts.objects} ${counts.objects === 1 ? 'canvas object' : 'canvas objects'}`);
+  if (selection.boards.length) parts.push(`${parts.length ? 'and ' : ''}${selection.boards.length} ${selection.boards.length === 1 ? 'artboard' : 'artboards'}`);
+  if (selection.notes.length) parts.push(`${parts.length ? 'and ' : ''}${selection.notes.length} ${selection.notes.length === 1 ? 'note' : 'notes'}`);
   return (
     <PSection title={`${counts.elements + counts.objects} selected`}>
       <PNote className="py-1">{parts.join(' ')}</PNote>
+      {position ? (
+        <PRow label="Position" title={positionWhy ?? (position.value === MIXED ? MIXED_ACROSS : undefined)}>
+          <PSelect
+            aria-label="Position"
+            value={position.value === MIXED ? '' : position.value || 'static'}
+            placeholder={MIXED}
+            options={POSITIONS}
+            disabled={readOnly || Boolean(positionWhy)}
+            onChange={(next) => next && styleMixed(elements, { position: next === 'static' ? null : next })}
+          />
+        </PRow>
+      ) : null}
       {rows.map(({ role, value }) => (
-        <PRow key={role} label={MIXED_ROW_LABELS[role]}>
+        <PRow key={role} label={MIXED_ROW_LABELS[role]} title={value === MIXED ? MIXED_ACROSS : undefined}>
           <PColor
             aria-label={MIXED_ROW_LABELS[role]}
             value=""
             placeholder={value === MIXED ? MIXED : value || undefined}
             disabled={readOnly}
-            onCommit={(next) => paintMixed(selection, role, next || null)}
+            onCommit={(next) => paintMixed(across, role, next || null)}
           />
         </PRow>
       ))}
-      <div className="px-3 pt-1">
-        <PButton onClick={deleteSelection} disabled={readOnly} className="text-danger">
-          <Trash2 className="size-3.5" /> Delete
-        </PButton>
-      </div>
     </PSection>
   );
 }
@@ -1259,24 +1418,11 @@ function PropertiesBody() {
   if (selection.kind === 'elements') return <ElementInspector key={selection.board} board={selection.board} />;
   if (selection.kind === 'mixed') return <MixedInspector selection={selection} />;
   if (selection.kind === 'objects') {
-    const count = selection.boards.length + selection.notes.length;
     const route = inspectorRoute(selection);
     if (route === 'board') return <BoardInspector path={selection.boards[0]!} />;
     if (route === 'note') return <NoteInspector id={selection.notes[0]!} />;
-    return (
-      <PSection title={`${count} selected`}>
-        <PNote className="py-1">
-          {selection.boards.length ? `${selection.boards.length} artboards` : ''}
-          {selection.boards.length && selection.notes.length ? ' and ' : ''}
-          {selection.notes.length ? `${selection.notes.length} notes` : ''}
-        </PNote>
-        <div className="px-3 pt-1">
-          <PButton onClick={deleteSelection} className="text-danger">
-            <Trash2 className="size-3.5" /> Delete
-          </PButton>
-        </div>
-      </PSection>
-    );
+    if (route === 'boards') return <BoardsInspector paths={selection.boards} />;
+    return <MixedInspector selection={selection} />;
   }
   return <CanvasInspector />;
 }

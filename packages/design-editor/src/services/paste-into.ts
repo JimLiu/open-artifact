@@ -6,7 +6,7 @@
 import { elementPath, elementSource, parseTemplate, elementChildren, styleMap, attributeValue, type HtmlElement, type TemplateModel } from '@open-artifact/dc';
 import { isLockedObject, type Rect } from '@open-artifact/design-core';
 import { toast } from '@open-artifact/ui';
-import type { ClipboardPayload } from '../lib/clipboard-data.ts';
+import type { ClipboardPayload, ElementsPayload, MixedPayload, ObjectsPayload } from '../lib/clipboard-data.ts';
 import { noteHtml } from '../lib/note-html.ts';
 import { arrangeLayers, boundsOf, dropPoint, layerPatch, staysInPlace, styledMarkup, type Layer } from '../lib/paste-layers.ts';
 import { writeBackPatch } from '../lib/layout-write-back.ts';
@@ -92,7 +92,7 @@ function soleRoot(model: TemplateModel): HtmlElement | null {
 }
 
 /** Layers for copied artboards and notes; `null` when one has no HTML, 'roots' when an artboard has several roots. */
-function objectLayers(payload: Extract<ClipboardPayload, { kind: 'objects' }>, source: string): { layers: Layer[]; css: string[] } | null | 'roots' {
+function objectLayers(payload: ObjectsPayload, source: string): { layers: Layer[]; css: string[] } | null | 'roots' {
   const layers: Layer[] = [];
   const freshId = idMaker(source);
   for (const note of payload.notes) {
@@ -119,11 +119,34 @@ function objectLayers(payload: Extract<ClipboardPayload, { kind: 'objects' }>, s
   return { layers, css };
 }
 
+/** True when copied elements paste into the artboard they came from, in this project: their source stands as is. */
+const pastesHome = (payload: ElementsPayload, board: string): boolean => payload.board === board && (payload.from ?? location.pathname) === location.pathname;
+
+/**
+ * Layers for the elements of a selection across files, in canvas
+ * coordinates: each artboard's elements where they sat on the canvas
+ * (keeping their width). `null` when a part was copied without its boxes.
+ */
+function mixedLayers(payload: MixedPayload, board: string): { layers: Layer[]; css: string[] } | null {
+  const layers: Layer[] = [];
+  const css: string[] = [];
+  for (const part of payload.elements) {
+    if (!part.at || !part.boxes || part.boxes.length !== part.html.length) return null;
+    const home = pastesHome(part, board);
+    for (const [index, html] of part.html.entries()) {
+      const box = part.boxes[index]!;
+      layers.push({ html: home ? html : (part.rendered?.[index] ?? html), box: { x: part.at.x + box.left, y: part.at.y + box.top, w: box.width, h: box.height }, root: true });
+    }
+    if (!home) css.push(...(part.css ?? []));
+  }
+  return { layers, css };
+}
+
 /** Copied elements placed around `drop` (or where they were), each written back as a positioned layer. */
-export function elementLayers(payload: Extract<ClipboardPayload, { kind: 'elements' }>, board: string, place: LayerPlace, drop: { x: number; y: number }): { html: string; helmet?: string } | null {
+export function elementLayers(payload: ElementsPayload, board: string, place: LayerPlace, drop: { x: number; y: number }): { html: string; helmet?: string } | null {
   const boxes = payload.boxes;
   if (!boxes || boxes.length !== payload.html.length) return null;
-  const same = payload.board === board && (payload.from ?? location.pathname) === location.pathname;
+  const same = pastesHome(payload, board);
   const markups = payload.html.map((html, index) => (same ? html : (payload.rendered?.[index] ?? html)));
   const group = boundsOf(boxes.map((box) => ({ x: box.left, y: box.top, w: box.width, h: box.height })));
   const stay = same && staysInPlace(group, { x: place.box.x, y: place.box.y, w: place.box.w, h: place.box.h });
@@ -161,8 +184,8 @@ export function pasteAsLayers(payload: ClipboardPayload, board: string, place: L
     return { kind: 'done' };
   }
   let markup: { html: string; helmet?: string } | null;
-  if (payload.kind === 'objects') {
-    const made = objectLayers(payload, source);
+  if (payload.kind === 'objects' || payload.kind === 'mixed') {
+    const made = payload.kind === 'objects' ? objectLayers(payload, source) : mixedLayers(payload, board);
     if (made === null) return { kind: 'fallback' };
     if (made === 'roots') {
       const entry = useDocument.getState().canvas.boards[board]!;

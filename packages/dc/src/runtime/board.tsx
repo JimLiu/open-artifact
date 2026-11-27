@@ -20,6 +20,7 @@ import type {
   BoardSize,
   ElementInspection,
   MeasuredBox,
+  MeasureThere,
   PickResult,
   ImportTextTargetSpec,
   RepeatedRow,
@@ -55,12 +56,20 @@ const INSPECTED = [
   'stroke-width', 'stroke-dasharray', 'stroke-linecap', 'stroke-linejoin', 'fill-opacity', 'stroke-opacity',
 ];
 
-/** Computed properties `measure` reports: placement, and the text styles an element inherits. */
+/** Computed properties `measure` reports: placement, the text styles an element inherits, and what a container shows. */
 const MEASURED = [
   'position', 'display', 'z-index', 'transform', 'rotate', 'scale', 'translate', 'margin-left', 'margin-top',
   'color', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-align',
-  'text-transform',
+  'text-transform', 'background-color', 'border-style', 'border-color', 'border-top-width', 'border-right-width',
+  'border-bottom-width', 'border-left-width', 'border-top-left-radius', 'border-top-right-radius',
+  'border-bottom-right-radius', 'border-bottom-left-radius',
 ];
+
+const readMeasured = (style: CSSStyleDeclaration): Record<string, string> => {
+  const out: Record<string, string> = {};
+  for (const name of MEASURED) out[name] = style.getPropertyValue(name);
+  return out;
+};
 
 /** True when a computed transform does more than move. */
 const turnsOrScales = (style: CSSStyleDeclaration): boolean => {
@@ -489,7 +498,33 @@ class Board implements BoardApi {
     };
   }
 
-  measure(tids: readonly number[], within: number | null): MeasuredBox[] | null {
+  /**
+   * What an element would compute placed in `there`: a bare copy of it (no
+   * children but a word, no template id, no transitions) is put there,
+   * read and taken out again before anything renders.
+   */
+  private computedThere(element: HTMLElement, there: MeasureThere): Record<string, string> | null {
+    const parent = there.parent === null ? document.querySelector<HTMLElement>('[data-dc-root]') : (this.instances(there.parent)[0] ?? null);
+    if (!parent) return null;
+    const copy = element.cloneNode(false) as HTMLElement;
+    copy.removeAttribute(TID_ATTRIBUTE);
+    if (element.firstChild) copy.appendChild(document.createTextNode('x'));
+    copy.style?.setProperty('transition', 'none', 'important');
+    copy.style?.setProperty('animation', 'none', 'important');
+    let placed: HTMLElement = copy;
+    if (there.wrap) {
+      placed = document.createElement('div');
+      placed.appendChild(copy);
+    }
+    try {
+      parent.appendChild(placed);
+      return readMeasured(getComputedStyle(copy));
+    } finally {
+      placed.remove();
+    }
+  }
+
+  measure(tids: readonly number[], within: number | null, there?: MeasureThere): MeasuredBox[] | null {
     // The artboard's root is the page: positions count from the document's corner.
     const container = within === null ? null : (this.instances(within)[0] ?? null);
     if (within !== null && !container) return null;
@@ -506,8 +541,7 @@ class Board implements BoardApi {
       const element = this.instances(tid)[0];
       if (!element) return null;
       const style = getComputedStyle(element);
-      const computed: Record<string, string> = {};
-      for (const name of MEASURED) computed[name] = style.getPropertyValue(name);
+      const computed = readMeasured(style);
       let transformed = false;
       for (let up = element.parentElement; up && up !== container; up = up.parentElement) if (turnsOrScales(getComputedStyle(up))) transformed = true;
       // The box before its own transform: its layout size around the centre a
@@ -519,7 +553,12 @@ class Board implements BoardApi {
       const shift = ownShift(style);
       const left = rect.x + rect.width / 2 - width / 2 - shift.x - originX;
       const top = rect.y + rect.height / 2 - height / 2 - shift.y - originY;
-      out.push({ tid, left, top, width, height, computed, transformed });
+      const box: MeasuredBox = { tid, left, top, width, height, computed, transformed };
+      if (there) {
+        const placed = this.computedThere(element, there);
+        if (placed) box.there = placed;
+      }
+      out.push(box);
     }
     return out;
   }

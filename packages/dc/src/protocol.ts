@@ -185,10 +185,25 @@ export interface MeasuredBox {
   top: number;
   width: number;
   height: number;
-  /** Computed values: `position`, `display`, `z-index`, `transform`, and the inherited text styles. */
+  /**
+   * Computed values: `position`, `display`, `z-index`, `transform`, the
+   * inherited text styles, and the styles a container shows (background,
+   * border, corner radii).
+   */
   computed: Record<string, string>;
   /** A box between it and the container is rotated, scaled or skewed. */
   transformed: boolean;
+  /**
+   * With a `MeasureThere`: the same computed values for a bare copy of it
+   * placed there, so what would change after the move can be kept.
+   */
+  there?: Record<string, string>;
+}
+
+/** Where measured elements are going: into `parent`'s first instance (the artboard when `null`), inside a new plain box when `wrap`. */
+export interface MeasureThere {
+  parent: number | null;
+  wrap?: boolean;
 }
 
 /** What the runtime exposes as `window.__dc`. */
@@ -216,9 +231,10 @@ export interface BoardApi {
   /**
    * The first instance of each node, measured against `within`'s first
    * instance (the artboard's root when `null`). `null` when one of them
-   * is not rendered, so nothing is half measured.
+   * is not rendered, so nothing is half measured. With `there`, each also
+   * reports what it would compute in that place (`MeasuredBox.there`).
    */
-  measure(tids: readonly number[], within: number | null): MeasuredBox[] | null;
+  measure(tids: readonly number[], within: number | null, there?: MeasureThere): MeasuredBox[] | null;
   /**
    * The render values a loaded `<dc-import name>` component computes for
    * these props (its logic's `renderVals()`); `null` when it is not loaded

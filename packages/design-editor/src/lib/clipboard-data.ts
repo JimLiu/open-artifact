@@ -7,36 +7,68 @@
 import { applySplices, escapeAttribute, getAttribute, parseDcDocument, parseTemplate, type Splice } from '@open-artifact/dc';
 import type { BoardEntry, CanvasNote } from '@open-artifact/design-core';
 
+/** Copied elements of one artboard. */
+export interface ElementsPayload {
+  kind: 'elements';
+  board: string;
+  /** The elements' template source. */
+  html: string[];
+  /** The project it came from (pastes into the same artboard use the source as is). */
+  from?: string;
+  /**
+   * Per element, its rendered markup when its source depends on the
+   * artboard (loops, conditions, components, values): what a paste into
+   * another artboard uses. `null` when the source stands on its own.
+   */
+  rendered?: (string | null)[];
+  /** Style rules of the artboard that apply to the elements, carried into another artboard's helmet. */
+  css?: string[];
+  /**
+   * Per element, where it sat in its artboard when copied (against the
+   * root), with what it computed: pastes into an artboard keep them apart
+   * as they were. Missing when the page could not be measured.
+   */
+  boxes?: CopiedBox[];
+  /**
+   * The elements as standalone HTML (computed styles inline), for other
+   * apps. Written to the clipboard, not kept in the marker.
+   */
+  standalone?: string;
+  /** Where the artboard sat on the canvas when copied (the parts of a selection across files). */
+  at?: { x: number; y: number };
+}
+
+/** Copied artboards and notes. */
+export interface ObjectsPayload {
+  kind: 'objects';
+  externalCode?: boolean;
+  boards: { path: string; entry: BoardEntry; source: string }[];
+  notes: CanvasNote[];
+}
+
+/**
+ * The elements of a selection across files: each artboard's elements as an
+ * elements payload of their own. Artboards and notes are not copied along.
+ */
+export interface MixedPayload {
+  kind: 'mixed';
+  elements: ElementsPayload[];
+}
+
 /** What a copy holds. */
-export type ClipboardPayload =
-  | {
-      kind: 'elements';
-      board: string;
-      /** The elements' template source. */
-      html: string[];
-      /** The project it came from (pastes into the same artboard use the source as is). */
-      from?: string;
-      /**
-       * Per element, its rendered markup when its source depends on the
-       * artboard (loops, conditions, components, values): what a paste into
-       * another artboard uses. `null` when the source stands on its own.
-       */
-      rendered?: (string | null)[];
-      /** Style rules of the artboard that apply to the elements, carried into another artboard's helmet. */
-      css?: string[];
-      /**
-       * Per element, where it sat in its artboard when copied (against the
-       * root), with what it computed: pastes into an artboard keep them apart
-       * as they were. Missing when the page could not be measured.
-       */
-      boxes?: CopiedBox[];
-      /**
-       * The elements as standalone HTML (computed styles inline), for other
-       * apps. Written to the clipboard, not kept in the marker.
-       */
-      standalone?: string;
-    }
-  | { kind: 'objects'; externalCode?: boolean; boards: { path: string; entry: BoardEntry; source: string }[]; notes: CanvasNote[] };
+export type ClipboardPayload = ElementsPayload | ObjectsPayload | MixedPayload;
+
+/**
+ * Copied elements of several artboards in the simplest shape that holds
+ * them: one artboard's elements stay an elements payload; `null` when
+ * there are none.
+ */
+export function joinedPayload(elements: readonly ElementsPayload[]): ElementsPayload | MixedPayload | null {
+  const parts = elements.filter((part) => part.html.length);
+  if (!parts.length) return null;
+  if (parts.length === 1) return parts[0]!;
+  return { kind: 'mixed', elements: [...parts] };
+}
 
 /** A copied element's border box against its artboard's root, and its computed layout. */
 export interface CopiedBox {
@@ -64,7 +96,7 @@ function decode(text: string): ClipboardPayload | null {
     const binary = atob(text);
     const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
     const value = JSON.parse(new TextDecoder().decode(bytes)) as ClipboardPayload;
-    return value && (value.kind === 'elements' || value.kind === 'objects') ? value : null;
+    return value && (value.kind === 'elements' || value.kind === 'objects' || (value.kind === 'mixed' && Array.isArray(value.elements))) ? value : null;
   } catch {
     return null;
   }
@@ -76,6 +108,12 @@ export function clipboardData(payload: ClipboardPayload): { html: string; text: 
     // Other apps get the standalone rendering: the source needs this artboard's styles, data and components.
     const { standalone, ...kept } = payload;
     const body = standalone ?? payload.html.join('\n');
+    return { html: `<meta ${MARKER}="${encode(kept)}">${body}`, text: body };
+  }
+  if (payload.kind === 'mixed') {
+    // Other apps get the standalone HTML; the marker keeps the source.
+    const kept = { ...payload, elements: payload.elements.map(({ standalone: _standalone, ...part }) => part) };
+    const body = payload.elements.map((part) => part.standalone ?? part.html.join('\n')).join('\n');
     return { html: `<meta ${MARKER}="${encode(kept)}">${body}`, text: body };
   }
   const text = [...payload.boards.map((b) => b.entry.title ?? b.path), ...payload.notes.map((n) => n.text).filter(Boolean)].join('\n');

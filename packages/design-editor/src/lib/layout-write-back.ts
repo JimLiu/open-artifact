@@ -17,12 +17,18 @@ export interface MeasuredElement {
   inline: Readonly<Record<string, string>>;
   /** Border box against the new container's padding box. */
   box: { left: number; top: number; width: number; height: number };
-  /** `position`, `display`, `z-index`, margins and inherited text styles, computed. */
+  /** `position`, `display`, `z-index`, margins, inherited text styles and container styles, computed. */
   computed: Readonly<Record<string, string>>;
+  /** The same computed for a bare copy of it in the new place, when that was measured. */
+  there?: Readonly<Record<string, string>>;
 }
 
 /** Text styles an element takes from its parent. */
 export const INHERITED_TEXT = ['color', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-align', 'text-transform'] as const;
+
+/** Box styles a container shows: they go with an element when the new place would show them differently. */
+export const BORDER_STYLES = ['border-style', 'border-color', 'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width'] as const;
+export const RADIUS_STYLES = ['border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius'] as const;
 
 /** Components draw themselves: they keep only their place and size. */
 export const isImportTag = (tag: string): boolean => tag === 'x-import' || tag === 'dc-import';
@@ -81,16 +87,49 @@ export function writeBackPatch(element: MeasuredElement, inheritedThere: Readonl
   const placed = GRID_PLACEMENT.filter((name) => inline[name] !== undefined);
   for (const name of placed) patch[name] = null;
   if (placed.length) patch['grid-area'] = 'auto';
-  if (inheritedThere && !isImportTag(element.tag) && !inline.font) {
-    for (const name of INHERITED_TEXT) {
-      if (inline[name] !== undefined) continue;
-      const own = computed[name];
-      if (own && inheritedThere[name] !== undefined && own !== inheritedThere[name]) patch[name] = own;
-    }
-  }
+  if (!isImportTag(element.tag)) Object.assign(patch, carriedStyles(element, inheritedThere));
   // Nothing written may take away an expression.
   for (const [name, value] of Object.entries(patch)) if (holes(inline[name]) > holes(value ?? undefined)) return null;
   return patch;
+}
+
+/**
+ * The styles an element takes with it to keep looking the same: text
+ * styles it inherited, and the background, border and corners its old
+ * place gave it, wherever the new place (`element.there`, else the new
+ * parent's `inheritedThere` for text) would differ. What the author wrote
+ * inline stays theirs; a border goes only with a width to show and all of
+ * its parts, corners all four together.
+ */
+export function carriedStyles(element: MeasuredElement, inheritedThere: Readonly<Record<string, string>> | null = null): Record<string, string> {
+  const { inline, computed, there } = element;
+  const out: Record<string, string> = {};
+  const differs = (name: string): boolean => {
+    const own = computed[name];
+    const other = there ? there[name] : undefined;
+    return Boolean(own) && other !== undefined && own !== other;
+  };
+  const written = (prefix: string): boolean => Object.keys(inline).some((name) => name === prefix || name.startsWith(`${prefix}-`));
+  if (!inline.font) {
+    for (const name of INHERITED_TEXT) {
+      if (inline[name] !== undefined) continue;
+      const own = computed[name];
+      const other = there ? there[name] : inheritedThere?.[name];
+      if (own && other !== undefined && own !== other) out[name] = own;
+    }
+  }
+  if (!there) return out;
+  if (!written('background') && differs('background-color')) out['background-color'] = computed['background-color']!;
+  const radiusWritten = written('border-radius') || RADIUS_STYLES.some((name) => inline[name] !== undefined);
+  const borderWritten = Object.keys(inline).some((name) => name.startsWith('border') && !name.endsWith('radius'));
+  const showsBorder = BORDER_STYLES.slice(2).some((name) => (parseFloat(computed[name] ?? '') || 0) > 0);
+  if (!borderWritten && showsBorder && BORDER_STYLES.some(differs) && BORDER_STYLES.every((name) => computed[name])) {
+    for (const name of BORDER_STYLES) out[name] = computed[name]!;
+  }
+  if (!radiusWritten && RADIUS_STYLES.some(differs) && RADIUS_STYLES.every((name) => computed[name])) {
+    for (const name of RADIUS_STYLES) out[name] = computed[name]!;
+  }
+  return out;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -192,9 +231,26 @@ export function positionedGroup(members: readonly MeasuredElement[]): Extract<Gr
  * element can leave the flow.
  */
 export function staysByPosition(element: { tag: string; display: string; repeated: boolean }, container: { display: string; positioned: boolean; root: boolean; others: readonly string[] }): boolean {
-  if (element.repeated || isTablePart(element.tag, element.display)) return false;
-  if (element.display === 'inline') return false;
+  if (!canLeaveFlow(element)) return false;
   if (container.display !== 'block' && container.display !== 'flow-root') return false;
   if (container.others.length) return container.others.every(isPositioned);
   return container.root || container.positioned;
+}
+
+/** Whether a flowing element can be taken out of the flow and kept in place: not repeated, not a table part, not inline. */
+export function canLeaveFlow(element: { tag: string; display: string; repeated: boolean }): boolean {
+  return !element.repeated && !isTablePart(element.tag, element.display) && element.display !== 'inline';
+}
+
+/**
+ * Which children of an ungrouped group are written back to stay where they
+ * were, by position: positioned ones always; flowing ones only when the
+ * group itself was absolute or fixed and every child can leave the flow
+ * (`blocked` when one of them cannot be measured as one element). Hidden
+ * children are left as they are.
+ */
+export function liftedOnUngroup(group: { position: string; blocked?: boolean }, children: readonly { tag: string; position: string; display: string; repeated: boolean }[]): boolean[] {
+  const hidden = (child: { display: string }): boolean => child.display === 'none';
+  const lifts = isPositioned(group.position) && !group.blocked && children.every((child) => isPositioned(child.position) || hidden(child) || canLeaveFlow(child));
+  return children.map((child) => !hidden(child) && (isPositioned(child.position) || lifts));
 }

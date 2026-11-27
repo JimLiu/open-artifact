@@ -8,11 +8,14 @@
 
 import { attributeValue, elementKind, elementPath, hasDynamicStyle, styleMap, type HtmlElement, type StylePatch, type TemplateModel } from '@open-artifact/dc';
 import { toast } from '@open-artifact/ui';
+import { noteCssValue, type CanvasNote } from '@open-artifact/design-core';
+import { shapeFill } from '../lib/note-look.ts';
+import { noteRoles } from '../lib/mixed-panel.ts';
 import { useDocument } from '../state/document.ts';
 import { useView } from '../state/view.ts';
 import type { Address, BoardOp } from '../lib/ops.ts';
 import { isPaintProperty, loneShapeOf, paintTargetOf } from '../lib/lone-shape.ts';
-import { boxSwap, clipsToText, noteSwap, noteUnfill, REMOVE_FILL_PATCH, shapeSwap, SHAPE_UNFILL_PATCH, NOTHING_TO_UNFILL, SWAP_MESSAGES, swapReport, UNFILL_PATCH, type SwapRefusal } from '../lib/paint.ts';
+import { boxSwap, clipsToText, noteFilled, noteSwap, noteUnfill, REMOVE_FILL_PATCH, shapeSwap, SHAPE_UNFILL_PATCH, NOTHING_TO_UNFILL, SWAP_MESSAGES, swapReport, UNFILL_PATCH, type SwapRefusal } from '../lib/paint.ts';
 import { edit, resolvedGroups, selectedElements, tryEdit, type ResolvedGroup } from './commands.ts';
 import { paintKindOf, paintProperty, type MixedSelection, type PaintKind, type PaintRole } from '../lib/selection.ts';
 import { boardApi } from './frames.ts';
@@ -63,106 +66,183 @@ function writePaint(board: string, edits: { target: Address; patch: StylePatch }
 }
 
 /** Tells how a swap went: done, done in part, or why not. */
-function reportSwap(refusals: SwapRefusal[], swapped: number): void {
-  const report = swapReport(refusals, swapped);
+function reportSwap(refusals: SwapRefusal[], swapped: number, failed = false): void {
+  const report = swapReport(refusals, swapped, failed);
   if (!report) return;
   if ('toast' in report) toast.add({ title: report.toast });
   else announce(report.announce);
 }
 
-/** ⇧X: swaps fill and stroke of the selected elements or shape notes. False when nothing is selected that could. */
+/** Style edits that swap fill and stroke in one artboard, and what was refused. */
+interface SwapPlan {
+  edits: { target: Address; patch: StylePatch }[];
+  refusals: SwapRefusal[];
+  swapped: number;
+}
+
+/** Plans the swap of one artboard's selected elements. */
+function planSwap({ board, model, elements }: ResolvedGroup): SwapPlan {
+  const plan: SwapPlan = { edits: [], refusals: [], swapped: 0 };
+  const api = boardApi(board);
+  for (const element of new Set(elements.map((el) => (SHAPES.has(el.tag) && el.parent && loneShapeOf(el.parent) === el ? el.parent : el)))) {
+    const subject = paintSubject(element);
+    if (!subject) {
+      plan.refusals.push('unfit');
+      continue;
+    }
+    if ('box' in subject) {
+      const shown = api?.inspect(model.tidOf.get(subject.box)!);
+      if (api && !shown) {
+        plan.refusals.push('hidden');
+        continue;
+      }
+      const swap = boxSwap(subject.box, shown?.computed);
+      if ('refused' in swap) plan.refusals.push(swap.refused);
+      else {
+        plan.edits.push({ target: address(model, subject.box), patch: swap.patch });
+        plan.swapped++;
+      }
+      continue;
+    }
+    const swap = shapeSwap(subject.shape, onePixelStroke(board, model, subject.svg ?? subject.shape.parent));
+    if ('refused' in swap) plan.refusals.push(swap.refused);
+    else {
+      plan.edits.push(...shapeEdits(model, subject.shape, subject.svg, swap.patch));
+      plan.swapped++;
+    }
+  }
+  return plan;
+}
+
+/** Swaps fill and stroke of shape notes on the canvas; returns what was refused and how many swapped. */
+function swapNotes(ids: readonly string[]): { refusals: SwapRefusal[]; swapped: number } {
+  const doc = useDocument.getState();
+  const refusals: SwapRefusal[] = [];
+  const changed: [string, CanvasNote][] = [];
+  for (const id of ids) {
+    const note = doc.canvas.notes[id];
+    if (!note) continue;
+    const result = noteSwap(note);
+    if (typeof result === 'string') refusals.push(result);
+    else changed.push([id, result]);
+  }
+  if (changed.length) doc.updateCanvas((canvas) => ({ ...canvas, notes: { ...canvas.notes, ...Object.fromEntries(changed) } }));
+  return { refusals, swapped: changed.length };
+}
+
+/**
+ * ⇧X: swaps fill and stroke of the selected elements or shape notes. Across
+ * files, each artboard swaps its own elements and the notes swap on the
+ * canvas, as one undo step; artboards have nothing to swap. False when
+ * nothing is selected that could.
+ */
 export function swapSelectionPaint(): boolean {
   const view = useView.getState();
   const doc = useDocument.getState();
   if (doc.readOnly) return false;
   const { selection } = view;
   if (selection.kind === 'objects') {
+    const notes = swapNotes(selection.notes);
     // Artboards have no fill and stroke to swap.
-    const refusals: SwapRefusal[] = selection.boards.length ? ['unfit'] : [];
-    const next = { ...doc.canvas.notes };
-    let swapped = 0;
-    for (const id of selection.notes) {
-      const note = next[id];
-      if (!note) continue;
-      const result = noteSwap(note);
-      if (typeof result === 'string') refusals.push(result);
-      else {
-        next[id] = result;
-        swapped++;
-      }
-    }
-    if (swapped) doc.updateCanvas((canvas) => ({ ...canvas, notes: { ...canvas.notes, ...Object.fromEntries(selection.notes.filter((id) => next[id]).map((id) => [id, next[id]!])) } }));
-    reportSwap(refusals, swapped);
+    reportSwap([...(selection.boards.length ? ['unfit' as const] : []), ...notes.refusals], notes.swapped);
     return true;
   }
-  if (selection.kind !== 'elements') return false;
+  if (selection.kind !== 'elements' && selection.kind !== 'mixed') return false;
   if (view.crop) {
     toast.add({ title: SWAP_MESSAGES.busy });
     return true;
   }
-  const selected = selectedElements();
-  if (!selected) return false;
-  const { board, model } = selected;
-  const refusals: SwapRefusal[] = [];
-  const edits: { target: Address; patch: StylePatch }[] = [];
-  let swapped = 0;
-  for (const element of new Set(selected.elements.map((el) => (SHAPES.has(el.tag) && el.parent && loneShapeOf(el.parent) === el ? el.parent : el)))) {
-    const subject = paintSubject(element);
-    if (!subject) {
-      refusals.push('unfit');
-      continue;
-    }
-    if ('box' in subject) {
-      const api = boardApi(board);
-      const shown = api?.inspect(model.tidOf.get(subject.box)!);
-      if (api && !shown) {
-        refusals.push('hidden');
-        continue;
+  if (selection.kind === 'mixed') {
+    const refusals: SwapRefusal[] = [];
+    let swapped = 0;
+    let failed = false;
+    doc.transact(() => {
+      for (const group of resolvedGroups(selection.elements)) {
+        const plan = planSwap(group);
+        refusals.push(...plan.refusals);
+        if (!plan.edits.length) continue;
+        if (tryEdit(group.board, { kind: 'styles', edits: plan.edits }).kind === 'done') swapped += plan.swapped;
+        else failed = true;
       }
-      const plan = boxSwap(subject.box, shown?.computed);
-      if ('refused' in plan) refusals.push(plan.refused);
-      else {
-        edits.push({ target: address(model, subject.box), patch: plan.patch });
-        swapped++;
-      }
-      continue;
-    }
-    const plan = shapeSwap(subject.shape, onePixelStroke(board, model, subject.svg ?? subject.shape.parent));
-    if ('refused' in plan) refusals.push(plan.refused);
-    else {
-      edits.push(...shapeEdits(model, subject.shape, subject.svg, plan.patch));
-      swapped++;
-    }
-  }
-  if (swapped && !writePaint(board, edits)) {
-    toast.add({ title: SWAP_MESSAGES.failed });
+      const notes = swapNotes(selection.notes);
+      refusals.push(...notes.refusals);
+      swapped += notes.swapped;
+      if (selection.boards.length) refusals.push('unfit');
+    });
+    reportSwap(refusals, swapped, failed);
     return true;
   }
-  reportSwap(refusals, swapped);
+  const selected = selectedElements();
+  if (!selected) return false;
+  const plan = planSwap(selected);
+  if (plan.swapped && !writePaint(selected.board, plan.edits)) {
+    reportSwap(plan.refusals, 0, true);
+    return true;
+  }
+  reportSwap(plan.refusals, plan.swapped);
   return true;
 }
 
-/** X: takes the fill away from the selected elements or shape notes. */
+/** Notes without their fill; empty when none had one to take away. */
+function unfilledNotes(ids: readonly string[]): [string, CanvasNote][] {
+  const { notes } = useDocument.getState().canvas;
+  return ids.flatMap((id) => {
+    const next = notes[id] ? noteUnfill(notes[id]!) : null;
+    return next ? [[id, next] as [string, CanvasNote]] : [];
+  });
+}
+
+/**
+ * X: takes the fill away from the selected elements or shape notes; across
+ * files from each artboard's elements and the notes, as one undo step.
+ */
 export function unfillSelection(): boolean {
   const view = useView.getState();
   const doc = useDocument.getState();
   if (doc.readOnly) return false;
   const { selection } = view;
-  if (selection.kind === 'objects') {
-    const changed = selection.notes.flatMap((id) => {
-      const note = doc.canvas.notes[id];
-      const next = note ? noteUnfill(note) : null;
-      return next ? [[id, next] as const] : [];
+  if (selection.kind === 'objects' || selection.kind === 'mixed') {
+    let removed = false;
+    doc.transact(() => {
+      if (selection.kind === 'mixed') {
+        for (const group of resolvedGroups(selection.elements)) {
+          const plan = planUnfill(group, UNFILL_PATCH);
+          if (!plan.edits.length || tryEdit(group.board, { kind: 'styles', edits: plan.edits }).kind !== 'done') continue;
+          for (const target of plan.unfilled) tryEdit(group.board, { kind: 'attr', target, name: 'fill', value: null });
+          removed = true;
+        }
+      }
+      const changed = unfilledNotes(selection.notes);
+      if (changed.length) {
+        useDocument.getState().updateCanvas((canvas) => ({ ...canvas, notes: { ...canvas.notes, ...Object.fromEntries(changed) } }));
+        removed = true;
+      }
     });
-    if (changed.length) {
-      doc.updateCanvas((canvas) => ({ ...canvas, notes: { ...canvas.notes, ...Object.fromEntries(changed) } }));
-      announce('Fill removed');
-    } else toast.add({ title: NOTHING_TO_UNFILL });
+    if (removed) announce('Fill removed');
+    else toast.add({ title: NOTHING_TO_UNFILL });
     return true;
   }
   if (selection.kind !== 'elements') return false;
   if (!removeFill(UNFILL_PATCH)) toast.add({ title: NOTHING_TO_UNFILL });
   return true;
+}
+
+/** The edits that take the fill away from one artboard's selected elements, and the `fill` attributes to remove. */
+function planUnfill({ model, elements }: ResolvedGroup, patch: StylePatch): { edits: { target: Address; patch: StylePatch }[]; unfilled: Address[] } {
+  const edits: { target: Address; patch: StylePatch }[] = [];
+  const unfilled: Address[] = [];
+  for (const element of elements) {
+    const subject = paintSubject(element);
+    if (!subject) continue;
+    if ('box' in subject) {
+      const style = subject.box.attrs.find((attr) => attr.name.toLowerCase() === 'style')?.value ?? '';
+      edits.push({ target: address(model, subject.box), patch: clipsToText(styleMap(style)) ? { 'background-color': 'transparent' } : patch });
+      continue;
+    }
+    edits.push(...shapeEdits(model, subject.shape, subject.svg, SHAPE_UNFILL_PATCH));
+    for (const owner of [subject.shape, subject.svg]) if (owner && owner.attrs.some((attr) => attr.name.toLowerCase() === 'fill')) unfilled.push(address(model, owner));
+  }
+  return { edits, unfilled };
 }
 
 /**
@@ -174,22 +254,9 @@ export function unfillSelection(): boolean {
 export function removeFill(patch: StylePatch = REMOVE_FILL_PATCH): boolean {
   const selected = selectedElements();
   if (!selected) return false;
-  const { board, model } = selected;
-  const edits: { target: Address; patch: StylePatch }[] = [];
-  const unfilled: Address[] = [];
-  for (const element of selected.elements) {
-    const subject = paintSubject(element);
-    if (!subject) continue;
-    if ('box' in subject) {
-      const style = subject.box.attrs.find((attr) => attr.name.toLowerCase() === 'style')?.value ?? '';
-      edits.push({ target: address(model, subject.box), patch: clipsToText(styleMap(style)) ? { 'background-color': 'transparent' } : patch });
-      continue;
-    }
-    edits.push(...shapeEdits(model, subject.shape, subject.svg, SHAPE_UNFILL_PATCH));
-    for (const owner of [subject.shape, subject.svg]) if (owner && owner.attrs.some((attr) => attr.name.toLowerCase() === 'fill')) unfilled.push(address(model, owner));
-  }
+  const { edits, unfilled } = planUnfill(selected, patch);
   if (!edits.length) return false;
-  if (writePaint(board, edits, unfilled)) announce('Fill removed');
+  if (writePaint(selected.board, edits, unfilled)) announce('Fill removed');
   return true;
 }
 
@@ -224,20 +291,23 @@ export function layerPaint(svg: HtmlElement, shape: HtmlElement): Record<string,
 /** The paint kind of an element (see `paintKindOf`). */
 const kindOf = (element: HtmlElement): PaintKind => paintKindOf(elementKind(element), element.tag);
 
+/** What a merged color row paints: elements of any artboards, and notes. */
+export type PaintAcross = Pick<MixedSelection, 'elements' | 'notes'>;
+
 /** The elements of a mixed selection whose colors can change: not styled by code (a lock keeps only place and size). */
-function paintableGroups(selection: MixedSelection): ResolvedGroup[] {
+function paintableGroups(selection: Pick<MixedSelection, 'elements'>): ResolvedGroup[] {
   return resolvedGroups(selection.elements)
     .map((group) => ({ ...group, elements: group.elements.filter((element) => !hasDynamicStyle(element)) }))
     .filter((group) => group.elements.length > 0);
 }
 
 /** The paint kinds among a mixed selection's elements whose colors can change. */
-export function mixedPaintKinds(selection: MixedSelection): PaintKind[] {
+export function mixedPaintKinds(selection: Pick<MixedSelection, 'elements'>): PaintKind[] {
   return [...new Set(paintableGroups(selection).flatMap((group) => group.elements.map(kindOf)))];
 }
 
 /** The paint kind of every element of a mixed selection: a merged row lists what all of them have. */
-export function mixedElementKinds(selection: MixedSelection): PaintKind[] {
+export function mixedElementKinds(selection: Pick<MixedSelection, 'elements'>): PaintKind[] {
   return resolvedGroups(selection.elements).flatMap((group) => group.elements.map(kindOf));
 }
 
@@ -251,7 +321,7 @@ function drawnPaint(element: HtmlElement): Record<string, string> {
 }
 
 /** Each element's color for a role, for a merged row (elements that take no such color are left out). */
-export function mixedPaintValues(selection: MixedSelection, role: PaintRole): string[] {
+export function mixedPaintValues(selection: Pick<MixedSelection, 'elements'>, role: PaintRole): string[] {
   return resolvedGroups(selection.elements).flatMap((group) => {
     const api = boardApi(group.board);
     return group.elements.flatMap((element) => {
@@ -266,18 +336,35 @@ export function mixedPaintValues(selection: MixedSelection, role: PaintRole): st
   });
 }
 
+/** The fill of each shape note among these (a merged Fill row). */
+export function noteFillValues(ids: readonly string[]): string[] {
+  const notes = useDocument.getState().canvas.notes;
+  return ids.flatMap((id) => (notes[id] && noteRoles(notes[id]).includes('fill') ? [shapeFill(notes[id])] : []));
+}
+
 /**
- * Sets one color across a mixed selection as one undo step: each element
- * gets the property its kind takes for that role (`paintProperty`), on
- * the part where it shows (a single-shape graphic's shape or the graphic);
- * the others are left alone. `null` takes the color away. Returns false
- * when nothing took it.
+ * Sets one color across a selection as one undo step: each element gets
+ * the property its kind takes for that role (`paintProperty`), on the
+ * part where it shows (a single-shape graphic's shape or the graphic);
+ * a shape note takes a fill as its background. The others are left
+ * alone. `null` takes the color away. Returns false when nothing took it.
  */
-export function paintMixed(selection: MixedSelection, role: PaintRole, color: string | null): boolean {
+export function paintMixed(selection: PaintAcross, role: PaintRole, color: string | null): boolean {
   const doc = useDocument.getState();
   if (doc.readOnly) return false;
   let painted = false;
   doc.transact(() => {
+    if (role === 'fill' && (color === null || noteCssValue('background-color', color) !== null)) {
+      const notes = doc.canvas.notes;
+      const changed = selection.notes.flatMap((id) => {
+        const next = notes[id] ? noteFilled(notes[id], color) : null;
+        return next ? [[id, next] as const] : [];
+      });
+      if (changed.length) {
+        doc.updateCanvas((canvas) => ({ ...canvas, notes: { ...canvas.notes, ...Object.fromEntries(changed) } }));
+        painted = true;
+      }
+    }
     for (const group of paintableGroups(selection)) {
       const edits = group.elements.flatMap((element) => {
         const property = paintProperty(kindOf(element), role);

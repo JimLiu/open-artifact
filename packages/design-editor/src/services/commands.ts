@@ -228,8 +228,7 @@ const addresses = (group: BoardElements): Address[] => group.items.map(({ tid, p
 function deleteMixed(selection: MixedSelection): void {
   const doc = useDocument.getState();
   if (doc.readOnly) return;
-  const groups = unlockedElementGroups(selection);
-  const free = unlockedObjects(doc.canvas, selection.boards, selection.notes);
+  const { elements: groups, ...free } = unlockedMixed(selection);
   if (!groups.length && !free.boards.length && !free.notes.length) {
     refuseLocked();
     return;
@@ -255,6 +254,57 @@ function deleteMixed(selection: MixedSelection): void {
     }),
   );
   announce(count === 1 ? 'Deleted' : `Deleted ${count} items`);
+}
+
+/** The members of a mixed selection that are not locked themselves: what a delete or a cut removes. */
+export function unlockedMixed(selection: MixedSelection): { boards: string[]; notes: string[]; elements: BoardElements[] } {
+  const free = unlockedObjects(useDocument.getState().canvas, selection.boards, selection.notes);
+  return { boards: [...free.boards], notes: [...free.notes], elements: unlockedElementGroups(selection) };
+}
+
+/**
+ * Removes the elements of a mixed selection as one undo step, for a cut:
+ * its artboards and notes stay, and stay selected. False when nothing went.
+ */
+export function removeMixedElements(selection: MixedSelection): boolean {
+  const doc = useDocument.getState();
+  if (doc.readOnly) return false;
+  let removed = false;
+  doc.transact(() => {
+    for (const group of selection.elements) if (edit(group.board, { kind: 'remove', targets: addresses(group) })) removed = true;
+  });
+  if (removed) useView.getState().select(selectionFrom({ boards: selection.boards, notes: selection.notes, elements: [] }));
+  return removed;
+}
+
+/** True when one of these elements is locked (it keeps its place and size). */
+export function anyElementLocked(groups: readonly BoardElements[]): boolean {
+  return resolvedGroups(groups).some((group) => group.elements.some(isElementLocked));
+}
+
+/** Each selected element's rendered value of one property, across artboards (a merged row). */
+export function mixedComputed(groups: readonly BoardElements[], property: string): string[] {
+  return resolvedGroups(groups).flatMap((group) => {
+    const api = boardApi(group.board);
+    return group.elements.map((element) => api?.inspect(group.model.tidOf.get(element)!)?.computed[property] ?? '');
+  });
+}
+
+/**
+ * One style patch on every selected element across artboards, as one
+ * undo step; false when nothing took it.
+ */
+export function styleMixed(groups: readonly BoardElements[], patch: StylePatch): boolean {
+  const doc = useDocument.getState();
+  if (doc.readOnly) return false;
+  let styled = false;
+  doc.transact(() => {
+    for (const group of resolvedGroups(groups)) {
+      const edits = group.elements.map((element) => ({ target: addressIn(group.model, element), patch }));
+      if (tryEdit(group.board, { kind: 'styles', edits }).kind === 'done') styled = true;
+    }
+  });
+  return styled;
 }
 
 /** Removes artboards and notes from the canvas. */

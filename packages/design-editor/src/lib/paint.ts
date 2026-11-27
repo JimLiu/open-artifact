@@ -46,18 +46,22 @@ export const SWAP_MESSAGES = {
   rest: 'The rest swapped.',
   busy: 'Finish cropping or editing points first',
   failed: 'Couldn’t swap the fill and stroke. Try again.',
+  partial: 'Part of the selection couldn’t be swapped. Undo if you want it all to match.',
 } as const;
 
 /** X with nothing to take the fill from. */
 export const NOTHING_TO_UNFILL = 'Nothing selected has a fill that can be removed.';
 
 /**
- * How a swap is told: a toast when anything was refused (the first reason,
- * then "The rest swapped." if some went through), else a quiet
- * announcement. `null` when nothing was tried.
+ * How a swap is told. A write that failed: "couldn't swap", or "part of the
+ * selection" when some went through. Otherwise a toast when anything was
+ * refused (the first reason other than "wouldn't change it", which counts
+ * only when nothing swapped; then "The rest swapped." if some went through),
+ * else a quiet announcement. `null` when nothing was tried.
  */
-export function swapReport(refusals: readonly SwapRefusal[], swapped: number): { toast: string } | { announce: string } | null {
-  const reason = refusals[0];
+export function swapReport(refusals: readonly SwapRefusal[], swapped: number, failed = false): { toast: string } | { announce: string } | null {
+  if (failed) return { toast: swapped ? SWAP_MESSAGES.partial : SWAP_MESSAGES.failed };
+  const reason = refusals.find((refusal) => refusal !== 'nothing') ?? (swapped ? undefined : refusals[0]);
   if (reason) return { toast: swapped ? `${sentence(swapRefusalMessage(reason))} ${SWAP_MESSAGES.rest}` : sentence(swapRefusalMessage(reason)) };
   return swapped ? { announce: SWAP_MESSAGES.done } : null;
 }
@@ -201,6 +205,17 @@ export function noteUnfill(note: CanvasNote): CanvasNote | null {
   const next = withCss(note, cssWithout(note.css, NOTE_BACKGROUND));
   delete next.fill;
   return next;
+}
+
+/**
+ * A shape note with one fill color, written as its css background (a
+ * merged Fill row across a selection); `null` goes back to its palette
+ * fill. `null` for notes that take no fill.
+ */
+export function noteFilled(note: CanvasNote, color: string | null): CanvasNote | null {
+  if (note.kind !== 'rect' && note.kind !== 'oval') return null;
+  const css = cssWithout(note.css, NOTE_BACKGROUND);
+  return withCss(note, color ? { ...css, 'background-color': color } : css);
 }
 
 /**
