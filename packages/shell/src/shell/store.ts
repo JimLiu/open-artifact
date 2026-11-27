@@ -134,7 +134,7 @@ export interface ShellActions {
   mergeArtifact(patch: Partial<ArtifactDetail>): void;
   setReport(report: ChromeReport): void;
   setFrameLoading(): void;
-  setHost(host: HostInfo): void;
+  setHost(host: HostInfo | null): void;
   setLibrary(library: ArtifactView[] | null): void;
   setBarHidden(hidden: boolean): void;
   setMenuOpen(open: boolean): void;

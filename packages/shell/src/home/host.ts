@@ -7,7 +7,7 @@
 
 import { isShellMessage, type HomeToHost, type HostCaps, type HostLibraryFilter } from '@open-artifact/protocol';
 import { HOME_BOOT_GLOBAL, homeBootOf, type HomeBootRead } from '../lib/cloud.ts';
-import { declaredHosts } from '../lib/host-origins.ts';
+import { hostsForHellos } from '../lib/host-origins.ts';
 import { homeHostOf } from './model.ts';
 import { useHome } from './store.ts';
 
@@ -32,6 +32,8 @@ export interface HomeHost {
 }
 
 const embedded = window.parent !== window;
+/** The declared-host list for each `host_hello`, in order, as the Shell reads it. */
+const helloHosts = hostsForHellos();
 
 /** Sends a message to the host's origin. Does nothing without a host. */
 export function toHost(message: HomeToHost): void {
@@ -43,10 +45,15 @@ function onMessage(event: MessageEvent): void {
   const message: unknown = event.data;
   if (!embedded || event.source !== window.parent || !isShellMessage(message) || message.openArtifact !== 'host_hello') return;
   const origin = event.origin;
-  // As the Shell: only an origin a connected adapter declared, while any did.
-  void declaredHosts().then((hosts) => {
+  // As the Shell: only an origin a connected adapter declared, while any did; only the last hello counts.
+  void helloHosts().then(({ hosts, latest }) => {
+    if (!latest) return;
     const declared = !!hosts?.length && hosts.includes(origin);
-    if (hosts?.length && !declared) return;
+    if (hosts?.length && !declared) {
+      // Taken earlier while no list could be read: it goes, and its library filter with it.
+      if (useHome.getState().host?.origin === origin) useHome.getState().setHost(null);
+      return;
+    }
     const host = homeHostOf(message, origin, declared);
     if (!host) return;
     useHome.getState().setHost(host);

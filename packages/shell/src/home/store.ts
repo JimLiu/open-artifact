@@ -72,7 +72,7 @@ export interface HomeActions {
   setProject(project: string | null): void;
   setTypes(types: TypesResponse): void;
   setError(error: string | null): void;
-  setHost(host: HomeHost): void;
+  setHost(host: HomeHost | null): void;
   setCreating(type: TypeView | null): void;
   setMakingType(open: boolean): void;
   setInstalling(installing: HomeState['installing']): void;

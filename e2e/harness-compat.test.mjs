@@ -11,6 +11,8 @@
 //  (b) In Chrome, frame cases (host pages on two 127.0.0.1 ports; each frames the Shell and answers `shell_hello`):
 //      - origin A (declared): the Shell takes `host_hello`, says `shell_ready`, and the Ask sends `comment_summon`
 //        with the text (and wakes the owner session);
+//      - origin A again: a theme change whose read of the declared list fails keeps the host declared (the Ask's
+//        text still comes), and a theme without an accent takes back the accent the earlier one set;
 //      - origin B while A is declared: nothing after `shell_hello`, not even after an Ask;
 //      - origin B with no origin declared at all (compat-frame gone): the parent is taken (`shell_ready`) but the Ask's
 //        `comment_summon` comes with no text.
@@ -439,6 +441,29 @@ describe('harness compatibility: the reference host against a real daemon', () =
     assert.equal(ctx.frameWakes[wakes].source.requests[0].userText, text);
     assert.equal(ctx.frameWakes[wakes].source.requests[0].selectionSnapshot, undefined);
     assert.deepEqual(requestBubbles(ctx.frameWakes[wakes]).map(b => [b.role, b.text]), [['user', text]]);
+    await page.close();
+  });
+
+  it('(b) on the declared origin, a theme change whose list read fails keeps the host declared, and drops the old accent', { ...T, skip: browserSkip }, async () => {
+    assert.ok(ctx.hostPage, 'the declared-origin case ran first');
+    const page = await ctx.browser.load(ctx.hostPage(ctx.originA), { ready: "window.got && window.got.some(m => m.data && m.data.openArtifact === 'shell_hello')" });
+    assert.ok(await page.waitFor("window.got.some(m => m.data && m.data.openArtifact === 'shell_ready')", 15000), `taken: ${JSON.stringify(await heard(page))}`);
+    // The host page sends host_hello again, as its theme changed (harness-kit's setTheme does the same).
+    const rehello = theme => page.evaluate(`(() => { const f = document.getElementById('shell'); f.contentWindow.postMessage({ openArtifact: 'host_hello', caps: {}, agentName: ${JSON.stringify(AGENT)}, theme: ${JSON.stringify(theme)} }, new URL(f.src).origin); return true; })()`);
+    const shellRoot = `location.pathname.startsWith('/a/') ? [document.documentElement.dataset.theme ?? null, ...${JSON.stringify(['--open-artifact-accent', '--open-artifact-accent-fg', '--open-artifact-accent-soft'])}.map(n => document.documentElement.style.getPropertyValue(n))] : undefined`;
+    const rootIs = async want => until(async () => (await page.evaluateAll(shellRoot)).some(v => JSON.stringify(v) === JSON.stringify(want)), 10000, 200);
+    await rehello({ scheme: 'dark', accent: '#ffee00' });
+    assert.ok(await rootIs(['dark', '#ffee00', '#0b1220', '#ffee001f']), `the Shell follows the theme: ${JSON.stringify(await page.evaluateAll(shellRoot))}`);
+    // The next read of the declared list fails (the daemon was slow): the Shell judges by the list it read last.
+    const failed = await page.evaluateAll(`location.pathname.startsWith('/a/') ? (() => { const real = window.fetch; window.fetch = (input, init) => String(input instanceof Request ? input.url : input).includes('open-artifact.embed') ? Promise.reject(new TypeError('offline')) : real(input, init); return true; })() : undefined`);
+    assert.ok(failed.includes(true), 'the list read was made to fail in the Shell');
+    await rehello({ scheme: 'light' });
+    assert.ok(await rootIs(['light', '', '', '']), `the new scheme, and the accent the old theme set is gone: ${JSON.stringify(await page.evaluateAll(shellRoot))}`);
+    const text = 'Still the declared host';
+    await askFromPage(page, text);
+    assert.ok(await page.waitFor("window.got.some(m => m.data && m.data.openArtifact === 'comment_summon')", 15000), `no comment_summon: ${JSON.stringify(await heard(page))}`);
+    const summon = await page.evaluate("window.got.find(m => m.data.openArtifact === 'comment_summon').data");
+    assert.equal(summon.text, text, 'a failed refresh did not make the declared host undeclared');
     await page.close();
   });
 

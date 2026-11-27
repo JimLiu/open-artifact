@@ -57,9 +57,11 @@ kit 用 `host_hello` 回答 Shell 的 `shell_hello`，只发给 Shell 的源，�
 | --- | --- | --- |
 | declared（已声明） | 某个已连接适配器声明了它的源 | 下面列的全部 |
 | refused（拒绝） | 适配器声明了别的源 | 什么都没有：它的 `host_hello` 被忽略 |
-| undeclared（未声明） | 没有适配器声明任何源，或读不到列表 | 会话和位置，但 `new_session` 的 `prompt` 为空，`comment_summon` 的 `text` 为空，没有 `open_external`、没有 `saved_file`、没有目的地 |
+| undeclared（未声明） | 没有适配器声明任何源，或还没有读到过列表 | 会话和位置，但 `new_session` 的 `prompt` 为空，`comment_summon` 的 `text` 为空，没有 `open_external`、没有 `saved_file`、没有目的地 |
 
 源的形式是 `scheme://host[:port]`。从 `file://` 加载的页面源是 `null`，**无法声明**：请用自定义协议（`app://my-agent`）提供界面，或改用视图（`mode: 'view'`），在框架里加载带票据的 `embedUrl`（见下文）。
+
+Shell 读到过一次列表之后，再读失败就按那份列表判断：daemon 慢的时候你再发 `host_hello`，已声明的宿主仍然是已声明。
 
 ### 顶层视图
 
@@ -116,7 +118,7 @@ Shell 发来的是人做的事。提示是人对 Agent 说的话，绝不是给�
 
 ## 主题和目的地
 
-`theme: { scheme: 'light' | 'dark', accent: '#rrggbb' }` 让 Shell 和页面跟随你的应用。主题变化时调用 `setTheme(theme)`；kit 会再发一次 `host_hello`。
+`theme: { scheme: 'light' | 'dark', accent: '#rrggbb' }` 让 Shell 和页面跟随你的应用。主题变化时调用 `setTheme(theme)`；kit 会再发一次 `host_hello`。不带 `accent` 的主题会收回之前主题设的 accent，Shell 和页面上都是。
 
 `destinations: [{ id, label }]`（最多 8 个）在导出页签里增加去处（“保存到项目文件”）。选中一个会给 Agent 发一个写明该目的地的页面请求。只有已声明宿主的目的地会显示。
 

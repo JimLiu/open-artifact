@@ -17,7 +17,7 @@
 
 | 消息 | 字段 | |
 | --- | --- | --- |
-| `host_hello` | `caps`（`sessions?`、`toolbar?`、`artifacts?`、`switcher?`）、`agentName?`、`harness?`、`protocol?`、`theme?`（`scheme`、`accent?`）、`destinations?`（`id`、`label`；最多 8 个）、`library?`（`harness?`、`workspace?`） | 对 `shell_hello` 或 `home_hello` 的回答；主题变化时再发一次 |
+| `host_hello` | `caps`（`sessions?`、`toolbar?`、`artifacts?`、`switcher?`）、`agentName?`、`harness?`、`protocol?`、`theme?`（`scheme`、`accent?`）、`destinations?`（`id`、`label`；最多 8 个）、`library?`（`harness?`、`workspace?`） | 对 `shell_hello` 或 `home_hello` 的回答；主题变化时再发一次（不带 `accent` 的主题会收回之前主题设的 accent） |
 | `goto` | `hash` | 显示这个位置；Shell 用 `place` 回答 |
 
 `caps.sessions`：你能新建和打开会话。`caps.toolbar`：你画自己的工具栏，所以 Shell 隐藏它的关闭按钮。`caps.switcher`：你的应用自己列出和切换作品，所以 Shell 的标题菜单里没有“Switch artifact”（连同“All artifacts”）。`caps.artifacts`（仅首页）：点击作品发送 `open_artifact`，而不是跳转。`library`（仅首页）：只列出该 harness 的作品（按所属会话的 harness），或该目录的作品：所属会话在这个目录里工作，作品的文件夹在它之下，或者作品是为包含这个目录、或位于这个目录之内的项目创建的（所以放在用户 Open Artifact 文件夹里的作品，仍然列在它的项目下）。
@@ -63,8 +63,10 @@ Shell 读取 `GET /api/open-artifact.embed`（`hosts`：已连接适配器在 `c
 | 判定 | 条件 | 效果 |
 | --- | --- | --- |
 | declared（已声明） | 某个已连接适配器声明了这个源，或 Shell 运行在用票据打开的视图里（顶层或框架内） | 全部可用 |
-| refused（拒绝） | 适配器声明了源，但不是这个 | `host_hello` 被忽略 |
-| undeclared（未声明） | 没有适配器声明任何源，或读不到列表 | `prompt` 和 `text` 为空；没有 `open_external`、`saved_file` 和目的地 |
+| refused（拒绝） | 适配器声明了源，但不是这个 | `host_hello` 被忽略；这个源在读不到列表时建立的宿主会被去掉 |
+| undeclared（未声明） | 没有适配器声明任何源，或还没有读到过列表 | `prompt` 和 `text` 为空；没有 `open_external`、`saved_file` 和目的地 |
+
+每次 `host_hello` 都会重新读列表。读到过一次之后，再读失败就按上次读到的列表判断，所以 daemon 慢的时候换主题，已声明的宿主仍然是已声明。两个 hello 同时在等结果时，以后一个的结果为准。
 
 ## 视图票据
 

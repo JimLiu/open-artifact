@@ -390,6 +390,51 @@ export interface HostTheme {
   accent?: string;
 }
 
+/** The custom properties a host accent sets on the Shell's root and the page's. */
+export const HOST_ACCENT_VARS = ['--open-artifact-accent', '--open-artifact-accent-fg', '--open-artifact-accent-soft'] as const;
+
+/**
+ * The CSS variables a host's accent sets (`--open-artifact-accent`, its text colour and soft tint); none for no accent
+ * or one that is not `#rrggbb`.
+ */
+export function accentVars(accent: string | null): Record<string, string> {
+  if (!accent || !/^#[0-9a-f]{6}$/i.test(accent)) return {};
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(accent.slice(i, i + 2), 16) / 255);
+  const lin = (c: number): number => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const luminance = 0.2126 * lin(r!) + 0.7152 * lin(g!) + 0.0722 * lin(b!);
+  return {
+    '--open-artifact-accent': accent.toLowerCase(),
+    '--open-artifact-accent-fg': luminance > 0.4 ? '#0b1220' : '#ffffff',
+    '--open-artifact-accent-soft': `${accent.toLowerCase()}1f`,
+  };
+}
+
+/** The root a host theme is pinned on (the Shell's or the page's `<html>`); structural, so this module needs no DOM. */
+export interface HostThemeRoot {
+  dataset: { theme?: string };
+  style: { setProperty(name: string, value: string): void; removeProperty(name: string): void };
+}
+
+/** The roots whose accent properties a host theme set, so a later theme without an accent takes back only those. */
+const accentPinned = new WeakSet<HostThemeRoot>();
+
+/**
+ * Pins a host theme on `root`: `data-theme`, and the accent's properties ({@link accentVars}). A theme without an
+ * accent (or with one that is not `#rrggbb`) removes the accent an earlier theme set here, never one the page set
+ * itself. Anything but a `light` or `dark` scheme changes nothing; a missing theme is no change either.
+ */
+export function pinHostTheme(root: HostThemeRoot, theme: { scheme?: unknown; accent?: unknown } | null | undefined): void {
+  if (!theme || (theme.scheme !== 'light' && theme.scheme !== 'dark')) return;
+  root.dataset.theme = theme.scheme;
+  const vars = accentVars(typeof theme.accent === 'string' ? theme.accent : null);
+  if (Object.keys(vars).length) {
+    for (const [name, value] of Object.entries(vars)) root.style.setProperty(name, value);
+    accentPinned.add(root);
+  } else if (accentPinned.delete(root)) {
+    for (const name of HOST_ACCENT_VARS) root.style.removeProperty(name);
+  }
+}
+
 /**
  * A place the host can send an export to ("Save to project files", "Send to Google Slides"). The Shell lists them in
  * its Export tab; picking one sends the agent a page request that names the destination.

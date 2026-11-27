@@ -69,11 +69,14 @@ origins connected adapters declared (`GET /api/open-artifact.embed`, field `host
 | --- | --- | --- |
 | declared | a connected adapter declared its origin | everything below |
 | refused | adapters declared other origins | nothing: its `host_hello` is ignored |
-| undeclared | no adapter declared any origin, or the list could not be read | sessions and places, but `new_session` with an empty `prompt`, `comment_summon` with empty `text`, no `open_external`, no `saved_file`, no destinations |
+| undeclared | no adapter declared any origin, or no list could be read yet | sessions and places, but `new_session` with an empty `prompt`, `comment_summon` with empty `text`, no `open_external`, no `saved_file`, no destinations |
 
 An origin is `scheme://host[:port]`. A page loaded from `file://` has the origin `null` and **cannot be declared**: serve
 your UI from a custom scheme (`app://my-agent`), or use views (`mode: 'view'`) and frame the ticketed `embedUrl` (see
 below).
+
+Once the Shell has read the list, a read that fails later is judged by that list: your declared host stays declared
+when you send `host_hello` again while the daemon is slow.
 
 ### Top-level view
 
@@ -147,7 +150,8 @@ Text fields are cut to 8000 characters. [Embed reference](../spec/embed.md) has 
 ## Theme and destinations
 
 `theme: { scheme: 'light' | 'dark', accent: '#rrggbb' }` makes the Shell and the page follow your app. Call
-`setTheme(theme)` when it changes; the kit sends `host_hello` again.
+`setTheme(theme)` when it changes; the kit sends `host_hello` again. A theme without `accent` takes back the accent an
+earlier one set, on the Shell and on the page.
 
 `destinations: [{ id, label }]` (at most 8) adds places to the Export tab ("Save to project files"). Picking one sends
 the agent a page request that names the destination. Only a declared host's destinations are shown.

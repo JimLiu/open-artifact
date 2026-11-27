@@ -145,22 +145,6 @@ export function destinationRequest(destination: HostDestination, artifactTitle: 
   return `Export "${artifactTitle}" and send it to the destination the person picked in the Export tab: "${destination.label}" (destination id: ${destination.id}). The host app that embeds the Shell offered this destination.`;
 }
 
-/**
- * The CSS variables a host's accent sets (`--open-artifact-accent`, its text colour and soft tint); none for no accent
- * or one that is not `#rrggbb`.
- */
-export function accentVars(accent: string | null): Record<string, string> {
-  if (!accent || !/^#[0-9a-f]{6}$/i.test(accent)) return {};
-  const [r, g, b] = [1, 3, 5].map((i) => parseInt(accent.slice(i, i + 2), 16) / 255);
-  const lin = (c: number): number => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
-  const luminance = 0.2126 * lin(r!) + 0.7152 * lin(g!) + 0.0722 * lin(b!);
-  return {
-    '--open-artifact-accent': accent.toLowerCase(),
-    '--open-artifact-accent-fg': luminance > 0.4 ? '#0b1220' : '#ffffff',
-    '--open-artifact-accent-soft': `${accent.toLowerCase()}1f`,
-  };
-}
-
 /** A goto or host_hello for the Shell; the parsed form of a host's message. */
 export type HostMessage = HostToShell;
 

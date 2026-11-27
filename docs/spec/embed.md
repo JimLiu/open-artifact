@@ -20,7 +20,7 @@ fields are cut to 8000 characters (`MAX_HOST_TEXT`).
 
 | Message | Fields | |
 | --- | --- | --- |
-| `host_hello` | `caps` (`sessions?`, `toolbar?`, `artifacts?`, `switcher?`), `agentName?`, `harness?`, `protocol?`, `theme?` (`scheme`, `accent?`), `destinations?` (`id`, `label`; at most 8), `library?` (`harness?`, `workspace?`) | the answer to `shell_hello` or `home_hello`; send it again when the theme changes |
+| `host_hello` | `caps` (`sessions?`, `toolbar?`, `artifacts?`, `switcher?`), `agentName?`, `harness?`, `protocol?`, `theme?` (`scheme`, `accent?`), `destinations?` (`id`, `label`; at most 8), `library?` (`harness?`, `workspace?`) | the answer to `shell_hello` or `home_hello`; send it again when the theme changes (a theme without `accent` takes back the accent an earlier one set) |
 | `goto` | `hash` | show this place; the Shell answers with `place` |
 
 `caps.sessions`: you can start and open sessions. `caps.toolbar`: you draw your own toolbar, so the Shell hides its
@@ -83,8 +83,12 @@ The Shell reads `GET /api/open-artifact.embed` (`hosts`: the origins connected a
 | Verdict | When | Effect |
 | --- | --- | --- |
 | declared | a connected adapter declared the origin, or the Shell runs in a view opened with a ticket (top-level or framed) | everything |
-| refused | adapters declared origins, but not this one | `host_hello` is ignored |
-| undeclared | no adapter declared any origin, or the list could not be read | empty `prompt` and `text`; no `open_external`, `saved_file` or destinations |
+| refused | adapters declared origins, but not this one | `host_hello` is ignored; a host this origin made while no list could be read is dropped |
+| undeclared | no adapter declared any origin, or no list could be read yet | empty `prompt` and `text`; no `open_external`, `saved_file` or destinations |
+
+The list is read again for each `host_hello`. A read that fails after one succeeded is judged by the last list read,
+so a declared host stays declared through a theme change while the daemon is slow. When two hellos are in flight, the
+later one's answer stands.
 
 ## View tickets
 

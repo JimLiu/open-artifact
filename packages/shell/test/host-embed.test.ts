@@ -5,9 +5,10 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { MAX_HOST_DESTINATIONS, MAX_HOST_TEXT, type ArtifactView } from '@open-artifact/protocol';
-import { accentVars, destinationRequest, hostOf, hostVerdict, offersSwitch, savedMessage, toHostMessage } from '../src/shell/model.ts';
+import { MAX_HOST_DESTINATIONS, MAX_HOST_TEXT, accentVars, type ArtifactView } from '@open-artifact/protocol';
+import { destinationRequest, hostOf, hostVerdict, offersSwitch, savedMessage, toHostMessage } from '../src/shell/model.ts';
 import { forHost, homeHostOf } from '../src/home/model.ts';
+import { hostsForHellos } from '../src/lib/host-origins.ts';
 
 const hello = (extra: Record<string, unknown> = {}) => ({ openArtifact: 'host_hello', caps: { sessions: true, toolbar: true }, agentName: 'Helper', ...extra });
 
@@ -87,6 +88,58 @@ describe('host handshake', () => {
   it('cuts long texts in messages it reads', () => {
     const host = hostOf(hello({ agentName: 'x'.repeat(MAX_HOST_TEXT) }), 'app://host', true)!;
     assert.ok(host.agentName!.length <= 80);
+  });
+});
+
+describe('the declared-host list for each host_hello', () => {
+  /** A reader whose reads answer when the test says, with a list or a failure (`null`). */
+  function reads() {
+    const pending: ((hosts: string[] | null) => void)[] = [];
+    const next = hostsForHellos(() => new Promise((resolve) => pending.push(resolve)));
+    return { next, answer: (i: number, hosts: string[] | null) => pending[i]!(hosts) };
+  }
+
+  it('judges a failed read by the last list read, so a declared host stays declared', async () => {
+    const r = reads();
+    const first = r.next();
+    r.answer(0, ['app://host']);
+    assert.deepEqual(await first, { hosts: ['app://host'], latest: true });
+    const refresh = r.next();
+    r.answer(1, null);
+    const { hosts, latest } = await refresh;
+    assert.equal(latest, true);
+    assert.equal(hostVerdict('app://host', hosts), 'declared', 'not undeclared after a failed refresh');
+    assert.equal(hostVerdict('https://evil.example', hosts), 'refused', 'and a failure widens nothing');
+  });
+
+  it('a failure before any list was read is still undeclared', async () => {
+    const r = reads();
+    const first = r.next();
+    r.answer(0, null);
+    assert.deepEqual(await first, { hosts: null, latest: true });
+  });
+
+  it('marks an earlier hello whose answer comes last as not the latest', async () => {
+    const r = reads();
+    const older = r.next();
+    const newer = r.next();
+    r.answer(1, ['app://host']);
+    assert.equal((await newer).latest, true);
+    r.answer(0, ['app://host']);
+    assert.equal((await older).latest, false, 'its theme must not replace the newer one');
+  });
+
+  it('keeps the newer list when an older read succeeds after it', async () => {
+    const r = reads();
+    const older = r.next();
+    const newer = r.next();
+    r.answer(1, ['app://new']);
+    await newer;
+    r.answer(0, ['app://old']);
+    await older;
+    const refresh = r.next();
+    r.answer(2, null);
+    assert.deepEqual((await refresh).hosts, ['app://new']);
   });
 });
 

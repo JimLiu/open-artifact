@@ -22,7 +22,8 @@
  *   on each change) to the host's origin; the host may send `goto` with a
  *   place, and `host_hello` again when its theme changes. `host_hello` is
  *   taken only from an origin a connected adapter declared
- *   (`caps.open.origins`, read from `/api/open-artifact.embed` each time);
+ *   (`caps.open.origins`, read from `/api/open-artifact.embed` each time; a
+ *   failed read keeps the last list read, and only the last hello counts);
  *   while no adapter declared any, any parent is taken as before but gets no
  *   prompt or comment text, links or saved files (`toHostMessage`). A Shell
  *   opened as a top-level view (`?oa_view=<ticket>`, no parent) speaks the
@@ -30,17 +31,17 @@
  */
 
 import { copyGivenLink, frameDenied } from './actions.ts';
-import { DOC_FRAGMENT, HOST_PROTOCOL, SLIDE_FRAGMENT } from '@open-artifact/protocol';
+import { DOC_FRAGMENT, HOST_PROTOCOL, SLIDE_FRAGMENT, pinHostTheme } from '@open-artifact/protocol';
 import type { ChromeCommand, ChromeExportItem, ChromeExportState, PageToShell, ShellToHost, ShellToPage } from '@open-artifact/protocol';
 import { CHROME_DRAWS, CHROME_READY_TIMEOUT_MS, isShellMessage } from '@open-artifact/protocol';
 import { toast } from '@open-artifact/ui';
 import { mayComment, roleOf } from '../lib/cloud.ts';
-import { declaredHosts } from '../lib/host-origins.ts';
+import { hostsForHellos } from '../lib/host-origins.ts';
 import { t } from '../lib/i18n.ts';
 import { call as brokerCall, setSavedFileListener, want as brokerWant, type PagePost } from './broker.ts';
 import { browserClipboard, createClipboardRelay } from './clipboard.ts';
 import {
-  FRAME_READY_FALLBACK_MS, accentVars, actionOf, exportRequestId, frameDeniedReason,
+  FRAME_READY_FALLBACK_MS, actionOf, exportRequestId, frameDeniedReason,
   hostOf, hostVerdict, inlineView, normalizeReport, readyOnLoad, sheetPageFragment, showsComments,
   savedMessage, toHostMessage, type ExportEntry, type HostInfo,
 } from './model.ts';
@@ -76,6 +77,8 @@ const exportsWaiting = new Map<string, (items: ChromeExportItem[]) => void>();
 let exportSeq = 0;
 /** `export_format` requests in flight, by request id: what the toast names. */
 const formatsWaiting = new Map<string, string>();
+/** The declared-host list for each `host_hello`, in order (`lib/host-origins.ts`). */
+const helloHosts = hostsForHellos();
 /** The page's last reported place, for a host that says hello later or asks for an unknown one. */
 let place: string | null = null;
 /** Pending reload after `files_changed`, cleared by `files_changed_ok`. */
@@ -274,10 +277,7 @@ export function openExternal(url: string): void {
 
 /** Follows the host's colour scheme and accent: the Shell's root, and the page through `chrome_hello`. */
 function applyTheme(host: HostInfo): void {
-  const root = document.documentElement;
-  if (!host.theme) return;
-  root.dataset.theme = host.theme.scheme;
-  for (const [name, value] of Object.entries(accentVars(host.theme.accent ?? null))) root.style.setProperty(name, value);
+  pinHostTheme(document.documentElement, host.theme);
 }
 
 /** A `host_hello` was taken: the Shell answers `shell_ready` and its place. */
@@ -445,9 +445,15 @@ function onMessage(event: MessageEvent): void {
   if (message.openArtifact !== 'host_hello') return;
   const origin = event.origin;
   // Only from an origin a connected adapter declared; while none declared any, as before but without texts.
-  void declaredHosts().then((hosts) => {
+  void helloHosts().then(({ hosts, latest }) => {
+    // A later hello's answer stands: this older one must not undo its theme or its verdict.
+    if (!latest) return;
     const verdict = hostVerdict(origin, hosts);
-    if (verdict === 'refused') return;
+    if (verdict === 'refused') {
+      // Taken earlier while no list could be read: it gets nothing more.
+      if (useShell.getState().host?.origin === origin) useShell.getState().setHost(null);
+      return;
+    }
     const host = hostOf(message, origin, verdict === 'declared');
     if (host) acceptHost(host);
   });
