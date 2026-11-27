@@ -315,13 +315,12 @@ class Adapter:
 
 def _session_ids(ctx: Any, session_id: str = "") -> tuple[str, str]:
     """(session id for Open Artifact, workspace) of the calling Hermes session."""
-    key = ""
     try:
-        from hermes_cli.plugin_session import session_key
-        key = session_key()
+        # The documented way to read the calling session's identity (a ContextVar in the gateway, else the env).
+        from gateway.session_context import get_session_env
     except Exception:  # noqa: BLE001
-        pass
-    key = key or session_id or os.environ.get("HERMES_SESSION_KEY", "") or os.environ.get("HERMES_SESSION_ID", "")
+        get_session_env = os.environ.get
+    key = get_session_env("HERMES_SESSION_KEY", "") or session_id or get_session_env("HERMES_SESSION_ID", "")
     try:
         cwd = ctx.session_cwd()
     except Exception:  # noqa: BLE001
