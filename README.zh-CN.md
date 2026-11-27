@@ -75,6 +75,7 @@
 | [DeepSeek Harness](https://www.npmjs.com/package/dsh-open-artifact) | 在插件页面选择「添加插件」，输入 npm 包名 `dsh-open-artifact`。CLI 的 web profile 可用 `dsh plugin --profile web add dsh-open-artifact`。 |
 | [Pi](plugins/pi/README.zh-CN.md) | 运行 `pi install npm:pi-open-artifact`，再开一个新的 Pi 会话。 |
 | [OMP](plugins/omp/README.zh-CN.md) | 运行 `omp plugin install npm:omp-open-artifact`，再开一个新的 OMP 会话。 |
+| [Hermes Agent](plugins/hermes/README.zh-CN.md) | 把解压出的 `hermes/` 文件夹链接为 `~/.hermes/plugins/open-artifact`，运行 `hermes plugins enable open-artifact`，再用 `hermes config set plugins.entries.open-artifact.allow_gateway_injection true` 允许它发起新一轮。 |
 
 升级时下载新版 ZIP，把解压目录替换到原来的路径，再按表中对应的指南刷新插件。如果原来的插件市场还指向源码仓库，
 按对应指南把市场切换到解压目录。

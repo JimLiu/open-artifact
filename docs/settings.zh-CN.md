@@ -20,7 +20,7 @@ agent 的调用没有指定文件夹时，Open Artifact 自己选一个，并按
 | --- | --- | --- |
 | Claude Code、Codex、Cursor、GitHub Copilot、Antigravity、ZCode、DeepSeek Harness | `workspace` | 实测过的几个在常用模式下，往工作文件夹之外写文件要先确认，或者直接被拒（见[下文](#让你的应用能写-open-artifact-文件夹)）；其余几个在实测之前保持一致。 |
 | 网页版 ChatGPT（`open-artifact chatgpt`） | `workspace` | 这个连接器按路径区分自己的作品。 |
-| Pi、OMP、`open-artifact` 命令行、没有 profile 的应用 | `home` | 没有东西拦着写。 |
+| Pi、OMP、Hermes Agent、`open-artifact` 命令行、没有 profile 的应用 | `home` | 没有东西拦着写。 |
 | 用 `OPEN_ARTIFACT_WORKSPACE_FOLDERS_ONLY=1` 启动 daemon 的应用 | 始终 `workspace` | 受限的 daemon 把所有文件夹都留在工作区里，任何设置和调用都改不了。 |
 
 如果是应用的默认值让作品落进了 Git 检出目录，而且 `artifacts/` 这个文件夹是 Open Artifact 这次新建的，它会同时

@@ -1,0 +1,32 @@
+{
+  "name": "hermes",
+  "title": "Hermes",
+  "agentName": "Hermes",
+  "level": "L3",
+  "entry": "harness-api",
+  "plugin": "hermes-open-artifact",
+  "sessionEnv": "HERMES_SESSION_KEY",
+  "markers": [
+    "HERMES_AGENT",
+    "HERMES_SESSION_KEY"
+  ],
+  "wake": [
+    "live",
+    "inbox"
+  ],
+  "open": "browser",
+  "caps": {
+    "tools": "native",
+    "commands": {
+      "names": [
+        "open-artifact"
+      ]
+    },
+    "wake": {
+      "resume": false
+    }
+  },
+  "policy": {
+    "artifacts": "home"
+  }
+}

@@ -84,6 +84,7 @@ DeepSeek Harness installs its prebuilt package directly from npm.
 | [DeepSeek Harness](https://www.npmjs.com/package/dsh-open-artifact) | In Plugins, choose **Add plugin** and enter `dsh-open-artifact` as the npm package. In the CLI, run `dsh plugin --profile web add dsh-open-artifact` for the web profile. |
 | [Pi](plugins/pi/README.md) | Run `pi install npm:pi-open-artifact`, then start a new Pi session. |
 | [OMP](plugins/omp/README.md) | Run `omp plugin install npm:omp-open-artifact`, then start a new OMP session. |
+| [Hermes Agent](plugins/hermes/README.md) | Link the extracted `hermes/` folder as `~/.hermes/plugins/open-artifact`, run `hermes plugins enable open-artifact`, and allow it to start turns with `hermes config set plugins.entries.open-artifact.allow_gateway_injection true`. |
 
 To upgrade, download the new ZIP, replace the extracted folder at the same path, and follow your app's
 update steps in the linked guide. If your marketplace still points to a source checkout, register the extracted
