@@ -3,6 +3,7 @@
  * `key` events from the board runtime and go through the same table.
  */
 
+import { isComposingKey } from '@open-artifact/ui/keys';
 import { useDocument } from './state/document.ts';
 import { NO_SELECTION, useView, type Tool } from './state/view.ts';
 import {
@@ -30,10 +31,11 @@ import { armScale, cancelScale, commitScale, useScale } from './services/scale.t
 import { zoomStep, zoomTo, zoomToBoards, zoomToFit } from './services/viewport.ts';
 import { frameKeyPressed } from './services/follow.ts';
 import { openFind, useFind } from './services/find.ts';
-import { runCollabShortcut } from './services/collab.ts';
+import { leaveCommentMode, runCollabShortcut } from './services/collab.ts';
 import { isApplePlatform, isTextField } from '@open-artifact/editor-kit';
 import { copyAs } from './services/capture.ts';
-import { historyShortcutOf, isCopyPngKey, paintKeyOf, zoomKeyOf } from './lib/physical-keys.ts';
+import { historyShortcutOf, isCopyPngKey, isSaveKey, paintKeyOf, zoomKeyOf } from './lib/physical-keys.ts';
+import { flush } from './services/sync.ts';
 import { stackOrderOf } from './lib/stacking.ts';
 import { swapSelectionPaint, unfillSelection } from './services/paint.ts';
 import { isLockKey } from './lib/locks.ts';
@@ -44,6 +46,10 @@ import { DIALOG_SELECTOR, dialogKeepsKey } from './lib/dialog-keys.ts';
 import { pressAgainMessage } from './lib/card-exit.ts';
 import { cardExit } from './services/card-exit.ts';
 import { announce } from './services/announce.ts';
+import { COMMITTED_ATTRIBUTE, committedFieldPasses, textHandoffMessage, textHandoffOf } from './lib/input-handoff.ts';
+import { commitTextEdit } from './services/text-edit.ts';
+import { escapeGoesHome, regionStepOf } from './lib/focus-regions.ts';
+import { focusHome, regionAt, rememberRegionFocus, stepRegion } from './services/focus-regions.ts';
 
 /** A key press, from the window or from a frame. */
 export interface KeyPress {
@@ -55,6 +61,8 @@ export interface KeyPress {
   alt: boolean;
   /** Held down and repeating. */
   repeat?: boolean;
+  /** Ctrl without ⌘ (`meta` is either). */
+  ctrl?: boolean;
 }
 
 const TOOL_KEYS: Record<string, Tool> = { v: 'select', h: 'hand', a: 'board', b: 'board', n: 'sticky', t: 'title', r: 'rect', o: 'oval', l: 'line', p: 'pen' };
@@ -64,7 +72,7 @@ const TOOL_KEYS: Record<string, Tool> = { v: 'select', h: 'hand', a: 'board', b:
  * and paste pressed in this window are left to the clipboard events
  * (`fromFrame` false); pressed inside an artboard frame they run here.
  */
-export function runShortcut({ key, code, meta, shift, alt, repeat }: KeyPress, fromFrame = false): boolean {
+export function runShortcut({ key, code, meta, shift, alt, repeat, ctrl }: KeyPress, fromFrame = false): boolean {
   const view = useView.getState();
   const doc = useDocument.getState();
   const lower = key.toLowerCase();
@@ -137,7 +145,7 @@ export function runShortcut({ key, code, meta, shift, alt, repeat }: KeyPress, f
     return true;
   }
 
-  if (runHistoryOrStacking({ key, code, meta, shift, alt }, view.mode === 'focused')) return true;
+  if (runHistoryOrStacking({ key, code, meta, shift, alt, ctrl }, view.mode === 'focused')) return true;
 
   if (meta) {
     switch (lower) {
@@ -265,6 +273,8 @@ export function runShortcut({ key, code, meta, shift, alt, repeat }: KeyPress, f
     return true;
   }
   if (!alt && !shift && TOOL_KEYS[lower] && (!doc.readOnly || TOOL_KEYS[lower] === 'select' || TOOL_KEYS[lower] === 'hand')) {
+    // V also ends comment mode, even with Select already picked.
+    if (TOOL_KEYS[lower] === 'select') leaveCommentMode();
     view.setTool(TOOL_KEYS[lower]);
     return true;
   }
@@ -272,14 +282,14 @@ export function runShortcut({ key, code, meta, shift, alt, repeat }: KeyPress, f
 }
 
 /**
- * ⌘Z / ⇧⌘Z (and Ctrl+Y elsewhere) by the physical key; the stacking
+ * ⌘Z / ⇧⌘Z and Ctrl+Y by the physical key (see `historyShortcutOf`); the stacking
  * shortcuts (see `stackOrderOf`). With ⌘ they are always claimed, so the
  * browser never takes them; bare brackets only when something restacks,
  * and not while an artboard plays.
  */
 function runHistoryOrStacking(press: KeyPress, playing: boolean): boolean {
   const apple = isApplePlatform();
-  const history = historyShortcutOf(press, apple);
+  const history = historyShortcutOf(press);
   if (history) {
     if (history === 'undo') undo();
     else redo();
@@ -320,17 +330,59 @@ export function installKeyboard(): () => void {
       event.preventDefault();
       return;
     }
-    if (isTextField(event.target)) return;
+    const press: KeyPress = { key: event.key, code: event.code, meta: event.metaKey || event.ctrlKey, shift: event.shiftKey, alt: event.altKey, repeat: event.repeat, ctrl: event.ctrlKey && !event.metaKey };
+    // ⌘S never saves the web page; a field has committed its value by now.
+    if (isSaveKey(press)) {
+      if (event.defaultPrevented) return;
+      event.preventDefault();
+      saveNow();
+      return;
+    }
+    // F6 / ⇧F6 step between the page's regions (Escape in the selection bar: `escapeHome`).
+    const region = regionStepOf(press);
+    if (region || (event.key === 'F6' && event.repeat)) {
+      if (region && !event.defaultPrevented && !isComposingKey(event) && !document.querySelector(BLOCKING_POPUP)) stepRegion(region);
+      event.preventDefault();
+      return;
+    }
+    // The address card just closed keeps the focus while it animates out: a Delete there goes where the focus is going.
+    const fromCard = cardExit.leftIn(event, event.target);
+    if (isTextField(event.target) && !fromCard) {
+      // A field committed with Enter hands shortcuts with a modifier to the canvas.
+      const committed = (event.target as Element).hasAttribute(COMMITTED_ATTRIBUTE);
+      if (!committed || event.defaultPrevented || isComposingKey(event) || !committedFieldPasses(press)) return;
+      if (runShortcut(press)) event.preventDefault();
+      return;
+    }
     // Escape in an open menu or popover closes just that, not the selection (or a text edit).
-    if (event.key === 'Escape' && (event.target as Element | null)?.closest?.('[role="menu"], [role="dialog"], [role="listbox"]')) return;
+    if (!fromCard && event.key === 'Escape' && (event.target as Element | null)?.closest?.('[role="menu"], [role="dialog"], [role="listbox"]')) return;
     // In a dialog or popover, Enter or Space presses its button and Delete deletes nothing behind it.
-    if (dialogKeepsKey(event.key) && inDialog(event.target)) return;
+    if (!fromCard && dialogKeepsKey(event.key) && inDialog(event.target)) return;
     if (swallowedAfterCard(event)) {
       event.preventDefault();
       return;
     }
-    const handled = runShortcut({ key: event.key, code: event.code, meta: event.metaKey || event.ctrlKey, shift: event.shiftKey, alt: event.altKey, repeat: event.repeat });
+    // An artboard's text box still open: write its words first.
+    const handoff = useView.getState().textEdit ? textHandoffOf(press, isApplePlatform()) : null;
+    if (handoff) {
+      commitTextEdit();
+      if (handoff === 'hold') {
+        event.preventDefault();
+        announce(textHandoffMessage(press, isApplePlatform(), useView.getState().selection.kind !== 'none'));
+        return;
+      }
+    }
+    const handled = runShortcut(press);
     if (handled) event.preventDefault();
+  };
+  // Ahead of a tooltip open on the focused button, which would take that Escape for itself.
+  const escapeHome = (event: KeyboardEvent): void => {
+    const target = event.target instanceof Element ? event.target : null;
+    const press = { key: event.key, meta: event.metaKey || event.ctrlKey, shift: event.shiftKey, alt: event.altKey };
+    if (event.defaultPrevented || !escapeGoesHome(press, { region: regionAt(target), inField: isTextField(target), expanded: target?.getAttribute('aria-expanded') === 'true' })) return;
+    event.preventDefault();
+    event.stopPropagation();
+    focusHome();
   };
   const up = (event: KeyboardEvent): void => {
     held(event);
@@ -343,21 +395,50 @@ export function installKeyboard(): () => void {
     useView.getState().setSpacePan(false);
     useView.getState().setAltHeld(false);
   };
+  window.addEventListener('keydown', escapeHome, true);
   window.addEventListener('keydown', down);
   window.addEventListener('keyup', up);
+  document.addEventListener('focusin', rememberRegionFocus);
   window.addEventListener('blur', blur);
   window.addEventListener('pointerdown', cancelCard, true);
   return () => {
     window.removeEventListener('pointerdown', cancelCard, true);
+    window.removeEventListener('keydown', escapeHome, true);
     window.removeEventListener('keydown', down);
     window.removeEventListener('keyup', up);
+    document.removeEventListener('focusin', rememberRegionFocus);
     window.removeEventListener('blur', blur);
   };
 }
 
+/** ⌘S: writes an open text box and saves at once (nothing to save when read-only). */
+function saveNow(): void {
+  if (useDocument.getState().readOnly) return;
+  commitTextEdit();
+  void flush();
+}
+
+/** Open dialogs and menus keep F6 to themselves. */
+const BLOCKING_POPUP = '[role="dialog"]:not([data-toast]), [role="alertdialog"]:not([data-toast]), [role="menu"]';
+let lastFrameRegionStep = 0;
+
 /** Keys forwarded by an artboard frame. */
 export function handleFrameKey(press: KeyPress): void {
   if (press.key === ' ') return;
+  if (isSaveKey(press)) {
+    saveNow();
+    return;
+  }
+  if (press.key === 'F6') {
+    const region = regionStepOf(press);
+    const now = Date.now();
+    // Out of the artboard to the next region, at most a few times a second.
+    if (region && now - lastFrameRegionStep > 150 && !document.querySelector(BLOCKING_POPUP)) {
+      lastFrameRegionStep = now;
+      stepRegion(region);
+    }
+    return;
+  }
   frameKeyPressed(press.key);
   if (swallowedAfterCard(press)) return;
   runShortcut(press, true);

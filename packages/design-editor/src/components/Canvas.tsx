@@ -1097,9 +1097,12 @@ export function Canvas() {
     <div
       ref={root}
       data-canvas-surface=""
+      // Home for F6 and Escape: the canvas takes the focus itself.
+      data-focus-region="canvas"
+      tabIndex={-1}
       // The engine sets its canvas' cursor; creation tools keep the crosshair over it (styles.css).
       data-tool-cursor={tool !== 'select' && tool !== 'hand' ? '' : undefined}
-      className="relative isolate size-full touch-none select-none overflow-hidden bg-canvas outline-none"
+      className="relative isolate size-full touch-none select-none overflow-hidden bg-canvas outline-none data-[focus-ring]:focus:outline-solid data-[focus-ring]:focus:outline-2 data-[focus-ring]:focus:-outline-offset-2 data-[focus-ring]:focus:outline-chrome-accent"
       style={{ cursor }}
       onPointerDownCapture={onPointerDownCapture}
       onPointerDown={onPointerDown}

@@ -84,7 +84,7 @@ describe('whole-source op', () => {
 });
 
 describe('layers: rows follow their element', async () => {
-  const { carryTids, climbAfter, levelsLeft } = await import('../src/lib/outline.ts');
+  const { carryTids, climbAfter, draggedAncestorSteps, dropLevels, levelsLeft } = await import('../src/lib/outline.ts');
 
   it('maps tids across an insert, a delete and a style edit', () => {
     const before = parseTemplate('<div><h1>Title</h1><p>Body</p><ul><li>One</li></ul></div>');
@@ -106,6 +106,21 @@ describe('layers: rows follow their element', async () => {
     assert.deepEqual(climbAfter(model, 6, 3), [6]);
     assert.equal(levelsLeft(100, 70, 16), 2);
     assert.equal(levelsLeft(100, 120, 16), 0);
+  });
+
+  it('below its own last row, a dragged container climbs to itself first, then by how far left it moved', () => {
+    const model = parseTemplate('<div><section><p>A</p><p>B</p></section></div>');
+    // tids: div 0, section 1, p 2, p 3
+    assert.equal(draggedAncestorSteps(model, 3, [1]), 1);
+    assert.equal(draggedAncestorSteps(model, 3, [0]), 2);
+    assert.equal(draggedAncestorSteps(model, 3, [2]), null);
+    // Not an ancestor: the indent rule.
+    assert.equal(dropLevels({ indentStart: 100, pointerX: 70, startX: 200, indent: 16, ancestorSteps: null }), 2);
+    // Dragging the section past its last p: back to the section (no move) until pulled a full step left of the start.
+    assert.equal(dropLevels({ indentStart: 100, pointerX: 60, startX: 70, indent: 16, ancestorSteps: 1 }), 1);
+    assert.equal(dropLevels({ indentStart: 100, pointerX: 54, startX: 70, indent: 16, ancestorSteps: 1 }), 2);
+    assert.equal(dropLevels({ indentStart: 100, pointerX: 90, startX: 70, indent: 16, ancestorSteps: 1 }), 0);
+    assert.deepEqual(climbAfter(model, 3, dropLevels({ indentStart: 100, pointerX: 54, startX: 70, indent: 16, ancestorSteps: 1 })), [3, 1, 0]);
   });
 });
 

@@ -14,9 +14,7 @@ import {
   MAX_NOTE_GROUPS,
   MAX_PAGES,
   MIN_BOARD_SIZE,
-  intersects,
   noteFontSize,
-  pageOf,
 } from './canvas.ts';
 
 /** A finding tied to a file. */
@@ -117,19 +115,8 @@ export function checkDesignProject(files: ReadonlyMap<string, string>, options: 
     if (!boards[path]) add(path, 'error', `${path} is not in canvas.json "boards"; every artboard file must be listed (w,h = its $preview).`);
   }
 
-  // Overlapping frames on one page.
+  // Boards with a frame (title clearance below).
   const entries = Object.entries(boards).filter(([, entry]) => ['x', 'y', 'w', 'h'].every((key) => typeof entry?.[key] === 'number'));
-  const canvasLike = { pages: pages.filter((p) => typeof p?.id === 'string') as { id: string; name: string }[] } as Parameters<typeof pageOf>[0];
-  for (let i = 0; i < entries.length; i++) {
-    for (let j = i + 1; j < entries.length; j++) {
-      const [pa, a] = entries[i]!;
-      const [pb, b] = entries[j]!;
-      if (pageOf(canvasLike, a as { page?: string }) !== pageOf(canvasLike, b as { page?: string })) continue;
-      const ra = { x: a.x as number, y: a.y as number, w: a.w as number, h: a.h as number };
-      const rb = { x: b.x as number, y: b.y as number, w: b.w as number, h: b.h as number };
-      if (intersects(ra, rb)) add('canvas.json', 'warning', `Boards "${pa}" and "${pb}" overlap.`);
-    }
-  }
 
   // Launch.
   const launch = raw.launch as Record<string, unknown> | undefined;

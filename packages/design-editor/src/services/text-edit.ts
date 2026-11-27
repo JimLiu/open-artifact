@@ -131,3 +131,12 @@ export function cancelEditedTextLink(): void {
   useView.getState().patchTextEdit({ link: null });
   boardApi(textEdit.board)?.cancelLinkEdit();
 }
+
+/** Writes the words being typed and ends the edit (synchronous: the board reports the commit as it ends). True when one was open. */
+export function commitTextEdit(): boolean {
+  const { textEdit } = useView.getState();
+  if (!textEdit) return false;
+  boardApi(textEdit.board)?.endTextEdit(true);
+  if (useView.getState().textEdit) useView.getState().setTextEdit(null);
+  return true;
+}

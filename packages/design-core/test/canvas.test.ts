@@ -12,6 +12,7 @@ import {
   mergeOrder,
   moveCanvasPage,
   boardsOnPage,
+  restackBoards,
   notesOnPage,
   normalizeCanvas,
   placeNewBoard,
@@ -286,5 +287,42 @@ describe('project check', () => {
     canvas.notes.a.locked = false;
     files.set('canvas.json', JSON.stringify(canvas));
     assert.deepEqual(of(checkDesignProject(files), 'error').filter((d) => d.message.includes('locked')), []);
+  });
+});
+
+describe('artboard stacking', () => {
+  const stacked = () => {
+    const canvas = emptyCanvas('T');
+    canvas.pages = [{ id: 'one', name: 'One' }, { id: 'two', name: 'Two' }];
+    for (const [path, page] of [['A', 'one'], ['X', 'two'], ['B', 'one'], ['C', 'one'], ['D', 'one']] as const) canvas.boards[path] = { x: 0, y: 0, w: 10, h: 10, page };
+    canvas.order = ['A', 'X', 'B', 'C', 'D'];
+    return canvas;
+  };
+
+  it('steps past the next artboard on the page that is not moving', () => {
+    assert.deepEqual(restackBoards(stacked(), ['A'], 'forward').order, ['B', 'X', 'A', 'C', 'D']);
+    assert.deepEqual(restackBoards(stacked(), ['A', 'B'], 'forward').order, ['C', 'X', 'A', 'B', 'D']);
+    assert.deepEqual(restackBoards(stacked(), ['D'], 'backward').order, ['A', 'X', 'B', 'D', 'C']);
+  });
+
+  it('goes to the front or back of its own page, keeping other pages in place', () => {
+    assert.deepEqual(restackBoards(stacked(), ['B', 'A'], 'front').order, ['C', 'X', 'D', 'A', 'B']);
+    assert.deepEqual(restackBoards(stacked(), ['D'], 'back').order, ['D', 'X', 'A', 'B', 'C']);
+  });
+
+  it('returns the same canvas when nothing moves', () => {
+    const canvas = stacked();
+    assert.equal(restackBoards(canvas, ['D'], 'forward'), canvas);
+    assert.equal(restackBoards(canvas, ['A'], 'back'), canvas);
+    assert.equal(restackBoards(canvas, ['X'], 'front'), canvas);
+  });
+
+  it('lets artboards overlap: the check has no warning for it', () => {
+    const canvas = emptyCanvas('T');
+    canvas.boards['Main.dc.html'] = { x: 0, y: 0, w: 800, h: 600 };
+    canvas.boards['Over.dc.html'] = { x: 100, y: 100, w: 800, h: 600 };
+    canvas.order = ['Main.dc.html', 'Over.dc.html'];
+    const files = new Map([['canvas.json', serializeCanvas(canvas)], ['Main.dc.html', MAIN], ['Over.dc.html', MAIN]]);
+    assert.deepEqual(checkDesignProject(files).filter((d) => /overlap/.test(d.message)), []);
   });
 });

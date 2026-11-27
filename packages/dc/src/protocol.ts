@@ -78,7 +78,7 @@ export type BoardEvent =
    */
   | { type: 'link-edit'; href: string; collapsed: boolean; rect: BoardRect; host?: boolean }
   /** A key the editor handles (undo, delete…) was pressed inside the frame. */
-  | { type: 'key'; key: string; code?: string; meta: boolean; shift: boolean; alt: boolean; repeat?: boolean };
+  | { type: 'key'; key: string; code?: string; meta: boolean; shift: boolean; alt: boolean; repeat?: boolean; ctrl?: boolean };
 
 /** Formatting toggles in-place text editing applies to the selection. */
 export type TextFormat = 'bold' | 'italic' | 'underline' | 'ul' | 'ol' | 'link';
@@ -143,6 +143,21 @@ export interface PickResult {
   instance: number;
 }
 
+/**
+ * One repeated level an element sits in: a stamped element whose parent
+ * holds more than one copy of the same template node (a list row).
+ */
+export interface RepeatedRow {
+  /** Template node of the repeated element. */
+  tid: number;
+  /** Position among its copies, from 1. */
+  at: number;
+  /** How many copies its parent holds (at most 9999). */
+  of: number;
+  /** Its words, shortened. */
+  text: string;
+}
+
 /** Computed values the properties panel shows for an element. */
 export interface ElementInspection {
   tid: number;
@@ -175,6 +190,8 @@ export interface BoardApi {
   pickAll(x: number, y: number, skip?: readonly number[]): PickResult[];
   /** Rects of every rendered instance of each template node. */
   rects(tids: readonly number[]): Record<number, BoardRect[]>;
+  /** The repeated levels (list rows) an instance sits in, outermost first, the instance itself included. */
+  repeatedRows(tid: number, instance: number): RepeatedRow[];
   inspect(tid: number): ElementInspection | null;
   /**
    * The render values a loaded `<dc-import name>` component computes for

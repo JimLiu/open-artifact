@@ -143,21 +143,25 @@ export function App() {
           {mode === 'focused' && focused ? <FocusedView path={focused} /> : <Canvas />}
           {mode === 'canvas' ? (
             <TipGroup>
-              <div className="pointer-events-none absolute left-3 top-3 flex max-w-[calc(100%-24px)] gap-2">
+              <div data-focus-region="top" className="pointer-events-none absolute left-3 top-3 flex max-w-[calc(100%-24px)] gap-2">
                 <StartCard compact={toolbarTop} />
               </div>
-              <div className="pointer-events-none absolute right-3 top-3 flex gap-2">
+              <div data-focus-region="top" className="pointer-events-none absolute right-3 top-3 flex gap-2">
                 <CollabCard />
                 <EndCard />
               </div>
               {/* Below the corner cards: the toolbar when it sits at the top, find, the restore offer. */}
               <div className="pointer-events-none absolute inset-x-0 top-[56px] flex flex-col items-center gap-2 px-2">
-                <FindBar />
+                <div data-focus-region="find" className="contents">
+                  <FindBar />
+                </div>
                 <RecoveryBanner />
               </div>
               <div className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 px-2 pb-3">
                 <FollowChip />
-                <Composer />
+                <div data-focus-region="composer" className="contents">
+                  <Composer />
+                </div>
                 {toolbarTop ? null : <FootToolbar />}
               </div>
             </TipGroup>
@@ -185,7 +189,9 @@ export function App() {
           <CommentList />
           <Announcer />
         </main>
-        {aside ? <CollabAside /> : panelOpen && mode === 'canvas' ? <PropertiesPanel /> : null}
+        <div data-focus-region="panel" className="contents">
+          {aside ? <CollabAside /> : panelOpen && mode === 'canvas' ? <PropertiesPanel /> : null}
+        </div>
       </div>
     </CrashBoundary>
   );

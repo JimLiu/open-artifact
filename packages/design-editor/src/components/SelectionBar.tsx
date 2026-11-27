@@ -43,11 +43,11 @@ import { boardApi } from '../services/frames.ts';
 import { templateOf } from '../services/agent.ts';
 import { useCoarsePointer } from '../services/pointer.ts';
 import { attributeSelection, deleteSelection, detachSelection, edit, detachSelectionRefusal, editSelectedComponent, selectedComponentPath, startTextEdit, styleSelection } from '../services/commands.ts';
-import { KEEP_TEXT_EDIT, applyEditedTextLink, cancelEditedTextLink, formatEditedText } from '../services/text-edit.ts';
+import { KEEP_TEXT_EDIT, applyEditedTextLink, cancelEditedTextLink, commitTextEdit, formatEditedText } from '../services/text-edit.ts';
 import { cancelScale, commitScale, setScaleFactor, useScale } from '../services/scale.ts';
 import { parseScaleInput } from '../lib/scale.ts';
 import { Card, ChromeButton, ChromeDivider, ChromeMenu, ChromeMenuItem, MOD, Tip, TipGroup } from '@open-artifact/editor-kit/react';
-import { toggleSelectionLock, useLockedWhy, useSelectionLock } from '../services/locks.ts';
+import { toggleSelectionLock, useDeleteLockedWhy, useLockedWhy, useSelectionLock } from '../services/locks.ts';
 import { PColor, PIconButton, PInput, PSegments, isTransparent, roundPx, toHex, withoutUnit } from './fields.tsx';
 import { BorderAlignButton } from './BorderAlign.tsx';
 import { alignedLookPatch, readAlignment, SIDES_NEED_INSIDE } from '../lib/border-align.ts';
@@ -635,7 +635,7 @@ function EditingLinkPopup({ disabled }: { disabled: boolean }) {
           <Popover.Popup
             aria-label="Link"
             {...{ [KEEP_TEXT_EDIT]: '' }}
-            onKeyDown={addressCardKeys({ saved: link?.href ?? '', guardDelete: false })}
+            onKeyDown={addressCardKeys({ saved: link?.href ?? '', close: cancelEditedTextLink, guardDelete: false })}
             className="flex w-[260px] flex-col gap-1.5 rounded-[12px] bg-chrome p-2 text-[13px] font-control text-chrome-fg shadow-chrome-popup outline-none"
           >
             <Hint>Link</Hint>
@@ -903,13 +903,20 @@ function Tail({ lead }: { lead?: ReactNode }) {
   const setPanel = useView((s) => s.setPanel);
   const coarse = useCoarsePointer();
   const readOnly = useDocument((s) => s.readOnly);
-  const editing = useView((s) => s.textEdit !== null);
-  const lockedWhy = useLockedWhy();
+  const deleteLocked = useDeleteLockedWhy();
   return (
     <Group>
       {lead}
-      {coarse && !readOnly && !editing && lockedWhy === null ? (
-        <StripButton tip="Delete" aria-label="Delete" onClick={() => deleteSelection()}>
+      {coarse && !readOnly && deleteLocked === null ? (
+        <StripButton
+          tip="Delete this element"
+          aria-label="Delete"
+          onClick={() => {
+            // An open text box is written first, as its own undo step.
+            commitTextEdit();
+            deleteSelection();
+          }}
+        >
           <Trash2 {...ICON} />
         </StripButton>
       ) : null}
@@ -1072,7 +1079,7 @@ export function SelectionBar({ box }: { box: SelectionBarBox }) {
       {...{ [KEEP_TEXT_EDIT]: '' }}
     >
       <TipGroup>
-        <Card role="toolbar" aria-label="Selection" className="gap-1 p-1" key={key}>
+        <Card role="toolbar" aria-label="Selection" data-focus-region="selection" className="gap-1 p-1" key={key}>
           {scaling || editing ? null : <LockButton readOnly={readOnly} />}
           {scaling ? (
             <ScaleStrip />

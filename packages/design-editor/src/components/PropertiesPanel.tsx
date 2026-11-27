@@ -1479,7 +1479,7 @@ export function PropertiesPanel() {
   }, []);
 
   return (
-    <aside className="relative flex h-full shrink-0 flex-col border-l border-chrome-sep bg-chrome text-chrome-fg" style={{ width }}>
+    <aside data-properties-panel className="relative flex h-full shrink-0 flex-col border-l border-chrome-sep bg-chrome text-chrome-fg" style={{ width }}>
       <PanelGrip width={width} onWidth={setWidth} />
       <BaseTabs.Root value={panel} onValueChange={(value) => setPanel(value as typeof panel)} className="flex min-h-0 flex-1 flex-col">
         <div className="flex shrink-0 items-center gap-[6px] px-[6px] py-2">

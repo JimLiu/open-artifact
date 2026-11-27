@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import { parseDcDocument, parseTemplate, type HtmlElement, type TemplateModel } from '@open-artifact/dc';
 import { applyOp, type Address } from '../src/lib/ops.ts';
 import {
+  deleteLockReason,
   isElementLocked,
   isLockKey,
   isLockable,
@@ -183,5 +184,18 @@ describe('the lock key', () => {
     assert.equal(isLockKey({ key: 'n', code: 'KeyN', meta: true, alt: false }), false);
     assert.equal(isLockKey({ key: 'l', code: 'KeyP', meta: true, alt: false }), true);
     assert.equal(isLockKey({ key: 'n', code: 'KeyL', meta: true, alt: false }), false);
+  });
+});
+
+describe('delete and locks', () => {
+  it('blocks deleting canvas objects only when all are locked', () => {
+    assert.equal(deleteLockReason('objects', { lockable: 3, locked: 0 }), null);
+    assert.equal(deleteLockReason('objects', { lockable: 3, locked: 2 }), null);
+    assert.equal(deleteLockReason('objects', { lockable: 3, locked: 3 }), 'Locked: unlock first');
+  });
+
+  it('blocks deleting elements when any is locked', () => {
+    assert.equal(deleteLockReason('elements', { lockable: 3, locked: 0 }), null);
+    assert.equal(deleteLockReason('elements', { lockable: 3, locked: 1 }), 'Locked: unlock first');
   });
 });

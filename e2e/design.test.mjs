@@ -1017,14 +1017,15 @@ editorSuite({
       } finally { await page.close(); }
     });
 
-    it('"Delete this page?" ignores an Enter pressed as it opens, and takes one pressed later', T, async () => {
+    it('"Delete page “Two”?" ignores an Enter pressed as it opens, and takes one pressed later', T, async () => {
       const twoPages = (ctx_, root) => {
         copyFixture('design', root);
         const file = path.join(root, 'project', 'canvas.json');
         const canvas = JSON.parse(fs.readFileSync(file, 'utf8'));
-        canvas.pages = [{ id: 'one', name: 'One' }, { id: 'two', name: 'Two' }];
+        canvas.pages = [{ id: 'one', name: 'One' }, { id: 'two', name: 'Two' }, { id: 'three', name: 'Three' }];
         // Only a page with something on it asks first.
         canvas.boards['Main.dc.html'].page = 'two';
+        canvas.notes = { ...canvas.notes, held: { x: 0, y: 0, text: 'Held', page: 'three' } };
         fs.writeFileSync(file, JSON.stringify(canvas));
       };
       const { root, url } = await ctx.openNew('page-delete', twoPages);
@@ -1036,12 +1037,21 @@ editorSuite({
         await clickOn(page, buttonNamed('Actions for Two'), 'the page’s actions');
         await clickOn(page, buttonNamed('Delete'), 'Delete');
         await page.press('Enter');
-        assert.ok(await page.waitFor(textIn('Delete this page?'), 3000), 'the dialog closed on the early Enter');
+        assert.ok(await page.waitFor(textIn('Delete page “Two”?'), 3000), 'the dialog closed on the early Enter');
         await new Promise(resolve => setTimeout(resolve, 800));
-        assert.equal(pages(), 'one,two', 'the early Enter deleted the page');
+        assert.equal(pages(), 'one,two,three', 'the early Enter deleted the page');
         await page.evaluate(`[...document.querySelectorAll('[role=dialog] button')].find(b => b.textContent.trim() === 'Delete').focus()`);
-        await page.press('Enter');
-        assert.ok(await until(() => pages() === 'one', 10000), `a later Enter did not delete: ${pages()}`);
+        // Held down: the Enter's repeats after the dialog closes press nothing else.
+        const enter = { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 };
+        await page.cdp('Input.dispatchKeyEvent', { type: 'keyDown', text: '\r', ...enter });
+        for (let i = 0; i < 6; i++) {
+          await new Promise(resolve => setTimeout(resolve, 60));
+          await page.cdp('Input.dispatchKeyEvent', { type: 'keyDown', text: '\r', autoRepeat: true, ...enter });
+        }
+        await page.cdp('Input.dispatchKeyEvent', { type: 'keyUp', ...enter });
+        assert.ok(await until(() => pages() === 'one,three', 10000), `a later Enter did not delete: ${pages()}`);
+        await new Promise(resolve => setTimeout(resolve, 800));
+        assert.equal(pages(), 'one,three', 'the held Enter went on to delete more');
         assert.deepEqual(page.problems, []);
       } finally { await page.close(); }
     });
@@ -1274,6 +1284,304 @@ editorSuite({
       } finally { await page.close(); }
     });
 
+    it('bare ] and [ take an element to the front or back, ⇧⌘] does nothing on a Mac, and Ctrl+Y redoes where ⌘Y does not', T, async () => {
+      const { root, url } = await ctx.openNew('stacking-bare', paintBoard);
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#box')`, settle: 800 });
+      const mac = process.platform === 'darwin';
+      const mod = { meta: mac, ctrl: !mac };
+      const boardText = () => fs.readFileSync(path.join(root, BOARD), 'utf8');
+      const order = () => ['<h1', '<p', '<div id="box"'].map(tag => boardText().indexOf(tag)).map((at, i, all) => all.filter(other => other < at).length).join('');
+      const still = async (want, why) => {
+        await new Promise(resolve => setTimeout(resolve, 600));
+        assert.equal(order(), want, why);
+      };
+      try {
+        await page.click(...await page.evaluate(boardMiddle('p')));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the paragraph is selected');
+        await page.press(']');
+        assert.ok(await until(() => order() === '021', 10000), `] brings it to the front: ${order()}`);
+        assert.ok(await page.waitFor(textIn('Brought to the front'), 5000), 'the move is announced');
+        await page.press('[');
+        assert.ok(await until(() => order() === '102', 10000), `[ sends it to the back: ${order()}`);
+        if (mac) {
+          await page.press(']', { meta: true, shift: true });
+          await still('102', '⇧⌘] moved the paragraph');
+        }
+        await page.press('z', mod);
+        assert.ok(await until(() => order() === '021', 10000), `⌘Z undoes: ${order()}`);
+        if (mac) {
+          await page.press('y', { meta: true });
+          await still('021', '⌘Y redid on a Mac');
+        }
+        await page.press('y', { ctrl: true });
+        assert.ok(await until(() => order() === '102', 10000), `Ctrl+Y redoes: ${order()}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('artboards stack: ⌘] brings the lower one over the other, saved as the order in canvas.json, and ⌘Z puts it back', T, async () => {
+      const { root, url } = await ctx.openNew('board-stack', (_ctx, root) => {
+        copyFixture('design', root);
+        const canvas = canvasOf(root);
+        const entry = canvas.boards['Main.dc.html'];
+        canvas.boards['Over.dc.html'] = { ...entry, title: 'Over', x: entry.x + 300, y: entry.y + 200 };
+        canvas.order.push('Over.dc.html');
+        fs.writeFileSync(path.join(root, 'project/canvas.json'), JSON.stringify(canvas));
+        fs.copyFileSync(path.join(root, BOARD), path.join(root, 'project/Over.dc.html'));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('[data-board-title="Over.dc.html"]')`, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const order = () => canvasOf(root).order.join();
+      try {
+        await clickOn(page, `document.querySelector('[data-board-title="Main.dc.html"]')`, 'the artboard title');
+        await page.press(']', mod);
+        assert.ok(await until(() => order() === 'Over.dc.html,Main.dc.html', 10000), `⌘] left the order: ${order()}`);
+        assert.ok(await page.waitFor(textIn('Brought forward'), 5000), 'the move is announced');
+        await page.press('z', mod);
+        assert.ok(await until(() => order() === 'Main.dc.html,Over.dc.html', 10000), `⌘Z left the order: ${order()}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('a field committed with Enter hands ⇧X to the canvas and ⌘Z to the history; ⌘S saves at once', T, async () => {
+      const { root, url } = await ctx.openNew('committed-field', paintBoard);
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#box')`, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const boxTag = () => /<div id="box"[^>]*>/.exec(fs.readFileSync(path.join(root, BOARD), 'utf8'))?.[0] ?? '';
+      const width = `document.querySelector('input[aria-label="width"]')`;
+      try {
+        await page.click(...await page.evaluate(boardMiddle('#box')));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the box is selected');
+        await clickOn(page, buttonNamed('Properties'));
+        assert.ok(await page.waitFor(width), 'the properties panel shows the width');
+        await clickOn(page, width);
+        await page.evaluate(`${width}.select()`);
+        await page.type('200');
+        await page.press('Enter');
+        assert.ok(await until(() => /width:\s*200px/.test(boxTag()), 10000), `Enter commits the width: ${boxTag()}`);
+        assert.ok(await page.waitFor(`document.activeElement === ${width}`), 'Enter keeps the field focused');
+        await page.press('x', { shift: true });
+        assert.ok(await until(() => /background-color:\s*rgb\(0, 0, 200\)/.test(boxTag()), 10000), `⇧X from the committed field swaps: ${boxTag()}`);
+        assert.equal(await page.evaluate(`${width}.value`), '200', '⇧X typed into the field');
+        await page.press('z', mod);
+        assert.ok(await until(() => /background-color:\s*rgb\(200, 0, 0\)/.test(boxTag()), 10000), `⌘Z undoes the swap: ${boxTag()}`);
+        await page.press('z', mod);
+        assert.ok(await until(() => /width:\s*160px/.test(boxTag()), 10000), `a second ⌘Z undoes the width: ${boxTag()}`);
+        // ⌘S in a field writes what was typed, and the browser does not offer to save the page.
+        await clickOn(page, width);
+        await page.evaluate(`${width}.select()`);
+        await page.type('180');
+        await page.press('s', mod);
+        assert.ok(await until(() => /width:\s*180px/.test(boxTag()), 10000), `⌘S commits the field: ${boxTag()}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('with an artboard’s text box open, ⌘D writes the words and then duplicates, and ⌘X only writes them', T, async () => {
+      const { root, url } = await ctx.openNew('text-handoff', paintBoard);
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#box')`, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const boardText = () => fs.readFileSync(path.join(root, BOARD), 'utf8');
+      const editing = `document.querySelector('iframe[data-board="Main.dc.html"]').contentDocument.activeElement?.isContentEditable`;
+      try {
+        await page.clickTimes(...await page.evaluate(boardMiddle('p')), 2);
+        assert.ok(await page.waitFor(editing, 5000), 'double-click opens the text box');
+        await page.press('End');
+        await page.type(' more');
+        // The selection bar takes the focus; the box stays open.
+        await page.evaluate(`document.querySelector('[data-focus-region="selection"] button').focus()`);
+        await new Promise(resolve => setTimeout(resolve, 300));
+        assert.ok(await page.evaluate(`!!document.querySelector('iframe[data-board="Main.dc.html"]').contentDocument.querySelector('[contenteditable="true"], [contenteditable="plaintext-only"]')`), 'the text box closed when the bar took the focus');
+        await page.press('x', mod);
+        assert.ok(await until(() => /Paragraph more</.test(boardText()), 10000), '⌘X wrote the words');
+        assert.ok(await page.waitFor(textIn('Text updated. Press'), 5000), '⌘X says to press it again');
+        assert.ok(/<p /.test(boardText()), '⌘X cut the paragraph');
+        await page.clickTimes(...await page.evaluate(boardMiddle('p')), 2);
+        assert.ok(await page.waitFor(editing, 5000), 'the text box opens again');
+        await page.press('End');
+        await page.type('!');
+        await page.evaluate(`document.querySelector('[data-focus-region="selection"] button').focus()`);
+        await page.press('d', mod);
+        assert.ok(await until(() => (boardText().match(/Paragraph more!</g) ?? []).length === 2, 10000), `⌘D wrote the words, then duplicated: ${boardText()}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('F6 steps through the regions and wraps, Escape in the selection bar goes home, and F6 leaves an artboard’s text box', T, async () => {
+      const { url } = await ctx.openNew('focus-regions', paintBoard);
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#box')`, settle: 800 });
+      const region = `(document.activeElement?.closest('[data-focus-region]')?.getAttribute('data-focus-region') ?? null)`;
+      try {
+        // A click on the canvas, then a key, shows no focus ring round it.
+        await page.click(...await page.evaluate(`[innerWidth / 2, innerHeight - 40]`));
+        await page.press('ArrowLeft');
+        const ringed = `getComputedStyle(document.querySelector('[data-canvas-surface]')).outlineStyle !== 'none'`;
+        assert.equal(await page.evaluate(ringed), false, 'the canvas shows a focus ring after a click');
+        await page.click(...await page.evaluate(boardMiddle('#box')));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the box is selected');
+        await page.press('F6');
+        assert.ok(await page.waitFor(`${region} === 'selection'`, 5000), `F6 from the canvas: ${await page.evaluate(region)}`);
+        assert.ok(await page.evaluate(`document.activeElement === document.querySelector('[data-focus-region="selection"] button')`), 'the focus is on the bar’s first button');
+        await page.press('Escape');
+        assert.ok(await page.waitFor(`${region} === 'canvas'`, 5000), `Escape in the bar: ${await page.evaluate(region)}`);
+        assert.ok(await page.evaluate(ringed), 'the canvas shows no ring when the focus comes home');
+        assert.ok(await page.evaluate(`!!(${buttonNamed('Lock')})`), 'Escape in the bar kept the selection');
+        const seen = [];
+        for (let i = 0; i < 6; i++) {
+          await page.press('F6');
+          seen.push(await page.evaluate(region));
+          if (seen.at(-1) === 'canvas') break;
+        }
+        assert.deepEqual(seen, ['selection', 'top', 'tools', 'canvas'], 'F6 goes round the regions and back home');
+        await page.press('F6', { shift: true });
+        assert.equal(await page.evaluate(region), 'tools', '⇧F6 steps back');
+        assert.equal(await page.evaluate(`document.activeElement.getAttribute('aria-pressed')`), 'true', 'the tools land on the tool in use');
+        await page.clickTimes(...await page.evaluate(boardMiddle('p')), 2);
+        assert.ok(await page.waitFor(`document.querySelector('iframe[data-board="Main.dc.html"]').contentDocument.activeElement?.isContentEditable`, 5000), 'the text box opens');
+        await page.press('F6');
+        assert.ok(await page.waitFor(`${region} === 'selection'`, 5000), `F6 in the text box: ${await page.evaluate(region)}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('on a touch screen, Delete on the selection bar writes an open text box first, then deletes', T, async () => {
+      const { root, url } = await ctx.openNew('touch-delete-editing', paintBoard);
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#box')`, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const boardText = () => fs.readFileSync(path.join(root, BOARD), 'utf8');
+      const deleteButton = `document.querySelector('button[aria-label="Delete"]')`;
+      try {
+        await page.cdp('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+        assert.ok(await page.waitFor(`document.querySelector('button[aria-label="Undo or redo"]')`, 5000), 'the page knows it is a touch screen');
+        await page.clickTimes(...await page.evaluate(boardMiddle('p')), 2);
+        assert.ok(await page.waitFor(`document.querySelector('iframe[data-board="Main.dc.html"]').contentDocument.activeElement?.isContentEditable`, 5000), 'the text box opens');
+        await page.press('End');
+        await page.type(' kept');
+        assert.ok(await page.waitFor(deleteButton, 5000), 'the bar offers Delete while the text is edited');
+        await clickOn(page, deleteButton, 'Delete');
+        assert.ok(await until(() => !/<p /.test(boardText()), 10000), 'Delete left the paragraph');
+        await page.press('z', mod);
+        assert.ok(await until(() => /Paragraph kept</.test(boardText()), 10000), `⌘Z brings back the paragraph with the words typed: ${boardText()}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('Delete on objects partly locked removes only the unlocked ones, and none when all are locked', T, async () => {
+      const { root, url } = await ctx.openNew('delete-partly-locked', (_ctx, root) => {
+        copyFixture('design', root);
+        const canvas = canvasOf(root);
+        canvas.notes = { ...canvas.notes, free: { x: 0, y: 640, text: 'Free note' }, held: { x: 400, y: 640, text: 'Held note', locked: true } };
+        fs.writeFileSync(path.join(root, 'project/canvas.json'), JSON.stringify(canvas));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const notes = () => Object.keys(canvasOf(root).notes).sort().join();
+      const row = text => `[...document.querySelectorAll('[role=tree][aria-label="Layers"] [role=treeitem]')].find(el => el.textContent.includes(${JSON.stringify(text)}))`;
+      try {
+        await page.press('\\', mod);
+        assert.ok(await page.waitFor(row('Held note'), 5000), 'the layers list shows the notes');
+        await clickOn(page, row('Free note'), 'the free note’s row');
+        const held = await middleOf(page, row('Held note'));
+        await page.click(held.x, held.y, { shift: true });
+        assert.ok(await page.waitFor(`${row('Held note')}.getAttribute('aria-selected') === 'true' && ${row('Free note')}.getAttribute('aria-selected') === 'true'`, 5000), 'both notes are selected');
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('Delete');
+        assert.ok(await until(() => notes() === 'held', 10000), `Delete left: ${notes()}`);
+        await page.press('Delete');
+        assert.ok(await page.waitFor(textIn('Locked: unlock first.'), 5000), 'Delete on the locked note alone says why not');
+        assert.equal(notes(), 'held', 'the locked note was deleted');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('the pointer over an artboard’s row in the layers list rings the artboard on the canvas', T, async () => {
+      const { root, url } = await ctx.openNew('outline-hover');
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const title = canvasOf(root).boards['Main.dc.html'].title || 'Main';
+      const boardRow = `[...document.querySelectorAll('[role=tree][aria-label="Layers"] [role=treeitem]')].find(el => el.textContent.trim() === ${JSON.stringify(title)})`;
+      try {
+        await page.press('\\', mod);
+        assert.ok(await page.waitFor(boardRow, 5000), 'the layers list is open');
+        assert.equal(await page.evaluate(`!!document.querySelector('[data-hover-ring]')`), false, 'a ring before any hover');
+        const over = await middleOf(page, boardRow);
+        await page.hover(over.x, over.y);
+        assert.ok(await page.waitFor(`document.querySelector('[data-hover-ring]')`, 5000), 'no ring for the hovered row');
+        await page.hover(...await page.evaluate(`[innerWidth - 20, innerHeight - 20]`));
+        assert.ok(await page.waitFor(`window === top && !document.querySelector('[data-hover-ring]')`, 5000), 'the ring stayed after the pointer left the list');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('Escape in a page’s actions menu closes just the menu, and the next closes the Pages list', T, async () => {
+      const { url } = await ctx.openNew('pages-escape', (_ctx, root) => {
+        copyFixture('design', root);
+        const canvas = canvasOf(root);
+        canvas.pages = [{ id: 'one', name: 'One' }, { id: 'two', name: 'Two' }];
+        fs.writeFileSync(path.join(root, 'project/canvas.json'), JSON.stringify(canvas));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('button[aria-label^="Pages:"]')`, settle: 800 });
+      const actions = buttonNamed('Actions for Two');
+      try {
+        await clickOn(page, `document.querySelector('button[aria-label^="Pages:"]')`, 'the Pages menu');
+        await clickOn(page, actions, 'the page’s actions');
+        assert.ok(await page.waitFor(`document.querySelector('[role=menu]')`, 5000), 'the actions menu is open');
+        await page.press('Escape');
+        assert.ok(await page.waitFor(`window === top && !document.querySelector('[role=menu]')`, 5000), 'Escape left the actions menu open');
+        await new Promise(resolve => setTimeout(resolve, 300));
+        assert.ok(await page.evaluate(`!!(${actions})`), 'Escape in the actions menu closed the Pages list too');
+        await page.press('Escape');
+        assert.ok(await page.waitFor(`window === top && !(${actions})`, 5000), 'a second Escape left the Pages list open');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('V leaves comment mode, and a comment on a repeated row says which row it is', T, async () => {
+      const { root, url } = await ctx.openNew('comment-row', (_ctx, root) => {
+        copyFixture('design', root);
+        const file = path.join(root, BOARD);
+        const rows = `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="width: 880px; height: 560px; padding: 40px; box-sizing: border-box">
+<h1 style="margin: 0 0 16px; font-size: 40px">Smoke canvas</h1>
+<sc-for list="{{rows}}" as="row"><p style="margin: 0; height: 60px; font-size: 24px">{{row}}</p></sc-for>
+</div></x-dc>`;
+        fs.writeFileSync(file, fs.readFileSync(file, 'utf8')
+          .replace(/<x-dc>[\s\S]*?<\/x-dc>/, rows)
+          .replace(/return \{ accent:[^\n]*/, "return { accent: '#666666', rows: ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon'] };"));
+      });
+      const editor = `document.querySelector('iframe[name="open-artifact-shell"]')`;
+      const board = `${editor}?.contentDocument?.querySelector('iframe[data-board="Main.dc.html"]')`;
+      const shell = await (await ctx.browser()).load(url, { ready: `${board}?.contentDocument?.querySelectorAll('p').length === 5` });
+      const file = path.join(root, 'comments.json');
+      try {
+        assert.ok(await shell.waitFor("document.querySelector('[data-comments-button]')"));
+        await clickOn(shell, buttonNamed('Comments'));
+        assert.ok(await shell.waitFor("document.querySelector('[data-comment-capture]')"), 'comment mode is on');
+        await shell.evaluate(`${editor}.contentWindow.focus(), ${editor}.contentDocument.querySelector('[data-canvas-surface]').focus()`);
+        await shell.press('v');
+        assert.ok(await shell.waitFor("!document.querySelector('[data-comment-capture]')", 5000), 'V left comment mode on');
+        await clickOn(shell, buttonNamed('Comments'));
+        assert.ok(await shell.waitFor("document.querySelector('[data-comment-capture]')"), 'comment mode is on again');
+        const point = await shell.evaluate(`(() => {
+          const outer = ${editor}.getBoundingClientRect();
+          const frame = ${board};
+          const rect = frame.getBoundingClientRect();
+          const zoom = rect.width / frame.offsetWidth;
+          const row = frame.contentDocument.querySelectorAll('p')[1].getBoundingClientRect();
+          return [outer.left + rect.left + (row.left + 30) * zoom, outer.top + rect.top + (row.top + row.height / 2) * zoom];
+        })()`);
+        await shell.click(...point);
+        assert.ok(await shell.waitFor("document.activeElement?.shadowRoot?.activeElement?.matches('textarea')"), 'the comment box opens');
+        await shell.type('Second row');
+        await shell.press('Enter');
+        assert.ok(await until(() => fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes('Second row'), 10000), 'the comment is saved');
+        const saved = fs.readFileSync(file, 'utf8');
+        assert.match(saved, /row 2 of 5/, `the comment names no row: ${saved}`);
+        assert.match(saved, /Beta/, `the comment names no row text: ${saved}`);
+
+        assert.deepEqual(shell.problems.filter(problem => !problem.includes('favicon.ico')), []);
+      } finally { await shell.close(); }
+    });
+
     it('⇧X swaps the fill and the border colour, X takes the fill away, and the border can sit centred on the edge', T, async () => {
       const { root, url } = await ctx.openNew('paint-keys', paintBoard);
       const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#box')`, settle: 800 });
@@ -1338,7 +1646,7 @@ editorSuite({
       } finally { await page.close(); }
     });
 
-    it('closing the link address with Escape says the address was dropped, and the next Delete only says to press it again', T, async () => {
+    it('closing the link address with Escape or Tab says the address was dropped, and the next Delete only says to press it again', T, async () => {
       const { root, url } = await ctx.openNew('link-card', paintBoard);
       const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#box')`, settle: 800 });
       const boardText = () => fs.readFileSync(path.join(root, BOARD), 'utf8');
@@ -1351,13 +1659,20 @@ editorSuite({
         assert.ok(await page.waitFor(`document.querySelector('input[aria-label="Link"]')`, 5000), 'the address field is there');
         await page.evaluate(`document.querySelector('input[aria-label="Link"]').focus()`);
         await page.type('https://example.com');
-        await page.press('Tab');
-        assert.equal(await page.evaluate(`document.activeElement?.getAttribute('aria-label')`), 'Link', 'Tab stays in the card');
         await page.press('Escape');
         assert.ok(await page.waitFor(textIn('Address field closed. The address was not saved'), 5000), 'closing says the address was dropped');
         assert.ok(!boardText().includes('example.com'), 'the dropped address was saved');
+        // Tab past the card's last control closes it the same way.
+        await clickOn(page, link);
+        assert.ok(await page.waitFor(`document.querySelector('input[aria-label="Link"]')`, 5000), 'the address field is back');
+        await page.evaluate(`document.querySelector('input[aria-label="Link"]').focus()`);
+        await page.type('https://example.org');
+        await page.press('Tab');
+        // Right away, while the card is still animating out with the focus in it.
         await page.press('Delete');
         assert.ok(await page.waitFor(textIn('again to delete'), 5000), 'the first Delete says to press it again');
+        assert.ok(await page.waitFor(`window === top && !document.querySelector('input[aria-label="Link"]')`, 5000), 'Tab past the end closed the card');
+        assert.ok(!boardText().includes('example.org'), 'the address left by Tab was saved');
         assert.ok(boardText().includes('<h1'), 'the first Delete deleted the heading');
         await page.press('Delete');
         assert.ok(await until(() => !boardText().includes('<h1'), 10000), 'the second Delete deletes the heading');

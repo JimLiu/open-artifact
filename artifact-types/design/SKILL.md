@@ -68,7 +68,7 @@ whole page at that width, as tall as its content. Point them there; you take no 
     `title`, `page` (none = the first), `expand` (`"fill"`: a PAGE), `print` (`"flow"`: PDF paginates), `paper`
     (`"letter"`|`"a4"`), `is_interactive` (`true`: working controls; it gets a Play button), `frameless`
     (editor-set, keep it), `guides` (`reference/format.md`), `radius` (corner px).
-  - `order` = the same paths, back to front, which is also reading order; name the first artboard `Main.dc.html`
+  - `order` = the same paths, back to front (later ones paint on top; the focused view steps through them in this order); name the first artboard `Main.dc.html`
     (the entry).
   - EVERY `.dc.html` outside `project/ds/` shows, listed or not, `<dc-import>`ed ones too: list each (`w`,`h` =
     its `$preview`); give it its importer's `<head>` lines to render alone; its `<helmet>` (rerun in importers):

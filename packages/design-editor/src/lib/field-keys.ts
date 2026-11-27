@@ -1,5 +1,7 @@
 /** Keys of the properties panel's text fields. */
 
+import { historyShortcutOf } from './physical-keys.ts';
+
 /** The parts of a key press {@link historyKeyOf} reads. */
 export interface HistoryKey {
   key: string;
@@ -11,13 +13,16 @@ export interface HistoryKey {
   altKey: boolean;
 }
 
-/** ⌘Z / Ctrl+Z undo; ⇧⌘Z and ⌘Y redo; anything else `null`. */
+/** The canvas's undo and redo keys (see `historyShortcutOf`), read from a field's key event. */
 export function historyKeyOf(event: HistoryKey): 'undo' | 'redo' | null {
-  if (!(event.metaKey || event.ctrlKey) || event.altKey) return null;
-  const letter = event.code?.startsWith('Key') ? event.code.slice(3).toLowerCase() : event.key.toLowerCase();
-  if (letter === 'z') return event.shiftKey ? 'redo' : 'undo';
-  if (letter === 'y' && !event.shiftKey) return 'redo';
-  return null;
+  return historyShortcutOf({
+    key: event.key,
+    ...(event.code === undefined ? {} : { code: event.code }),
+    meta: event.metaKey || event.ctrlKey,
+    ctrl: event.ctrlKey && !event.metaKey,
+    shift: event.shiftKey,
+    alt: event.altKey,
+  });
 }
 
 /**

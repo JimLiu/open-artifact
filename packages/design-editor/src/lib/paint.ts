@@ -24,17 +24,21 @@ export const REMOVE_FILL_PATCH: StylePatch = {
 export const SHAPE_UNFILL_PATCH: StylePatch = { fill: 'none' };
 
 /** Why a fill and stroke couldn't be swapped. */
-export type SwapRefusal = 'unfit' | 'component' | 'not-solid' | 'in-code' | 'nothing';
+export type SwapRefusal = 'unfit' | 'component' | 'not-solid' | 'in-code' | 'hidden' | 'nothing';
 
 const REFUSALS = new Map<SwapRefusal, string>([
-  ['unfit', 'Lines and pictures have no fill and stroke to swap'],
+  ['unfit', 'Lines, pictures, notes, and artboards can’t swap fill and stroke'],
   ['component', 'Open the component to swap its fill and stroke'],
   ['not-solid', 'Only a single solid color can be swapped'],
-  ['in-code', 'Colors set in code can’t be swapped here. Ask the agent to swap them.'],
+  ['in-code', 'Colors set in code can’t be swapped here. Ask the agent in chat to swap them.'],
+  ['hidden', 'This isn’t shown on the page right now. Show it first.'],
   ['nothing', 'Swapping wouldn’t change it'],
 ]);
 
 export const swapRefusalMessage = (reason: SwapRefusal): string => REFUSALS.get(reason)!;
+
+/** A message as a sentence: ends with a period. */
+const sentence = (text: string): string => (/[.!?]$/.test(text) ? text : `${text}.`);
 
 export const SWAP_MESSAGES = {
   done: 'Fill and stroke swapped',
@@ -42,6 +46,20 @@ export const SWAP_MESSAGES = {
   busy: 'Finish cropping or editing points first',
   failed: 'Couldn’t swap the fill and stroke. Try again.',
 } as const;
+
+/** X with nothing to take the fill from. */
+export const NOTHING_TO_UNFILL = 'Nothing selected has a fill that can be removed.';
+
+/**
+ * How a swap is told: a toast when anything was refused (the first reason,
+ * then "The rest swapped." if some went through), else a quiet
+ * announcement. `null` when nothing was tried.
+ */
+export function swapReport(refusals: readonly SwapRefusal[], swapped: number): { toast: string } | { announce: string } | null {
+  const reason = refusals[0];
+  if (reason) return { toast: swapped ? `${sentence(swapRefusalMessage(reason))} ${SWAP_MESSAGES.rest}` : sentence(swapRefusalMessage(reason)) };
+  return swapped ? { announce: SWAP_MESSAGES.done } : null;
+}
 
 /** Elements with no fill and stroke of their own to swap. */
 const UNFIT = new Set(['img', 'picture', 'video', 'audio', 'iframe', 'canvas', 'hr', 'br', 'input', 'textarea', 'select', 'tr', 'thead', 'tbody', 'tfoot', 'col', 'colgroup']);

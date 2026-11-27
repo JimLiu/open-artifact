@@ -62,6 +62,8 @@ const lockedBoard = board('Locked artboard', `<div style="width: 800px; height: 
 
 const canvas = {
   v: 3,
+  // A fixed time, so regenerating changes nothing.
+  createdOnFiles: { v: 1, at: '2026-11-26T00:00:00Z' },
   title: 'Locks',
   launch: { view: 'canvas' },
   pages: [],

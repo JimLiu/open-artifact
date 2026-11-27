@@ -9,10 +9,11 @@ import { Switch as BaseSwitch } from '@base-ui/react/switch';
 import { ToggleGroup } from '@base-ui/react/toggle-group';
 import { Toggle } from '@base-ui/react/toggle';
 import { Check, ChevronDown } from 'lucide-react';
-import { forwardRef, useEffect, useRef, useState, type InputHTMLAttributes, type ReactNode } from 'react';
+import { forwardRef, useEffect, useRef, useState, type FocusEvent, type InputHTMLAttributes, type ReactNode } from 'react';
 import { cn } from './cn.ts';
 import { isComposingKey, preventRepeatedActivation, shortcutLetter } from './keys.ts';
 import { POPUP_CLASS } from './menu.tsx';
+import { createSelectAnnouncer } from './select-announce.ts';
 
 /**
  * Shared look of single-line inputs. Every field's box also carries `data-ui-field`, so a page can give the fields
@@ -159,11 +160,28 @@ export interface SelectInputProps<T extends string> {
   'aria-label'?: string;
 }
 
-/** A dropdown select. */
+/**
+ * Focus handlers for a select's trigger that say its new value (`label`)
+ * politely while it has the focus (see `select-announce.ts`).
+ */
+export function useSelectAnnouncement(label: string): { onFocus(event: FocusEvent<HTMLElement>): void; onBlur(event: FocusEvent<HTMLElement>): void } {
+  const announcer = useRef(createSelectAnnouncer<HTMLSpanElement>()).current;
+  useEffect(() => announcer.change(label), [announcer, label]);
+  useEffect(() => () => announcer.dispose(), [announcer]);
+  return {
+    onFocus: (event) => announcer.focus(event.currentTarget, label),
+    onBlur: (event) => announcer.blur(event.currentTarget),
+  };
+}
+
+/** A dropdown select. Its new value is said while its trigger has the focus. */
 export function SelectInput<T extends string>({ value, options, onChange, placeholder = '—', className, ...aria }: SelectInputProps<T>) {
+  const current = options.find((option) => option.value === value);
+  const announce = useSelectAnnouncement(current ? (typeof current.label === 'string' ? current.label : (current.title ?? current.value)) : '');
   return (
     <BaseSelect.Root value={value} onValueChange={(next) => next !== null && onChange(next as T)}>
       <BaseSelect.Trigger
+        {...announce}
         aria-label={aria['aria-label']}
         data-ui-field=""
         className={cn(INPUT_CLASS, 'flex items-center justify-between gap-1 text-left', className)}

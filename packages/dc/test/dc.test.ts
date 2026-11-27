@@ -134,6 +134,27 @@ describe('template addressing', () => {
     assert.equal(elementKind(svg.elements[2]!), 'image');
     assert.equal(elementLabel(svg.elements[2]!), 'A cat');
   });
+
+  it('counts a drawing without fill as a line', () => {
+    const kind = (html: string): string => elementKind(parseTemplate(html).elements[0]!);
+    // An icon drawn with strokes, its fill turned off on the svg.
+    assert.equal(kind('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M5 12h14"></path></svg>'), 'line');
+    assert.equal(kind('<svg style="fill: none"><path d="M0 0L10 10"></path></svg>'), 'line');
+    assert.equal(kind('<svg style="fill:none"><path d="M0 0"></path><path d="M1 1"></path></svg>'), 'line');
+    // A path with no fill anywhere fills black: a shape, unless the svg alone has a class (its look comes from CSS).
+    assert.equal(kind('<svg><path d="M0 0L10 10Z"></path></svg>'), 'shape');
+    assert.equal(kind('<svg class="rule"><path d="M0 0L10 0"></path></svg>'), 'line');
+    assert.equal(kind('<svg class="icon"><path class="mark" d="M0 0"></path></svg>'), 'shape');
+    // The shape's own fill wins over the svg's.
+    assert.equal(kind('<svg fill="none"><path style="fill: red" d="M0 0"></path></svg>'), 'shape');
+    // An arrow: a path with an arrowhead.
+    assert.equal(kind('<svg><defs><marker id="a"><path d="M0 0L5 5Z"></path></marker></defs><path d="M0 0L50 0" marker-end="url(#a)"></path></svg>'), 'line');
+    // A closed shape beside the lines makes it a picture.
+    assert.equal(kind('<svg style="fill:none"><circle r="4"></circle><path d="M0 0"></path></svg>'), 'shape');
+    assert.equal(kind('<path d="M0 0"></path>'), 'line');
+    assert.equal(kind('<hr>'), 'line');
+    assert.equal(kind('<rect width="4" height="4"></rect>'), 'shape');
+  });
 });
 
 describe('html round trip', () => {

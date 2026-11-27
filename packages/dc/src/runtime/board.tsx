@@ -21,6 +21,7 @@ import type {
   ElementInspection,
   PickResult,
   ImportTextTargetSpec,
+  RepeatedRow,
   TextEditOptions,
   TextFormat,
 } from '../protocol.ts';
@@ -405,6 +406,20 @@ class Board implements BoardApi {
     return out;
   }
 
+  repeatedRows(tid: number, instance: number): RepeatedRow[] {
+    const rows: RepeatedRow[] = [];
+    for (let element: HTMLElement | null = this.instances(tid)[instance] ?? null; element; element = element.parentElement?.closest<HTMLElement>(`[${TID_ATTRIBUTE}]`) ?? null) {
+      const own = element.getAttribute(TID_ATTRIBUTE);
+      const parent = element.parentElement;
+      if (!parent || own === null) continue;
+      const copies = Array.from(parent.children).filter((child) => child.getAttribute(TID_ATTRIBUTE) === own);
+      if (copies.length < 2) continue;
+      const text = (element.innerText ?? element.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 60);
+      rows.unshift({ tid: Number(own), at: copies.indexOf(element) + 1, of: Math.min(copies.length, 9999), text });
+    }
+    return rows;
+  }
+
   importValues(name: string, props: Record<string, unknown>): Record<string, unknown> | null {
     const parent = this.unit;
     if (!parent) return null;
@@ -550,15 +565,28 @@ class Board implements BoardApi {
     document.addEventListener(
       'keydown',
       (event) => {
+        const forward = () => {
+          event.preventDefault();
+          this.report({ type: 'key', key: event.key, code: event.code, meta: event.metaKey || event.ctrlKey, shift: event.shiftKey, alt: event.altKey, repeat: event.repeat, ctrl: event.ctrlKey && !event.metaKey });
+        };
+        // Save (⌘S / Ctrl+S) and F6 (move between the editor's regions) always go to the editor.
+        const save = (event.metaKey || event.ctrlKey) && !event.altKey && (event.code === 'KeyS' || event.key.toLowerCase() === 's');
+        const always = save || event.key === 'F6';
         if (this.text.active) {
-          if (this.text.keydown(event)) event.stopPropagation();
+          if (always) {
+            event.stopPropagation();
+            forward();
+          } else if (this.text.keydown(event)) event.stopPropagation();
+          return;
+        }
+        if (always) {
+          forward();
           return;
         }
         if (this.mode !== 'edit' && event.key !== 'Escape') return;
         const target = event.target as HTMLElement | null;
         if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
-        event.preventDefault();
-        this.report({ type: 'key', key: event.key, code: event.code, meta: event.metaKey || event.ctrlKey, shift: event.shiftKey, alt: event.altKey, repeat: event.repeat });
+        forward();
       },
       true,
     );

@@ -4,10 +4,10 @@
 import { Dialog as BaseDialog } from '@base-ui/react/dialog';
 import { Popover as BasePopover } from '@base-ui/react/popover';
 import { X } from 'lucide-react';
-import { useRef, type KeyboardEvent, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useRef, type KeyboardEvent, type ReactElement, type ReactNode } from 'react';
 import { Button } from './button.tsx';
 import { cn } from './cn.ts';
-import { blocksEarlyPress, preventRepeatedActivation, type EarlyPressTimes } from './keys.ts';
+import { blocksEarlyPress, guardHeldActivation, preventRepeatedActivation, type EarlyPressTimes } from './keys.ts';
 import { POPUP_CLASS } from './menu.tsx';
 
 /** Props of {@link Popover}. */
@@ -49,10 +49,27 @@ export interface DialogProps {
   onOpenChangeComplete?: (open: boolean) => void;
   /** Sees every keydown and keyup inside the dialog first (capture phase). */
   onKeyCapture?: (event: KeyboardEvent<HTMLElement>) => void;
+  /** The element focused when the dialog opens; by default the first one that takes focus. */
+  initialFocus?: BaseDialog.Popup.Props['initialFocus'];
 }
 
-/** A modal dialog. */
-export function Dialog({ open, onOpenChange, title, description, children, footer, className, onOpenChangeComplete, onKeyCapture }: DialogProps) {
+/**
+ * A modal dialog. Closed by a held Enter, the Enter's repeats don't press
+ * what gets the focus next.
+ */
+export function Dialog({ open, onOpenChange, title, description, children, footer, className, onOpenChangeComplete, onKeyCapture, initialFocus }: DialogProps) {
+  const enterHeld = useRef(false);
+  const wasOpen = useRef(open);
+  useEffect(() => {
+    if (open === wasOpen.current) return;
+    wasOpen.current = open;
+    if (!open && enterHeld.current) guardHeldActivation(window, 'Enter', () => false);
+    enterHeld.current = false;
+  }, [open]);
+  const keyCapture = (event: KeyboardEvent<HTMLElement>) => {
+    onKeyCapture?.(event);
+    if (event.key === 'Enter') enterHeld.current = event.type === 'keydown';
+  };
   return (
     <BaseDialog.Root open={open} onOpenChange={(next) => onOpenChange(next)} onOpenChangeComplete={onOpenChangeComplete}>
       <BaseDialog.Portal>
@@ -63,8 +80,9 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
             'transition-[opacity,transform] data-[starting-style]:scale-95 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0',
             className,
           )}
-          onKeyDownCapture={onKeyCapture}
-          onKeyUpCapture={onKeyCapture}
+          onKeyDownCapture={keyCapture}
+          onKeyUpCapture={keyCapture}
+          initialFocus={initialFocus}
         >
           <div className="mb-3 flex items-start gap-3">
             <div className="flex-1">

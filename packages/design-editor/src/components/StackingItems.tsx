@@ -27,11 +27,11 @@ const IN_FLOW = new Map<StackOrder, string>([
   ['back', 'Move to first'],
 ]);
 
+/** One step takes ⌘ (Ctrl); the bracket alone goes all the way. */
 function shortcutOf(order: StackOrder): string {
   const bracket = stacksUp(order) ? ']' : '[';
-  const apple = isApplePlatform();
-  if (order === 'forward' || order === 'backward') return `${apple ? '⌘' : 'Ctrl+'}${bracket}`;
-  return `${apple ? '⌥⌘' : 'Ctrl+Shift+'}${bracket}`;
+  if (order === 'front' || order === 'back') return bracket;
+  return `${isApplePlatform() ? '⌘' : 'Ctrl+'}${bracket}`;
 }
 
 export function StackingItems({ disabled, reason, flow = false }: { disabled: boolean; reason?: string; flow?: boolean }) {

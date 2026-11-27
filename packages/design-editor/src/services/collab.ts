@@ -49,6 +49,12 @@ export function startCollab(): void {
   });
 }
 
+/** Ends comment mode (V, or the Select tool picked again). */
+export function leaveCommentMode(): void {
+  const comments = useComments.getState();
+  if (comments.on) comments.setOn(false);
+}
+
 /** What the Shell draws for comments and history. */
 export const collabChromeReport = (): Pick<ChromeReport, 'comments' | 'history'> => designCollab.chromeReport();
 /** Calls `report` whenever {@link collabChromeReport} may have changed. */

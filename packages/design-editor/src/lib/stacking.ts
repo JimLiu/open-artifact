@@ -1,7 +1,6 @@
 /**
  * Stacking shortcuts: one step up or down, or all the way to the front or
- * back. Read from the physical bracket keys, so the layout and Shift (which
- * turns `]` into `}`) don't matter.
+ * back. Read from the physical bracket keys, so the layout doesn't matter.
  */
 
 /** Where a stacking shortcut sends the selection. */
@@ -34,18 +33,25 @@ function sideOf(press: StackPress): 1 | -1 | 0 {
 /**
  * The stacking move of a key press, or `null`.
  *
+ * - ] / [ alone: to the front / back. With Shift (`}` / `{`) or Alt: nothing.
  * - ⌘] / ⌘[ one step forward / backward (Ctrl elsewhere).
- * - ⇧⌘] / ⇧⌘[ to the front / back; on a Mac ⌥⌘] / ⌥⌘[ too.
- * - ] / [ and ⇧] / ⇧[ (`}` / `{`) without ⌘: to the front / back.
+ * - On a Mac ⌥⌘] / ⌥⌘[ to the front / back; ⇧⌘] / ⇧⌘[ are left to the
+ *   browser, which switches tabs with them.
+ * - Elsewhere Ctrl+Shift and Ctrl+Alt to the front / back; Ctrl+Alt only
+ *   while the key still types a bracket (it is AltGr on many layouts).
  */
 export function stackOrderOf(press: StackPress, apple: boolean): StackOrder | null {
   const side = sideOf(press);
   if (!side) return null;
-  if (!press.meta) return press.alt ? null : side > 0 ? 'front' : 'back';
-  // Ctrl+Alt is AltGr on other platforms: it types characters.
-  if (press.alt && !apple) return null;
-  if (press.shift || press.alt) return side > 0 ? 'front' : 'back';
-  return side > 0 ? 'forward' : 'backward';
+  const toEnd: StackOrder = side > 0 ? 'front' : 'back';
+  if (!press.meta) return press.shift || press.alt ? null : toEnd;
+  const step: StackOrder = side > 0 ? 'forward' : 'backward';
+  if (apple) {
+    if (press.shift) return null;
+    return press.alt ? toEnd : step;
+  }
+  if (press.alt) return press.key === ']' || press.key === '[' ? toEnd : null;
+  return press.shift ? toEnd : step;
 }
 
 const SAID = new Map<StackOrder, readonly [moved: string, stuck: string]>([

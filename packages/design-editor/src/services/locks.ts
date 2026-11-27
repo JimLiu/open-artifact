@@ -10,7 +10,7 @@ import { useMemo } from 'react';
 import { isLockedObject, setObjectLocks, type Canvas } from '@open-artifact/design-core';
 import { resolveElement, type HtmlElement } from '@open-artifact/dc';
 import { toast } from '@open-artifact/ui';
-import { isElementLocked, isLockable, LOCKED_MESSAGE, LOCKED_REASON, nextLockState, UNLOCKABLE_MESSAGE } from '../lib/locks.ts';
+import { deleteLockReason, isElementLocked, isLockable, LOCKED_MESSAGE, LOCKED_REASON, nextLockState, UNLOCKABLE_MESSAGE } from '../lib/locks.ts';
 import type { Address } from '../lib/ops.ts';
 import { useDocument, type BoardDoc } from '../state/document.ts';
 import { useView, type Selection } from '../state/view.ts';
@@ -84,6 +84,13 @@ export function useSelectionLock(): SelectionLock {
  */
 export function useLockedWhy(): string | null {
   return useSelectionLock().locked ? LOCKED_REASON : null;
+}
+
+/** Why Delete is disabled by locks, kept current; `null` when it isn't. */
+export function useDeleteLockedWhy(): string | null {
+  const lock = useSelectionLock();
+  const kind = useView((state) => state.selection.kind);
+  return kind === 'objects' || kind === 'elements' ? deleteLockReason(kind, lock) : null;
 }
 
 /** True when anything selected is locked. */

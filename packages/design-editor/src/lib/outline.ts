@@ -369,3 +369,25 @@ export function climbAfter(model: TemplateModel, tid: number, levels: number): n
 export function levelsLeft(indentStart: number, pointerX: number, indent: number): number {
   return Math.max(0, Math.ceil((indentStart - pointerX) / indent));
 }
+
+/** How many parents up from `tid` the nearest of the `dragged` layers is (`null`: none of them holds it). */
+export function draggedAncestorSteps(model: TemplateModel, tid: number, dragged: readonly number[]): number | null {
+  const moving = new Set(dragged.map((d) => model.elements[d]).filter(Boolean));
+  let steps = 0;
+  for (let node = model.elements[tid]?.parent ?? null; node; node = node.parent) {
+    steps++;
+    if (moving.has(node)) return steps;
+  }
+  return null;
+}
+
+/**
+ * How many levels up a drop below a row goes. Below a row of a layer being
+ * dragged, the drop first climbs to the dragged layer (which leaves it where
+ * it is), then one more level per indent step the pointer moved left of
+ * where the drag started.
+ */
+export function dropLevels(input: { indentStart: number; pointerX: number; startX: number; indent: number; ancestorSteps: number | null }): number {
+  if (input.ancestorSteps === null) return levelsLeft(input.indentStart, input.pointerX, input.indent);
+  return Math.max(0, input.ancestorSteps + Math.floor((input.startX - input.pointerX) / input.indent));
+}

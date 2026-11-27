@@ -20,14 +20,17 @@ import { createComments, openCount } from '@open-artifact/editor-kit';
 import type { PinPlace } from '@open-artifact/editor-kit';
 import {
   anchorHighlight,
+  anchorDetail,
   anchorLabel,
   anchorLocation,
   boardAnchor,
   boardsInArea,
   elementAnchor,
+  keepRow,
   noteAnchor,
   onPage,
   parseAnchor,
+  rowOf,
   pinWorld,
   resolveAnchor,
   serializeAnchor,
@@ -50,6 +53,7 @@ export const designComments = createComments<DesignAnchor>({
   parse: parseAnchor,
   serialize: serializeAnchor,
   label: (anchor) => labelOf(anchor),
+  detail: (anchor) => anchorDetail(liveRow(anchor)),
   location: (anchor) => locationOf(anchor),
   state: (anchor) => resolveNow(anchor).state,
   stateNote: (state) => (state === 'detached' ? 'The element this was on is gone; shown on its artboard.' : state === 'orphaned' ? 'What this was on has been deleted.' : null),
@@ -128,7 +132,33 @@ export function pinContext(): PinContext {
 
 /** A short label of an anchor. */
 export function labelOf(anchor: DesignAnchor): string {
-  return anchorLabel(anchor, useDocument.getState().canvas);
+  return anchorLabel(liveRow(anchor), useDocument.getState().canvas);
+}
+
+/** The repeated rows a rendered element instance sits in (none when its artboard is not live). */
+function rowAt(board: string, tid: number, instance: number) {
+  try {
+    return rowOf(boardApi(board)?.repeatedRows(tid, instance) ?? []);
+  } catch {
+    return undefined;
+  }
+}
+
+/** An anchor with its row dropped when the live artboard no longer repeats every layer of it. */
+function liveRow(anchor: DesignAnchor): DesignAnchor {
+  if (anchor.kind !== 'element' || !anchor.row) return anchor;
+  const api = boardApi(anchor.board);
+  if (!api) return anchor;
+  // Repeated in any copy: a nested list can hold one item in its first row and more in the next.
+  return keepRow(anchor, (tid) => {
+    try {
+      const copies = Math.min(api.rects([tid])[tid]?.length ?? 1, 50);
+      for (let instance = 0; instance < copies; instance++) if (api.repeatedRows(tid, instance).at(-1)?.tid === tid) return true;
+      return false;
+    } catch {
+      return true;
+    }
+  });
 }
 
 /* -------------------------------------------------------------------------- */
@@ -153,8 +183,11 @@ export function anchorAt(world: { x: number; y: number }): DesignAnchor {
     const api = boardApi(path);
     const source = boards[path]?.source;
     let tid: number | null = null;
+    let instance = 0;
     try {
-      tid = api?.pick(local.x, local.y)?.tid ?? null;
+      const hit = api?.pick(local.x, local.y);
+      tid = hit?.tid ?? null;
+      instance = hit?.instance ?? 0;
     } catch {
       tid = null;
     }
@@ -162,7 +195,7 @@ export function anchorAt(world: { x: number; y: number }): DesignAnchor {
       const model = templateOf(source);
       const element = model.elements[tid];
       if (element) {
-        return elementAnchor({ page, board: path, tid, path: elementPath(model, element), model, box: liveElementRect(path, tid), local });
+        return elementAnchor({ page, board: path, tid, path: elementPath(model, element), model, box: liveElementRect(path, tid), local, row: rowAt(path, tid, instance) });
       }
     }
     return boardAnchor(page, path, local);
@@ -185,7 +218,7 @@ export function commentOnSelection(): void {
     const source = boards[selection.board]?.source;
     if (source) {
       const box = liveElementRect(selection.board, item.tid);
-      anchor = elementAnchor({ page: view.page, board: selection.board, tid: item.tid, path: item.path, model: templateOf(source), box });
+      anchor = elementAnchor({ page: view.page, board: selection.board, tid: item.tid, path: item.path, model: templateOf(source), box, row: rowAt(selection.board, item.tid, item.instance) });
     }
   } else if (selection.kind === 'objects') {
     if (selection.boards[0] && canvas.boards[selection.boards[0]]) anchor = boardAnchor(view.page, selection.boards[0]);
@@ -207,7 +240,7 @@ export function commentOnSelection(): void {
 /** Location details the agent reads with a thread. */
 function locationOf(anchor: DesignAnchor): JsonRecord {
   const { canvas } = useDocument.getState();
-  const location = anchorLocation(anchor, (board, tid, path) => formatAddress(board, tid, path)) as JsonRecord;
+  const location = anchorLocation(liveRow(anchor), (board, tid, path) => formatAddress(board, tid, path)) as JsonRecord;
   if (anchor.kind === 'area') {
     const covered = boardsInArea(anchor, canvas.boards, boardsOnPage(canvas, anchor.page));
     if (covered.length) location.artboards = covered.slice(0, 20);

@@ -40,8 +40,9 @@ each change and change only what you mean to.
 - `pages`: at most 40, `id` matching `[A-Za-z0-9_-]{1,40}`. With no pages,
   everything is on one canvas. A board or note without `page` is on the
   first page.
-- `order` lists every board exactly once: the reading order (arrow keys in
-  the focused view, export order).
+- `order` lists every board exactly once, back to front: a later board
+  paints over an earlier one where they overlap. The arrow keys in the
+  focused view follow it; export goes by position on the canvas.
 
 ## Boards
 
@@ -61,7 +62,7 @@ The key is the artboard path under `project/`. Fields:
 | `radius` | Corner radius of the frame, px: a phone or tablet screen (about 40 for a phone). Leave it off a PAGE, print or poster. |
 | `guides` | Up to 6 layout guides: `{ "kind": "columns" \| "rows" \| "grid", "count": 12, "gutter": 24, "margin": 32 }`. |
 
-Boards on one page must not overlap. Lay them out on a grid with 80–120 px
+Keep boards on one page apart: lay them out on a grid with 80–120 px
 gaps; leave at least 223 px above a row that has a title note.
 
 ## Notes
@@ -109,6 +110,6 @@ its components: `design-systems.md`.
 `open-artifact check <dir>` reports: a missing or invalid `canvas.json`, a wrong `v`,
 bad page or note ids, boards whose file is missing, sizes out of range,
 unknown pages, boards missing from `order` (or listed twice), artboard files
-not on the canvas, overlapping boards, a `launch` that names nothing, a
+not on the canvas, a `launch` that names nothing, a
 `locked` on a board or note that is not `true` or `false`, and installed
 systems without `tokens.json`.

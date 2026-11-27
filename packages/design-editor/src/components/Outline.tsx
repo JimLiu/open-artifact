@@ -24,7 +24,7 @@ import { edit } from '../services/commands.ts';
 import { announce } from '../services/announce.ts';
 import { refuseLocked, unlockElement, unlockObjects } from '../services/locks.ts';
 import { isElementLocked } from '../lib/locks.ts';
-import { ancestorTids, buildOutline, carryTids, climbAfter, isHiddenLayer, levelsLeft, loneLabelOp, renameOp, reorderOp, rowTidOf, visibilityOps, type OutlineDrop, type OutlineGlyph, type OutlineLayout, type OutlineNode } from '../lib/outline.ts';
+import { ancestorTids, buildOutline, carryTids, climbAfter, draggedAncestorSteps, dropLevels, isHiddenLayer, loneLabelOp, renameOp, reorderOp, rowTidOf, visibilityOps, type OutlineDrop, type OutlineGlyph, type OutlineLayout, type OutlineNode } from '../lib/outline.ts';
 
 const GLYPH_PROPS = { className: 'size-3.5', strokeWidth: 1.75 } as const;
 
@@ -126,8 +126,9 @@ function TreeRow({
       onKeyDown={(event) => {
         if (event.key === 'F2' && editable && onRename) setRenaming(true);
       }}
-      onMouseEnter={() => onHover(true)}
-      onMouseLeave={() => onHover(false)}
+      // A finger on a row marks nothing on the canvas.
+      onPointerEnter={(event) => onHover(event.pointerType !== 'touch')}
+      onPointerLeave={() => onHover(false)}
       className={cn(
         'group/row relative flex h-6 cursor-default select-none items-center rounded-[6px] pr-1 text-[12px] leading-4',
         selected ? cn('bg-chrome-selected text-chrome-fg', bold && 'font-medium') : cn('text-chrome-secondary', hovered ? 'bg-chrome-hover' : 'hover:bg-chrome-hover'),
@@ -319,7 +320,7 @@ function BoardTree({ path, flipped, flip, unflip, carry, autoOpen }: { path: str
       const element = model.elements[tid];
       const inside = element && reorderOp(model, dragged(node.tid), tid, 'inside') !== null;
       const where: OutlineDrop = inside ? (at < 0.25 ? 'before' : at > 0.75 ? 'after' : 'inside') : at < 0.5 ? 'before' : 'after';
-      target = dropTarget(dragged(node.tid), tid, where, box.left, Number(row.getAttribute('aria-level')) - 1, e.clientX);
+      target = dropTarget(dragged(node.tid), tid, where, box.left, Number(row.getAttribute('aria-level')) - 1, e.clientX, startX);
       setDrop(target);
     };
     const up = (): void => {
@@ -338,9 +339,10 @@ function BoardTree({ path, flipped, flip, unflip, carry, autoOpen }: { path: str
    * Below a row, pulled left of its indent: after the container the row
    * closes, one level per indent step, or as far toward that as a drop may go.
    */
-  const dropTarget = (moving: number[], tid: number, where: OutlineDrop, rowLeft: number, level: number, pointerX: number): { tid: number; where: OutlineDrop; at: number; shift: number } | null => {
+  const dropTarget = (moving: number[], tid: number, where: OutlineDrop, rowLeft: number, level: number, pointerX: number, startX: number): { tid: number; where: OutlineDrop; at: number; shift: number } | null => {
     if (!model) return null;
-    const climb = where === 'after' ? climbAfter(model, tid, levelsLeft(rowLeft + 6 + level * 16, pointerX, 16)) : [tid];
+    const levels = dropLevels({ indentStart: rowLeft + 6 + level * 16, pointerX, startX, indent: 16, ancestorSteps: draggedAncestorSteps(model, tid, moving) });
+    const climb = where === 'after' ? climbAfter(model, tid, levels) : [tid];
     for (let shift = climb.length - 1; shift >= 0; shift--) {
       if (reorderOp(model, moving, climb[shift]!, where)) return { tid: climb[shift]!, where, at: tid, shift };
     }
@@ -442,7 +444,7 @@ function BoardTree({ path, flipped, flip, unflip, carry, autoOpen }: { path: str
         hasChildren
         onToggle={() => flip(boardKey)}
         onSelect={selectBoard}
-        onHover={() => undefined}
+        onHover={(on) => view().setHoverObject(on ? { board: path } : null)}
         editable={!readOnly}
         locked={isLockedObject(entry)}
         onUnlock={() => unlockObjects([path], [])}
@@ -468,6 +470,13 @@ export function Outline() {
   const scroller = useRef<HTMLDivElement>(null);
 
   const activeBoard = selection.kind === 'elements' ? selection.board : selection.kind === 'objects' && selection.boards.length === 1 ? selection.boards[0] : null;
+
+  // Nothing stays marked on the canvas once the pointer or the list goes.
+  const clearHover = () => {
+    useView.getState().setHover(null);
+    useView.getState().setHoverObject(null);
+  };
+  useEffect(() => clearHover, []);
 
   // A newly selected element's row scrolls into view.
   useEffect(() => {
@@ -531,17 +540,19 @@ export function Outline() {
     for (const id of ids) { if (remove) notes.delete(id); else notes.add(id); }
     useView.getState().select({ kind: 'objects', boards: additive && selection.kind === 'objects' ? selection.boards : [], notes: [...notes] });
   };
+  // The canvas rings a note's whole group, so a group row rings it through any of its notes.
+  const hoverNote = (id: string | null) => useView.getState().setHoverObject(id === null ? null : { note: id });
   const noteRow = (id: string, level: number) => {
     const note = canvas.notes[id]!;
     const name = note.title || note.text?.split('\n')[0] || note.alt || note.href || note.kind || 'Sticky';
     const glyph = note.kind === 'image' ? 'image' : !note.kind || ['link', 'title1', 'sticky'].includes(note.kind) ? 'text' : 'shape';
     return <TreeRow key={id} level={level} name={name} glyph={glyph} selected={selectedNotes.includes(id)}
-      hovered={false} open={false} hasChildren={false} onHover={() => {}} onToggle={() => {}} onSelect={add => selectNotes([id], add)}
+      hovered={false} open={false} hasChildren={false} onHover={on => hoverNote(on ? id : null)} onToggle={() => {}} onSelect={add => selectNotes([id], add)}
       editable={!readOnly} locked={isLockedObject(note)} onUnlock={() => unlockObjects([], [id])} />;
   };
 
   return (
-    <div ref={scroller} role="tree" aria-label="Layers" className="h-full overflow-y-auto px-1.5 py-1.5" onMouseLeave={() => useView.getState().setHover(null)}>
+    <div ref={scroller} role="tree" aria-label="Layers" className="h-full overflow-y-auto px-1.5 py-1.5" onMouseLeave={clearHover}>
       {boards.map(path => <BoardTree key={path} path={path} flipped={flipped} flip={flip} unflip={unflip} carry={carry} autoOpen={boards.length === 1 || path === activeBoard} />)}
       {units.map(({ group, ids }) => {
         if (!group) return noteRow(ids[0]!, 0);
@@ -549,7 +560,7 @@ export function Outline() {
         const open = flipped.has(key);
         return <div key={key} role="group">
           <TreeRow level={0} name="Group" detail={String(ids.length)} glyph="frame" selected={ids.every(id => selectedNotes.includes(id))}
-            hovered={false} open={open} hasChildren onHover={() => {}} onToggle={() => flip(key)} onSelect={add => selectNotes(ids, add)} />
+            hovered={false} open={open} hasChildren onHover={on => hoverNote(on ? ids[0]! : null)} onToggle={() => flip(key)} onSelect={add => selectNotes(ids, add)} />
           {open && ids.map(id => noteRow(id, 1))}
         </div>;
       })}

@@ -18,6 +18,7 @@ import {
   placeNewBoard,
   planGroup,
   regroupNotes,
+  restackBoards,
   restackNotes,
   selectionHasGroup,
   stepNotes,
@@ -126,21 +127,24 @@ export function deleteSelection(): void {
       announce(selection.items.length === 1 ? 'Deleted' : `Deleted ${selection.items.length} elements`);
     }
   } else if (selection.kind === 'objects') {
-    if (anyLockedObject(doc.canvas, selection.boards, selection.notes)) {
-      refuseLocked();
+    // Locked artboards and notes stay; only an all-locked selection is refused.
+    const free = unlockedObjects(doc.canvas, selection.boards, selection.notes);
+    if (!free.boards.length && !free.notes.length) {
+      if (anyLockedObject(doc.canvas, selection.boards, selection.notes)) refuseLocked();
       return;
     }
-    if (selection.notes.length) {
+    if (free.notes.length) {
       doc.updateCanvas((canvas) => {
         const notes = { ...canvas.notes };
-        for (const id of selection.notes) delete notes[id];
+        for (const id of free.notes) delete notes[id];
         return { ...canvas, notes };
       });
     }
-    if (selection.boards.length) doc.deleteBoards(selection.boards);
-    view.select(NO_SELECTION);
-    const count = selection.notes.length + selection.boards.length;
-    if (count) announce(count === 1 ? 'Deleted' : `Deleted ${count} items`);
+    if (free.boards.length) doc.deleteBoards(free.boards);
+    const kept = selection.boards.length + selection.notes.length - free.boards.length - free.notes.length;
+    view.select(kept ? { kind: 'objects', boards: selection.boards.filter((path) => !free.boards.includes(path)), notes: selection.notes.filter((id) => !free.notes.includes(id)) } : NO_SELECTION);
+    const count = free.notes.length + free.boards.length;
+    announce(count === 1 ? 'Deleted' : `Deleted ${count} items`);
   }
 }
 
@@ -205,42 +209,23 @@ export function groupSelectedNotes(kind: 'group' | 'ungroup'): void {
 }
 
 /**
- * Brings the selected canvas notes to the front or sends them to the back.
- * Returns false when the selection has no notes. (Artboards never overlap,
- * and their `order` is the reading order, so they do not restack.)
- */
-export function restackSelectedNotes(to: 'front' | 'back'): boolean {
-  const doc = useDocument.getState();
-  const { selection } = useView.getState();
-  if (selection.kind !== 'objects' || !selection.notes.length) return false;
-  if (!doc.readOnly) {
-    // Locked notes stay where they are in the stack.
-    const { notes } = unlockedObjects(doc.canvas, [], selection.notes);
-    if (!notes.length) {
-      refuseLocked();
-      return true;
-    }
-    const next = restackNotes(doc.canvas, notes, to);
-    if (next !== doc.canvas) doc.updateCanvas(() => next);
-  }
-  return true;
-}
-
-/**
- * Moves the selected notes or elements one step or to the end of the stack
- * and says what happened. Returns false when the selection has neither.
+ * Moves the selected artboards, notes or elements one step or to the end of
+ * the stack and says what happened. Artboards stack in `order` (back to
+ * front on each page); artboards and notes move together, as one undo step.
+ * Locked ones stay. Returns false when nothing selected stacks.
  */
 export function stackSelection(order: StackOrder): boolean {
   const doc = useDocument.getState();
   const { selection } = useView.getState();
-  if (selection.kind === 'objects' && selection.notes.length) {
+  if (selection.kind === 'objects' && selection.boards.length + selection.notes.length) {
     if (doc.readOnly) return true;
-    const { notes } = unlockedObjects(doc.canvas, [], selection.notes);
-    if (!notes.length) {
+    const free = unlockedObjects(doc.canvas, selection.boards, selection.notes);
+    if (!free.boards.length && !free.notes.length) {
       refuseLocked();
       return true;
     }
-    const next = order === 'forward' || order === 'backward' ? stepNotes(doc.canvas, notes, order) : restackNotes(doc.canvas, notes, order);
+    let next = restackBoards(doc.canvas, free.boards, order);
+    if (free.notes.length) next = order === 'forward' || order === 'backward' ? stepNotes(next, free.notes, order) : restackNotes(next, free.notes, order);
     if (next !== doc.canvas) doc.updateCanvas(() => next);
     announce(stackMessage(order, next !== doc.canvas));
     return true;
@@ -334,10 +319,11 @@ function reorderPlan(direction: -1 | 1, toEnd: boolean): { board: string; op: Bo
 export function stackRoom(order: StackOrder): boolean | null {
   const { canvas } = useDocument.getState();
   const { selection } = useView.getState();
-  if (selection.kind === 'objects' && selection.notes.length) {
-    const { notes } = unlockedObjects(canvas, [], selection.notes);
-    if (!notes.length) return null;
-    const next = order === 'forward' || order === 'backward' ? stepNotes(canvas, notes, order) : restackNotes(canvas, notes, order);
+  if (selection.kind === 'objects' && selection.boards.length + selection.notes.length) {
+    const free = unlockedObjects(canvas, selection.boards, selection.notes);
+    if (!free.boards.length && !free.notes.length) return null;
+    let next = restackBoards(canvas, free.boards, order);
+    if (free.notes.length) next = order === 'forward' || order === 'backward' ? stepNotes(next, free.notes, order) : restackNotes(next, free.notes, order);
     return next !== canvas;
   }
   if (selection.kind !== 'elements') return null;

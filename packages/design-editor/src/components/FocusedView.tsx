@@ -138,7 +138,7 @@ export function FocusedView({ path }: { path: string }) {
   };
 
   return (
-    <div className="relative flex size-full flex-col bg-canvas">
+    <div data-focus-region="canvas" className="relative flex size-full flex-col bg-canvas">
       <TipGroup>
         <header className="flex h-12 shrink-0 items-center gap-1 border-b border-chrome-line bg-chrome px-2 text-chrome-fg">
           <Tip label="Back to canvas" shortcut="Esc">

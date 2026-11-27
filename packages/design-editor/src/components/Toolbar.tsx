@@ -33,6 +33,7 @@ import { PEN_WEIGHTS, useView, type PenStyle, type Tool } from '../state/view.ts
 import { useAgent } from '../services/agent.ts';
 import { session } from '../services/session.ts';
 import { addBoardFromKeyboard, addPage, deletePage, movePage, redo, renamePage, stepPage, undo } from '../services/commands.ts';
+import { leaveCommentMode } from '../services/collab.ts';
 import { announce } from '../services/announce.ts';
 import { useCoarsePointer } from '../services/pointer.ts';
 import { dragScrollStep, dropLine, PAGE_DRAG_THRESHOLD, pageAfterDrop, pageDropIndex } from '../lib/page-order.ts';
@@ -88,6 +89,7 @@ function PagePill() {
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [deleteName, setDeleteName] = useState('');
   const list = pages.length ? pages : [{ id: '', name: 'Page 1' }];
   const current = list.find((p) => p.id === page) ?? list[0]!;
   const canvas = useDocument((s) => s.canvas);
@@ -97,7 +99,11 @@ function PagePill() {
     const first = canvas.pages[0]?.id;
     const hasContent =
       Object.values(canvas.boards).some((e) => (e.page ?? first) === id) || Object.values(canvas.notes).some((n) => (n.page ?? first) === id);
-    if (hasContent) setConfirmDelete(id);
+    if (hasContent) {
+      // Kept apart from the id so the title holds while the dialog closes.
+      setDeleteName(list.find((p) => p.id === id)?.name ?? '');
+      setConfirmDelete(id);
+    }
     else deletePage(id);
   };
 
@@ -230,7 +236,7 @@ function PagePill() {
       <ConfirmDialog
         open={confirmDelete !== null}
         onOpenChange={(next) => !next && setConfirmDelete(null)}
-        title="Delete this page?"
+        title={`Delete page “${deleteName}”?`}
         description="Its artboards and notes are deleted too. You can undo this."
         confirmLabel="Delete"
         danger
@@ -571,6 +577,8 @@ function useTipSide(): 'top' | 'bottom' {
 /** Picks a tool; picking the active one again puts it down. */
 function pick(tool: Tool): void {
   const view = useView.getState();
+  // Select ends comment mode, even when it is already the tool.
+  if (tool === 'select') leaveCommentMode();
   view.setTool(view.tool === tool && tool !== 'select' ? 'select' : tool);
 }
 
@@ -760,7 +768,7 @@ export function FootToolbar({ compact = false }: { compact?: boolean }) {
   const readOnly = useDocument((s) => s.readOnly);
   const tool = useView((s) => s.tool);
   return (
-    <div role="toolbar" aria-label="Canvas tools" className={cn("pointer-events-auto flex items-center text-chrome-fg", compact ? "dc-compact-tools gap-0.5" : "gap-1 rounded-[12px] bg-chrome p-1 shadow-chrome")}>
+    <div role="toolbar" aria-label="Canvas tools" data-focus-region="tools" className={cn("pointer-events-auto flex items-center text-chrome-fg", compact ? "dc-compact-tools gap-0.5" : "gap-1 rounded-[12px] bg-chrome p-1 shadow-chrome")}>
       <ToolButton spec={SELECT} />
       <ToolButton spec={HAND} />
       {readOnly ? null : (

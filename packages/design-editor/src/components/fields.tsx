@@ -8,8 +8,10 @@ import { Combobox as BaseCombobox } from '@base-ui/react/combobox';
 import { Select as BaseSelect } from '@base-ui/react/select';
 import { Check, ChevronDown, Palette } from 'lucide-react';
 import { forwardRef, useEffect, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
-import { cn, isComposingKey } from '@open-artifact/ui';
+import { cn, isComposingKey, useSelectAnnouncement } from '@open-artifact/ui';
 import { historyKeyOf, stepLength } from '../lib/field-keys.ts';
+import { COMMITTED_ATTRIBUTE, endsCommitted } from '../lib/input-handoff.ts';
+import { isSaveKey } from '../lib/physical-keys.ts';
 import { redo, undo } from '../services/commands.ts';
 import { ChromeMenu, ChromeMenuItem, ChromeMenuLabel, Tip } from '@open-artifact/editor-kit/react';
 
@@ -87,7 +89,9 @@ export interface PInputProps {
  * reverts. Enter keeps the focus, with the text selected, so the next value
  * can be typed at once. Arrow keys step numbers (Shift: by 10); an empty
  * field steps from its placeholder. Undo and redo with nothing typed undo
- * the design, not the field's text.
+ * the design, not the field's text. After Enter the field is committed:
+ * canvas shortcuts with a modifier (⇧X, ⌘L, ⌘]) work from it until it is
+ * typed in or left.
  */
 export function PInput({ value, onCommit, placeholder, unit, prefix, disabled, className, mono, step = 1, ...aria }: PInputProps) {
   const [draft, setDraft] = useState(value);
@@ -114,21 +118,33 @@ export function PInput({ value, onCommit, placeholder, unit, prefix, disabled, c
         placeholder={placeholder}
         disabled={disabled}
         spellCheck={false}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={() => {
+        onChange={(event) => {
+          event.target.removeAttribute(COMMITTED_ATTRIBUTE);
+          setDraft(event.target.value);
+        }}
+        onBlur={(event) => {
+          event.target.removeAttribute(COMMITTED_ATTRIBUTE);
           if (!cancelled.current) commit();
           cancelled.current = false;
         }}
         onKeyDown={(event) => {
           if (isComposingKey(event.nativeEvent)) return;
+          const press = { key: event.key, code: event.code, meta: event.metaKey || event.ctrlKey, shift: event.shiftKey, alt: event.altKey };
+          if (endsCommitted(press)) event.currentTarget.removeAttribute(COMMITTED_ATTRIBUTE);
           const history = historyKeyOf(event);
-          if (history && draft === value) {
+          if (isSaveKey(press)) {
+            // ⌘S: the value is written first; the editor then saves.
+            commit();
+            event.currentTarget.setAttribute(COMMITTED_ATTRIBUTE, '');
+          } else if (history && draft === value) {
             event.preventDefault();
             if (history === 'undo') undo();
             else redo();
           } else if (event.key === 'Enter') {
             commit();
             event.currentTarget.select();
+            // Committed: canvas shortcuts work from here until the field is typed in or left.
+            event.currentTarget.setAttribute(COMMITTED_ATTRIBUTE, '');
           } else if (event.key === 'Escape') {
             cancelled.current = true;
             setDraft(value);
@@ -193,10 +209,13 @@ export function PSelect({
   'aria-label'?: string;
 }) {
   const current = options.find((option) => option.value === value);
+  // The new value is said while the trigger has the focus (arrow keys on a closed select, or a pick).
+  const announce = useSelectAnnouncement(current ? (typeof current.label === 'string' ? current.label : current.value) : (value ?? ''));
   let lastGroup: string | undefined;
   return (
     <BaseSelect.Root value={value} onValueChange={(next) => next !== null && onChange(next as string)} disabled={disabled}>
       <BaseSelect.Trigger
+        {...announce}
         aria-label={aria['aria-label']}
         className={cn(FIELD, fill(className), 'flex cursor-default items-center gap-1 pl-2 pr-[6px] text-left data-[disabled]:opacity-50', className)}
       >

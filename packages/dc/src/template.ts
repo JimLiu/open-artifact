@@ -22,6 +22,7 @@ import {
   type HtmlElement,
   type HtmlNode,
 } from './html.ts';
+import { parseStyle } from './style.ts';
 
 /** A parsed template with its elements indexed by tid. */
 export interface TemplateModel {
@@ -154,8 +155,10 @@ const TEXT_TAGS = new Set([
   'b', 'i', 'small', 'blockquote', 'figcaption', 'caption', 'code', 'pre', 'dt', 'dd', 'summary', 'legend',
 ]);
 const SHAPE_TAGS = new Set(['div', 'section', 'article', 'aside', 'header', 'footer', 'main', 'nav', 'figure']);
-const SVG_SHAPES = new Set(['rect', 'circle', 'ellipse', 'polygon', 'path']);
-const SVG_LINES = new Set(['line', 'polyline']);
+const SVG_SHAPES = new Set(['rect', 'circle', 'ellipse', 'polygon']);
+/** Drawings that are lines: a path, a line, a polyline (and a rule). */
+const LINE_TAGS = new Set(['path', 'line', 'polyline', 'hr']);
+const SVG_STROKES = new Set(['path', 'line', 'polyline']);
 
 /** Template-level structure tags: they render no box of their own. */
 export const STRUCTURE_TAGS: ReadonlySet<string> = new Set(['helmet', 'sc-for', 'sc-if']);
@@ -166,27 +169,61 @@ export function holdsText(element: HtmlElement): boolean {
   return kids.length === 0 && textContent(element).trim().length > 0;
 }
 
+/** An element's fill, its style first, then its attribute (`undefined`: not set). */
+function fillOf(element: HtmlElement): string | undefined {
+  const styled = [...parseStyle(attributeValue(element, 'style') ?? '')].reverse().find((d) => d.property.toLowerCase() === 'fill');
+  return (styled?.value ?? attributeValue(element, 'fill'))?.trim().toLowerCase();
+}
+
+/** Only arrowheads: `<marker>`, or `<defs>` holding nothing but markers. */
+const onlyMarkers = (element: HtmlElement): boolean => element.tag === 'marker' || (element.tag === 'defs' && elementChildren(element).every((child) => child.tag === 'marker'));
+
+/** The one drawing of a top-level svg that holds nothing else but arrowheads, or `null`. */
+function loneDrawing(svg: HtmlElement): HtmlElement | null {
+  for (let node = svg.parent; node; node = node.parent) if (node.tag === 'svg') return null;
+  const kids = elementChildren(svg);
+  const drawn = kids.filter((child) => !onlyMarkers(child));
+  if (drawn.length !== 1) return null;
+  const shape = drawn[0]!;
+  return SVG_SHAPES.has(shape.tag) || SVG_STROKES.has(shape.tag) ? (elementChildren(shape).length ? null : shape) : null;
+}
+
+/** True when an svg draws a line: an arrow or rule, a stroked path, an icon drawn without fill. */
+function svgIsLine(svg: HtmlElement): boolean {
+  const drawn: HtmlElement[] = [];
+  let marked = false;
+  const collect = (list: HtmlNode[]): void => {
+    for (const child of list) {
+      if (child.type !== 'element') continue;
+      if (child.tag === 'marker') {
+        marked = true;
+        continue;
+      }
+      if (SVG_STROKES.has(child.tag) || SVG_SHAPES.has(child.tag)) drawn.push(child);
+      collect(child.children);
+    }
+  };
+  collect(svg.children);
+  const closed = drawn.some((child) => SVG_SHAPES.has(child.tag));
+  // One path, line or polyline: by its fill (or the svg's), else by who carries the class.
+  const lone = loneDrawing(svg);
+  if (lone && SVG_STROKES.has(lone.tag)) {
+    const fill = fillOf(lone) ?? fillOf(svg);
+    if (fill !== undefined) return fill === 'none';
+    if (attributeValue(svg, 'class') !== undefined && attributeValue(lone, 'class') === undefined) return true;
+  }
+  if (!drawn.length || closed) return false;
+  // No fill on the svg, an arrow, or nothing but strokes.
+  if (fillOf(svg) === 'none' || marked) return true;
+  return drawn.every((child) => child.tag !== 'path' || attributeValue(child, 'fill')?.trim() === 'none');
+}
+
 /** Classifies an element. */
 export function elementKind(element: HtmlElement): ElementKind {
   const tag = element.tag;
   if (tag === 'img' || tag === 'picture' || tag === 'image' || tag === 'video') return 'image';
-  if (SVG_LINES.has(tag)) return 'line';
-  if (tag === 'svg') {
-    // An svg whose only drawing is lines (an arrow or rule) counts as a line.
-    const drawn: HtmlElement[] = [];
-    const collect = (list: HtmlNode[]): void => {
-      for (const child of list) {
-        if (child.type !== 'element') continue;
-        if (SVG_LINES.has(child.tag) || SVG_SHAPES.has(child.tag)) drawn.push(child);
-        collect(child.children);
-      }
-    };
-    collect(element.children);
-    const isStroke = (child: HtmlElement): boolean =>
-      SVG_LINES.has(child.tag) || (child.tag === 'path' && attributeValue(child, 'fill')?.trim() === 'none');
-    if (drawn.length > 0 && drawn.every(isStroke)) return 'line';
-    return 'shape';
-  }
+  if (LINE_TAGS.has(tag)) return 'line';
+  if (tag === 'svg') return svgIsLine(element) ? 'line' : 'shape';
   if (SVG_SHAPES.has(tag)) return 'shape';
   if (TEXT_TAGS.has(tag) || holdsText(element)) return 'text';
   if (SHAPE_TAGS.has(tag)) return 'shape';

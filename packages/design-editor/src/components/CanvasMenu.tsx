@@ -28,7 +28,7 @@ import {
   wrapSelection,
 } from '../services/commands.ts';
 import { canPasteHere, copyToSystem, pasteFromSystem, pasteHere, pasteIntoLocked } from '../services/clipboard.ts';
-import { toggleSelectionLock, useSelectionLock } from '../services/locks.ts';
+import { toggleSelectionLock, useDeleteLockedWhy, useSelectionLock } from '../services/locks.ts';
 import { LOCKED_REASON, UNLOCKABLE_REASON } from '../lib/locks.ts';
 import { canCaptureSelection, canCopyAs, copyAs } from '../services/capture.ts';
 import { armScale } from '../services/scale.ts';
@@ -61,6 +61,8 @@ function MenuItems() {
   const lock = useSelectionLock();
   // Changes that move, resize, delete or restructure locked things are disabled.
   const lockedWhy = lock.locked ? LOCKED_REASON : undefined;
+  // Delete skips locked artboards and notes; it is off only when all are locked.
+  const deleteLocked = useDeleteLockedWhy() ?? undefined;
   const pasteLocked = pasteIntoLocked();
 
   const selectAll = () => {
@@ -114,8 +116,9 @@ function MenuItems() {
   // Canvas notes group among themselves; the menu offers only what applies.
   const canGroupNotes = objects && noteGroupingFor('group');
   const canUngroupNotes = objects && noteGroupingFor('ungroup');
-  // Locked notes stay in place when restacking; with all of them locked there is nothing to do.
-  const notesLocked = selection.kind === 'objects' && selection.notes.length > 0 && !unlockedObjects(useDocument.getState().canvas, [], selection.notes).notes.length;
+  // Locked artboards and notes stay in place when restacking; with all of them locked there is nothing to do.
+  const free = selection.kind === 'objects' ? unlockedObjects(useDocument.getState().canvas, selection.boards, selection.notes) : null;
+  const objectsLocked = objects && free !== null && !free.boards.length && !free.notes.length;
   const blocked = readOnly || Boolean(lockedWhy);
   return (
     <>
@@ -134,10 +137,10 @@ function MenuItems() {
       </ChromeMenuItem>
       {copyAsItems || elements ? <ChromeMenuSeparator /> : null}
       {copyAsItems}
-      {objects && selection.notes.length ? (
+      {objects ? (
         <>
           <ChromeMenuSeparator />
-          <StackingItems disabled={readOnly || notesLocked} reason={notesLocked ? LOCKED_REASON : undefined} />
+          <StackingItems disabled={readOnly || objectsLocked} reason={objectsLocked ? LOCKED_REASON : undefined} />
           <ChromeMenuItem shortcut="⇧X" disabled={readOnly} onSelect={swapSelectionPaint}>
             Swap fill and stroke
           </ChromeMenuItem>
@@ -206,7 +209,7 @@ function MenuItems() {
         </>
       ) : null}
       <ChromeMenuSeparator />
-      <ChromeMenuItem shortcut="⌫" danger disabled={readOnly} onSelect={deleteSelection}>
+      <ChromeMenuItem shortcut="⌫" danger disabled={readOnly || Boolean(deleteLocked)} title={deleteLocked} onSelect={deleteSelection}>
         Delete
       </ChromeMenuItem>
     </>

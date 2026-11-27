@@ -334,6 +334,45 @@ export function boardsOnPage(canvas: Canvas, page: string | null): string[] {
   return canvas.order.filter((path) => page === null || pageOf(canvas, canvas.boards[path]!) === page);
 }
 
+/**
+ * Restacks artboards: `order` is their stacking order, back to front on each
+ * page. One step moves each past the next artboard on its page that is not
+ * moving; `front` / `back` take them to that end of their page, keeping
+ * their order among themselves. Other pages keep their places in `order`.
+ * Returns the same canvas when nothing moves.
+ */
+export function restackBoards(canvas: Canvas, paths: readonly string[], move: 'forward' | 'backward' | 'front' | 'back'): Canvas {
+  const moving = new Set(paths.filter((path) => canvas.boards[path]));
+  if (!moving.size) return canvas;
+  const pageKey = (path: string) => pageOf(canvas, canvas.boards[path]!);
+  const order = [...canvas.order];
+  for (const page of new Set([...moving].map(pageKey))) {
+    const spots = order.flatMap((path, at) => (pageKey(path) === page ? [at] : []));
+    let list = spots.map((at) => order[at]!);
+    if (move === 'front' || move === 'back') {
+      const picked = list.filter((path) => moving.has(path));
+      const rest = list.filter((path) => !moving.has(path));
+      list = move === 'front' ? [...rest, ...picked] : [...picked, ...rest];
+    } else {
+      const up = move === 'forward';
+      // The one nearest the end it heads for goes first, so none jumps another.
+      const queue = list.filter((path) => moving.has(path));
+      if (up) queue.reverse();
+      for (const path of queue) {
+        const at = list.indexOf(path);
+        const ahead = up ? list.slice(at + 1) : list.slice(0, at).reverse();
+        const next = ahead.find((other) => !moving.has(other));
+        if (next === undefined) continue;
+        const rest = list.filter((other) => other !== path);
+        const spot = rest.indexOf(next) + (up ? 1 : 0);
+        list = [...rest.slice(0, spot), path, ...rest.slice(spot)];
+      }
+    }
+    spots.forEach((at, i) => (order[at] = list[i]!));
+  }
+  return order.every((path, at) => path === canvas.order[at]) ? canvas : { ...canvas, order };
+}
+
 /** Note ids on a page. */
 export function notesOnPage(canvas: Canvas, page: string | null): string[] {
   return Object.keys(canvas.notes).filter((id) => page === null || pageOf(canvas, canvas.notes[id]!) === page);

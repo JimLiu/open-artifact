@@ -8,7 +8,8 @@
  *   a fingerprint so it is found again after edits move it. `fx`/`fy` place
  *   the pin as a fraction of the element's box (default: its top-right
  *   corner); `rect` is the box when the comment was made, used while the
- *   artboard is not rendered live.
+ *   artboard is not rendered live. `row` says which copy it is when the
+ *   template repeats it (or a parent of it): `row 2 of 5 › item 1 of 3`.
  * - `board`: a whole artboard; `x`/`y` (artboard px) a point on it.
  * - `note`: a canvas note (sticky, title, shape…), `fx`/`fy` as above.
  * - `point`: a point on the canvas (world px).
@@ -32,9 +33,30 @@ export interface ElementPrint {
   text?: string;
 }
 
+/** One repeated layer an element sits in: the `at`-th (from 1) of `of` copies of template node `tid`. */
+export interface RowLayer {
+  at: number;
+  of: number;
+  tid: number;
+}
+
+/**
+ * The repeated rows an element sits in, outermost first (1 to
+ * {@link ROW_LAYERS_MAX} layers), and the innermost row's words as shown.
+ */
+export interface ElementRow {
+  layers: RowLayer[];
+  text?: string;
+}
+
+/** Most repeated layers an anchor keeps (the innermost ones). */
+export const ROW_LAYERS_MAX = 3;
+/** Most copies a layer counts. */
+export const ROW_COUNT_MAX = 9999;
+
 /** Where a thread sits. */
 export type DesignAnchor =
-  | ({ kind: 'element'; page: string | null; board: string; tid: number; path: number[]; fx?: number; fy?: number; rect?: Rect } & ElementPrint)
+  | ({ kind: 'element'; page: string | null; board: string; tid: number; path: number[]; fx?: number; fy?: number; rect?: Rect; row?: ElementRow } & ElementPrint)
   | { kind: 'board'; page: string | null; board: string; x?: number; y?: number }
   | { kind: 'note'; page: string | null; note: string; fx?: number; fy?: number }
   | { kind: 'point'; page: string | null; x: number; y: number }
@@ -54,6 +76,53 @@ function rectOf(value: unknown): Rect | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const r = value as Record<string, unknown>;
   return isNum(r.x) && isNum(r.y) && isNum(r.w) && isNum(r.h) && r.w >= 0 && r.h >= 0 ? { x: r.x, y: r.y, w: r.w, h: r.h } : undefined;
+}
+
+/** A stored row, or `undefined` when it is not a valid one. */
+function rowFrom(value: unknown): ElementRow | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const r = value as Record<string, unknown>;
+  if (!Array.isArray(r.layers) || r.layers.length < 1 || r.layers.length > ROW_LAYERS_MAX) return undefined;
+  const layers: RowLayer[] = [];
+  for (const raw of r.layers as unknown[]) {
+    if (!raw || typeof raw !== 'object') return undefined;
+    const { at, of, tid } = raw as Record<string, unknown>;
+    if (!Number.isInteger(at) || !Number.isInteger(of) || !Number.isInteger(tid)) return undefined;
+    const layer = { at: at as number, of: of as number, tid: tid as number };
+    if (layer.of < 2 || layer.of > ROW_COUNT_MAX || layer.at < 1 || layer.at > layer.of || layer.tid < 0) return undefined;
+    layers.push(layer);
+  }
+  return isStr(r.text) && r.text ? { layers, text: r.text.slice(0, PRINT_TEXT_MAX) } : { layers };
+}
+
+/**
+ * The row of an element from the repeated layers it sits in (outermost
+ * first, as the artboard reports them): the innermost
+ * {@link ROW_LAYERS_MAX}, and the innermost one's words. `undefined` when
+ * it sits in none.
+ */
+export function rowOf(rows: readonly { tid: number; at: number; of: number; text?: string }[]): ElementRow | undefined {
+  const kept = rows.filter((r) => r.of >= 2 && r.at >= 1 && r.at <= r.of).slice(-ROW_LAYERS_MAX);
+  if (!kept.length) return undefined;
+  const layers = kept.map((r) => ({ at: r.at, of: Math.min(r.of, ROW_COUNT_MAX), tid: r.tid }));
+  const text = kept[kept.length - 1]!.text?.replace(/\s+/g, ' ').trim().slice(0, PRINT_TEXT_MAX);
+  return text ? { layers, text } : { layers };
+}
+
+/**
+ * An element anchor with its row kept only while every layer of it is still
+ * repeated (`repeated(tid)`); otherwise a plain element anchor.
+ */
+export function keepRow(anchor: DesignAnchor, repeated: (tid: number) => boolean): DesignAnchor {
+  if (anchor.kind !== 'element' || !anchor.row) return anchor;
+  if (anchor.row.layers.every((layer) => repeated(layer.tid))) return anchor;
+  const { row: _row, ...plain } = anchor;
+  return plain;
+}
+
+/** `row 2 of 5`, `item 1 of 3`: the words of a row's layers, outermost first. */
+export function rowWords(row: ElementRow): string[] {
+  return row.layers.map((layer, i) => `${i === 0 ? 'row' : 'item'} ${layer.at} of ${layer.of}`);
 }
 
 /** Drops `undefined` fields (so the stored JSON stays small). */
@@ -86,6 +155,7 @@ export function parseAnchor(text: string): DesignAnchor {
         rect: rectOf(a.rect),
         tag: isStr(a.tag) ? a.tag : undefined,
         text: isStr(a.text) ? a.text : undefined,
+        row: rowFrom(a.row),
       });
     case 'board':
       if (!isStr(a.board)) break;
@@ -140,7 +210,7 @@ export function printOf(model: TemplateModel, tid: number): ElementPrint {
  * The anchor of a press at `local` (artboard px) on an element whose box is
  * `box` (artboard px; `null` when it is not measured).
  */
-export function elementAnchor(input: { page: string | null; board: string; tid: number; path: readonly number[]; model: TemplateModel; box: Rect | null; local?: { x: number; y: number } }): DesignAnchor {
+export function elementAnchor(input: { page: string | null; board: string; tid: number; path: readonly number[]; model: TemplateModel; box: Rect | null; local?: { x: number; y: number }; row?: ElementRow }): DesignAnchor {
   const { box, local } = input;
   const at =
     box && local && box.w > 0 && box.h > 0
@@ -155,6 +225,7 @@ export function elementAnchor(input: { page: string | null; board: string; tid: 
     ...at,
     rect: box ? { x: round(box.x), y: round(box.y), w: round(box.w), h: round(box.h) } : undefined,
     ...printOf(input.model, input.tid),
+    row: input.row,
   });
 }
 
@@ -378,10 +449,25 @@ export function anchorLabel(anchor: DesignAnchor, canvas: Pick<Canvas, 'boards' 
     case 'element': {
       const entry = canvas.boards[anchor.board];
       const head = entry ? boardName(anchor.board, entry) : `Deleted artboard (${boardName(anchor.board, undefined)})`;
-      const what = anchor.text ? `${anchor.tag ?? 'Element'} "${anchor.text.length > 30 ? `${anchor.text.slice(0, 29)}…` : anchor.text}"` : (anchor.tag ?? 'Element');
-      return `${head} › ${what}`;
+      return [head, ...(anchor.row ? rowWords(anchor.row) : []), elementWhat(anchor)].join(' › ');
     }
   }
+}
+
+/** An element anchor's own words: `Button "Sign up"`. */
+function elementWhat(anchor: Extract<DesignAnchor, { kind: 'element' }>): string {
+  return anchor.text ? `${anchor.tag ?? 'Element'} "${anchor.text.length > 30 ? `${anchor.text.slice(0, 29)}…` : anchor.text}"` : (anchor.tag ?? 'Element');
+}
+
+/**
+ * What the agent reads about an element in a repeated row:
+ * `Button "Edit", row 2 of 5, item 1 of 3, shown as "Ada Lovelace"`.
+ * `undefined` for anything else.
+ */
+export function anchorDetail(anchor: DesignAnchor): string | undefined {
+  if (anchor.kind !== 'element' || !anchor.row) return undefined;
+  const shown = anchor.row.text ? `, shown as "${anchor.row.text}"` : '';
+  return `${elementWhat(anchor)}, ${rowWords(anchor.row).join(', ')}${shown}`;
 }
 
 /** Location details the agent reads with a thread (paths under `project/`). */
@@ -393,6 +479,7 @@ export function anchorLocation(anchor: DesignAnchor, address: (board: string, ti
       out.artboard = anchor.board;
       const id = address(anchor.board, anchor.tid, anchor.path);
       if (id) out.element = id;
+      if (anchor.row) out.row = rowWords(anchor.row).join(', ');
       break;
     }
     case 'board':

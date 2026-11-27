@@ -10,9 +10,12 @@ export type ZoomKey = 'fit' | 'actual' | 'selection';
 interface Press {
   key: string;
   code?: string;
+  /** ⌘ or Ctrl. */
   meta: boolean;
   shift: boolean;
   alt: boolean;
+  /** Ctrl without ⌘. */
+  ctrl?: boolean;
 }
 
 /** Shift+1 fits the page, Shift+0 is 100%, Shift+2 fits the selection. */
@@ -32,21 +35,27 @@ export function isCopyPngKey({ key, code, meta, shift, alt }: Press): boolean {
 }
 
 /** The letter of a key press: the physical key when it is a letter key. */
-const letterOf = ({ key, code }: Pick<Press, 'key' | 'code'>): string => (code?.startsWith('Key') ? code.slice(3).toLowerCase() : key.toLowerCase());
+export const letterOf = ({ key, code }: Pick<Press, 'key' | 'code'>): string => (code?.startsWith('Key') ? code.slice(3).toLowerCase() : key.toLowerCase());
 
 /**
- * ⌘Z undo, ⇧⌘Z redo; elsewhere Ctrl+Y redoes too. By the physical key, so
- * a layout without Latin letters undoes as well; never with Alt.
+ * ⌘Z / Ctrl+Z undo, ⇧⌘Z / ⇧Ctrl+Z redo, and Ctrl+Y redoes on every
+ * platform (⌘Y does nothing). By the physical key, so a layout without
+ * Latin letters undoes as well; never with Alt.
  */
-export function historyShortcutOf(press: Press, apple: boolean): 'undo' | 'redo' | null {
+export function historyShortcutOf(press: Press): 'undo' | 'redo' | null {
   if (!press.meta || press.alt) return null;
   const letter = letterOf(press);
   if (letter === 'z') return press.shift ? 'redo' : 'undo';
-  return letter === 'y' && !press.shift && !apple ? 'redo' : null;
+  return letter === 'y' && press.ctrl === true && !press.shift ? 'redo' : null;
 }
 
 /** X takes the fill away, ⇧X swaps fill and stroke (no ⌘, no Alt). */
 export function paintKeyOf(press: Press): 'swap' | 'unfill' | null {
   if (press.meta || press.alt || letterOf(press) !== 'x') return null;
   return press.shift ? 'swap' : 'unfill';
+}
+
+/** ⌘S / Ctrl+S (with or without Shift): save now, by the physical key. */
+export function isSaveKey(press: Press): boolean {
+  return press.meta && !press.alt && letterOf(press) === 's';
 }

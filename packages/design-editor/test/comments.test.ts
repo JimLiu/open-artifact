@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import { parseTemplate, type TemplateModel } from '@open-artifact/dc';
 import type { BoardEntry, CanvasNote, Rect } from '@open-artifact/design-core';
 import {
+  anchorDetail,
   anchorHighlight,
   anchorLabel,
   anchorLocation,
@@ -11,11 +12,13 @@ import {
   boardsInArea,
   elementAnchor,
   findElement,
+  keepRow,
   noteAnchor,
   onPage,
   parseAnchor,
   pinWorld,
   resolveAnchor,
+  rowOf,
   serializeAnchor,
   spreadPins,
   toScreenPoint,
@@ -201,5 +204,61 @@ describe('pin placement', () => {
       { x: 50, y: 0 },
       { x: 100, y: 100 },
     ]);
+  });
+});
+
+describe('repeated rows', () => {
+  const model = parseTemplate(TEMPLATE);
+  const canvas = { boards, notes: {} };
+  const rowAnchor = (): DesignAnchor =>
+    elementAnchor({
+      page: null,
+      board: 'Home.dc.html',
+      tid: model.elements.findIndex((e) => e.tag === 'button'),
+      path: [0, 2],
+      model,
+      box: null,
+      row: rowOf([
+        { tid: 1, at: 2, of: 5, text: '  Ada   Lovelace ' },
+        { tid: 2, at: 1, of: 3, text: 'Edit' },
+      ]),
+    });
+
+  it('keeps the innermost three layers, outermost first, and the innermost words', () => {
+    const row = rowOf([
+      { tid: 1, at: 1, of: 2, text: 'a' },
+      { tid: 2, at: 2, of: 5, text: 'b' },
+      { tid: 3, at: 1, of: 3, text: 'c' },
+      { tid: 4, at: 4, of: 20000, text: '  Last   one ' },
+    ]);
+    assert.deepEqual(row, { layers: [{ at: 2, of: 5, tid: 2 }, { at: 1, of: 3, tid: 3 }, { at: 4, of: 9999, tid: 4 }], text: 'Last one' });
+    assert.equal(rowOf([]), undefined);
+  });
+
+  it('round-trips through the stored form and drops invalid rows', () => {
+    const anchor = rowAnchor();
+    assert.deepEqual(parseAnchor(serializeAnchor(anchor)), anchor);
+    const stored = JSON.parse(serializeAnchor(anchor));
+    for (const row of [{ layers: [] }, { layers: [{ at: 0, of: 5, tid: 1 }] }, { layers: [{ at: 2, of: 1, tid: 1 }] }, { layers: [{ at: 2, of: 10000, tid: 1 }] }, { layers: [1, 2, 3, 4].map((tid) => ({ at: 1, of: 2, tid })) }, 'row']) {
+      const parsed = parseAnchor(JSON.stringify({ ...stored, row }));
+      assert.equal(parsed.kind, 'element');
+      assert.equal('row' in parsed, false);
+    }
+  });
+
+  it('says the row in the label, the detail and the location', () => {
+    const anchor = rowAnchor();
+    assert.equal(anchorLabel(anchor, canvas), 'Home › row 2 of 5 › item 1 of 3 › button "Sign up"');
+    assert.equal(anchorDetail(anchor), 'button "Sign up", row 2 of 5, item 1 of 3, shown as "Edit"');
+    assert.equal(anchorLocation(anchor, () => null).row, 'row 2 of 5, item 1 of 3');
+    assert.equal(anchorDetail(buttonAnchor(model)), undefined);
+  });
+
+  it('drops the row once a layer is no longer repeated', () => {
+    const anchor = rowAnchor();
+    assert.equal(keepRow(anchor, () => true), anchor);
+    const plain = keepRow(anchor, (tid) => tid !== 2);
+    assert.equal('row' in plain, false);
+    assert.equal(anchorLabel(plain, canvas), 'Home › button "Sign up"');
   });
 });

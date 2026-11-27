@@ -22,6 +22,12 @@ it('reads undo and redo shortcuts, also by physical key', () => {
   assert.equal(historyKeyOf(press('c', { metaKey: true })), null);
 });
 
+it('redoes with Ctrl+Y and leaves ⌘Y alone', () => {
+  assert.equal(historyKeyOf(press('y', { code: 'KeyY', ctrlKey: true })), 'redo');
+  assert.equal(historyKeyOf(press('y', { code: 'KeyY', metaKey: true })), null);
+  assert.equal(historyKeyOf(press('Y', { code: 'KeyY', ctrlKey: true, shiftKey: true })), null);
+});
+
 it('steps a length, and an empty field from its placeholder or from 0', () => {
   assert.equal(stepLength('12px', '', 1), '13px');
   assert.equal(stepLength('1.5', '', -10), '-8.5');

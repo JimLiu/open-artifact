@@ -27,6 +27,17 @@ export const UNLOCKABLE_MESSAGE = 'This can’t be locked.';
 /** Why Lock is disabled when nothing selected can be locked. */
 export const UNLOCKABLE_REASON = 'This can’t be locked';
 
+/**
+ * Why Delete is disabled by locks, or `null`. Canvas objects (artboards,
+ * notes) block it only when every one selected is locked: the unlocked ones
+ * are deleted and the locked ones stay. Any locked element blocks it.
+ */
+export function deleteLockReason(kind: 'objects' | 'elements', lock: { lockable: number; locked: number }): string | null {
+  if (!lock.locked) return null;
+  if (kind === 'elements') return LOCKED_REASON;
+  return lock.locked >= lock.lockable ? LOCKED_REASON : null;
+}
+
 /** Elements that render no box of their own: a lock on them means nothing. */
 const NEVER_LOCKED = new Set(['dc-import', 'x-import', 'sc-if', 'sc-for']);
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { parseTemplate } from '@open-artifact/dc';
-import { boxSwap, noteSwap, noteUnfill, shapeSwap } from '../src/lib/paint.ts';
+import { boxSwap, noteSwap, noteUnfill, shapeSwap, swapReport } from '../src/lib/paint.ts';
 
 const first = (html: string, tag?: string) => {
   const elements = parseTemplate(html).elements;
@@ -93,5 +93,19 @@ describe('swap: a border colour written as a function', () => {
     const { parseTemplate } = await import('@open-artifact/dc');
     const model = parseTemplate('<div style="background-color: rgb(200, 0, 0); border: 4px solid rgb(0, 0, 200)"></div>');
     assert.deepEqual(boxSwap(model.elements[0]!), { patch: { 'background-color': 'rgb(0, 0, 200)', 'border-color': 'rgb(200, 0, 0)' } });
+  });
+});
+
+describe('swap report', () => {
+  it('announces a full swap and stays quiet when nothing was tried', () => {
+    assert.deepEqual(swapReport([], 2), { announce: 'Fill and stroke swapped' });
+    assert.equal(swapReport([], 0), null);
+  });
+
+  it('gives the first reason as a sentence, then says the rest swapped', () => {
+    assert.deepEqual(swapReport(['unfit', 'nothing'], 0), { toast: 'Lines, pictures, notes, and artboards can’t swap fill and stroke.' });
+    assert.deepEqual(swapReport(['unfit'], 1), { toast: 'Lines, pictures, notes, and artboards can’t swap fill and stroke. The rest swapped.' });
+    assert.deepEqual(swapReport(['hidden'], 0), { toast: 'This isn’t shown on the page right now. Show it first.' });
+    assert.deepEqual(swapReport(['in-code'], 1), { toast: 'Colors set in code can’t be swapped here. Ask the agent in chat to swap them. The rest swapped.' });
   });
 });

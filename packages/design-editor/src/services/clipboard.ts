@@ -28,6 +28,7 @@ import { toast } from '@open-artifact/ui';
 import { placeImages } from './images.ts';
 import { freeBoardName } from '../lib/frame.ts';
 import { looksLikeHtml, sanitizeHtml, textParagraphs } from '../lib/sanitize.ts';
+import { pasteRoute, type PasteContext, type PasteField } from '../lib/paste-route.ts';
 import type { Address } from '../lib/ops.ts';
 import { isElementLocked, withoutLocks } from '../lib/locks.ts';
 import { useDocument } from '../state/document.ts';
@@ -501,6 +502,33 @@ function nativeTarget(event: ClipboardEvent): boolean {
   return Boolean(selection && !selection.isCollapsed && selection.toString());
 }
 
+/** A control's kind for routing a paste. */
+function fieldOf(node: EventTarget | null): PasteField {
+  if (!(node instanceof HTMLElement)) return 'none';
+  if (node instanceof HTMLTextAreaElement || node.isContentEditable) return 'text';
+  return isTextField(node) || node instanceof HTMLSelectElement ? 'input' : 'none';
+}
+
+/** What a paste event lands in. */
+function pasteContext(event: ClipboardEvent): PasteContext {
+  const data = event.clipboardData;
+  const types = data ? [...data.files].map((file) => file.type) : [];
+  const focused = document.activeElement;
+  const selection = document.getSelection();
+  return {
+    media: types.some((type) => type.startsWith('image/')) ? 'image' : types.some((type) => type.startsWith('video/')) ? 'video' : null,
+    hasText: Boolean(data?.getData('text/plain')),
+    focus: fieldOf(focused),
+    target: fieldOf(event.target),
+    panelFocus: Boolean(focused?.closest('[data-properties-panel]')),
+    selectionInFocus: Boolean(focused && focused !== document.body && selection && !selection.isCollapsed && selection.anchorNode && focused.contains(selection.anchorNode)),
+    popupOpen: Boolean(document.querySelector(POPUP_SELECTOR)),
+  };
+}
+
+/** Open menus, lists, popups and dialogs (a toast is not one). */
+const POPUP_SELECTOR = '[role="menu"], [role="listbox"], [role="dialog"]:not([data-toast]), [role="alertdialog"]:not([data-toast])';
+
 /** Installs the window's copy / cut / paste handlers. */
 export function installClipboard(onFiles: (files: File[]) => void): () => void {
   const write = (event: ClipboardEvent, cut: boolean): void => {
@@ -515,9 +543,15 @@ export function installClipboard(onFiles: (files: File[]) => void): () => void {
   const onCopy = (event: ClipboardEvent) => write(event, false);
   const onCut = (event: ClipboardEvent) => write(event, true);
   const onPaste = (event: ClipboardEvent): void => {
-    if (nativeTarget(event) || useDocument.getState().readOnly) return;
     const data = event.clipboardData;
-    if (!data) return;
+    const route = pasteRoute(pasteContext(event));
+    if (route.to === 'control') return;
+    if (route.to === 'none') {
+      event.preventDefault();
+      toast.add({ title: route.message });
+      return;
+    }
+    if (useDocument.getState().readOnly || !data) return;
     const files = [...data.files].filter((file) => file.type.startsWith('image/'));
     if (files.length) {
       event.preventDefault();

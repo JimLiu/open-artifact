@@ -12,7 +12,7 @@ import { useDocument } from '../state/document.ts';
 import { useView } from '../state/view.ts';
 import type { Address, BoardOp } from '../lib/ops.ts';
 import { isPaintProperty, loneShapeOf, paintTargetOf } from '../lib/lone-shape.ts';
-import { boxSwap, clipsToText, noteSwap, noteUnfill, REMOVE_FILL_PATCH, shapeSwap, SHAPE_UNFILL_PATCH, SWAP_MESSAGES, swapRefusalMessage, UNFILL_PATCH, type SwapRefusal } from '../lib/paint.ts';
+import { boxSwap, clipsToText, noteSwap, noteUnfill, REMOVE_FILL_PATCH, shapeSwap, SHAPE_UNFILL_PATCH, NOTHING_TO_UNFILL, SWAP_MESSAGES, swapReport, UNFILL_PATCH, type SwapRefusal } from '../lib/paint.ts';
 import { edit, selectedElements } from './commands.ts';
 import { boardApi } from './frames.ts';
 import { announce } from './announce.ts';
@@ -63,12 +63,10 @@ function writePaint(board: string, edits: { target: Address; patch: StylePatch }
 
 /** Tells how a swap went: done, done in part, or why not. */
 function reportSwap(refusals: SwapRefusal[], swapped: number): void {
-  if (!swapped) {
-    if (refusals.length) toast.add({ title: swapRefusalMessage(refusals[0]!) });
-    return;
-  }
-  if (refusals.length) toast.add({ title: `${swapRefusalMessage(refusals[0]!)} ${SWAP_MESSAGES.rest}` });
-  else announce(SWAP_MESSAGES.done);
+  const report = swapReport(refusals, swapped);
+  if (!report) return;
+  if ('toast' in report) toast.add({ title: report.toast });
+  else announce(report.announce);
 }
 
 /** ⇧X: swaps fill and stroke of the selected elements or shape notes. False when nothing is selected that could. */
@@ -77,8 +75,9 @@ export function swapSelectionPaint(): boolean {
   const doc = useDocument.getState();
   if (doc.readOnly) return false;
   const { selection } = view;
-  if (selection.kind === 'objects' && selection.notes.length) {
-    const refusals: SwapRefusal[] = [];
+  if (selection.kind === 'objects') {
+    // Artboards have no fill and stroke to swap.
+    const refusals: SwapRefusal[] = selection.boards.length ? ['unfit'] : [];
     const next = { ...doc.canvas.notes };
     let swapped = 0;
     for (const id of selection.notes) {
@@ -113,7 +112,13 @@ export function swapSelectionPaint(): boolean {
       continue;
     }
     if ('box' in subject) {
-      const plan = boxSwap(subject.box, boardApi(board)?.inspect(model.tidOf.get(subject.box)!)?.computed);
+      const api = boardApi(board);
+      const shown = api?.inspect(model.tidOf.get(subject.box)!);
+      if (api && !shown) {
+        refusals.push('hidden');
+        continue;
+      }
+      const plan = boxSwap(subject.box, shown?.computed);
       if ('refused' in plan) refusals.push(plan.refused);
       else {
         edits.push({ target: address(model, subject.box), patch: plan.patch });
@@ -142,7 +147,7 @@ export function unfillSelection(): boolean {
   const doc = useDocument.getState();
   if (doc.readOnly) return false;
   const { selection } = view;
-  if (selection.kind === 'objects' && selection.notes.length) {
+  if (selection.kind === 'objects') {
     const changed = selection.notes.flatMap((id) => {
       const note = doc.canvas.notes[id];
       const next = note ? noteUnfill(note) : null;
@@ -151,17 +156,19 @@ export function unfillSelection(): boolean {
     if (changed.length) {
       doc.updateCanvas((canvas) => ({ ...canvas, notes: { ...canvas.notes, ...Object.fromEntries(changed) } }));
       announce('Fill removed');
-    }
+    } else toast.add({ title: NOTHING_TO_UNFILL });
     return true;
   }
   if (selection.kind !== 'elements') return false;
-  return removeFill(UNFILL_PATCH);
+  if (!removeFill(UNFILL_PATCH)) toast.add({ title: NOTHING_TO_UNFILL });
+  return true;
 }
 
 /**
  * Remove fill on the selected elements: boxes get `patch` (X writes the
  * color and image; the Remove fill button and None every background part),
- * shapes `fill: none` with their `fill` attribute removed.
+ * shapes `fill: none` with their `fill` attribute removed. False when
+ * nothing selected has a fill to remove.
  */
 export function removeFill(patch: StylePatch = REMOVE_FILL_PATCH): boolean {
   const selected = selectedElements();
@@ -180,6 +187,7 @@ export function removeFill(patch: StylePatch = REMOVE_FILL_PATCH): boolean {
     edits.push(...shapeEdits(model, subject.shape, subject.svg, SHAPE_UNFILL_PATCH));
     for (const owner of [subject.shape, subject.svg]) if (owner && owner.attrs.some((attr) => attr.name.toLowerCase() === 'fill')) unfilled.push(address(model, owner));
   }
+  if (!edits.length) return false;
   if (writePaint(board, edits, unfilled)) announce('Fill removed');
   return true;
 }

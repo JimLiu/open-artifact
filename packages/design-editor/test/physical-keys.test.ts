@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { it } from 'node:test';
-import { isCopyPngKey, zoomKeyOf } from '../src/lib/physical-keys.ts';
+import { describe, it } from 'node:test';
+import { isCopyPngKey, isSaveKey, zoomKeyOf } from '../src/lib/physical-keys.ts';
 
 const press = (key: string, code: string | undefined, mods: { meta?: boolean; shift?: boolean; alt?: boolean } = {}) => ({
   key,
@@ -35,16 +35,17 @@ it('copies as PNG on Shift+Cmd+C, also where C types another letter', () => {
   assert.equal(isCopyPngKey(press('C', 'KeyC', { shift: true })), false);
 });
 
-it('undo and redo by the physical key', async () => {
+it('undo and redo by the physical key; Ctrl+Y redoes on every platform, ⌘Y does nothing', async () => {
   const { historyShortcutOf } = await import('../src/lib/physical-keys.ts');
-  const press = (key: string, code: string, mods: { meta?: boolean; shift?: boolean; alt?: boolean } = {}) => ({ key, code, meta: true, shift: false, alt: false, ...mods });
-  assert.equal(historyShortcutOf(press('я', 'KeyZ'), true), 'undo');
-  assert.equal(historyShortcutOf(press('Z', 'KeyZ', { shift: true }), true), 'redo');
-  assert.equal(historyShortcutOf(press('Ω', 'KeyZ', { alt: true }), true), null);
-  assert.equal(historyShortcutOf(press('y', 'KeyY'), false), 'redo');
-  assert.equal(historyShortcutOf(press('y', 'KeyY'), true), null);
-  assert.equal(historyShortcutOf(press('Y', 'KeyY', { shift: true }), false), null);
-  assert.equal(historyShortcutOf({ key: 'z', meta: false, shift: false, alt: false }, true), null);
+  const press = (key: string, code: string, mods: { meta?: boolean; shift?: boolean; alt?: boolean; ctrl?: boolean } = {}) => ({ key, code, meta: true, shift: false, alt: false, ...mods });
+  assert.equal(historyShortcutOf(press('я', 'KeyZ')), 'undo');
+  assert.equal(historyShortcutOf(press('z', 'KeyZ', { ctrl: true })), 'undo');
+  assert.equal(historyShortcutOf(press('Z', 'KeyZ', { shift: true })), 'redo');
+  assert.equal(historyShortcutOf(press('Ω', 'KeyZ', { alt: true })), null);
+  assert.equal(historyShortcutOf(press('y', 'KeyY', { ctrl: true })), 'redo');
+  assert.equal(historyShortcutOf(press('y', 'KeyY')), null);
+  assert.equal(historyShortcutOf(press('Y', 'KeyY', { shift: true, ctrl: true })), null);
+  assert.equal(historyShortcutOf({ key: 'z', meta: false, shift: false, alt: false }), null);
 });
 
 it('X and Shift+X by the physical key', async () => {
@@ -53,4 +54,14 @@ it('X and Shift+X by the physical key', async () => {
   assert.equal(paintKeyOf({ key: 'Ч', code: 'KeyX', meta: false, shift: true, alt: false }), 'swap');
   assert.equal(paintKeyOf({ key: 'x', code: 'KeyX', meta: true, shift: false, alt: false }), null);
   assert.equal(paintKeyOf({ key: '≈', code: 'KeyX', meta: false, shift: false, alt: true }), null);
+});
+
+describe('save key', () => {
+  it('is ⌘S / Ctrl+S by the physical key, never with Alt', () => {
+    assert.equal(isSaveKey({ key: 's', code: 'KeyS', meta: true, shift: false, alt: false }), true);
+    assert.equal(isSaveKey({ key: 'ы', code: 'KeyS', meta: true, shift: false, alt: false }), true);
+    assert.equal(isSaveKey({ key: 'S', code: 'KeyS', meta: true, shift: true, alt: false }), true);
+    assert.equal(isSaveKey({ key: 's', code: 'KeyS', meta: false, shift: false, alt: false }), false);
+    assert.equal(isSaveKey({ key: 'ß', code: 'KeyS', meta: true, shift: false, alt: true }), false);
+  });
 });
