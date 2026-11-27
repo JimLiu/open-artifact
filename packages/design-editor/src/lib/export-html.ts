@@ -1,17 +1,20 @@
 /**
  * The HTML exports, as pure text work: one artboard as a single
- * self-contained HTML file, the whole canvas as a folder with an index page
- * and a README, and the bookkeeping both need (relative paths, uploaded
- * files, data URLs). services/export.ts reads the files and saves the result.
+ * self-contained HTML file or as a folder with a README, the index page of
+ * the entire project's export (its README is lib/project-zip.ts), and the
+ * bookkeeping they need (relative paths, uploaded files, data URLs).
+ * services/export.ts reads the files and saves the result.
  *
  * A single-file export runs offline: the board runtime (`support.js`) is
  * inlined, preceded by a small bootstrap that answers the runtime's own
  * `fetch`es (its source, `<dc-import>`ed artboards, data files) from copies
  * embedded in the page. Stylesheets and scripts the artboard links are
- * inlined; images, fonts and uploads become `data:` URLs.
+ * inlined, `@import`s included; images, fonts and uploads become `data:` URLs.
  */
 
 import { supportScriptTag } from '@open-artifact/dc';
+import { inlineCss, type CssSources } from './css-inline.ts';
+import { escapeTemplateBraces } from './css-scan.ts';
 
 /** Root-relative URL of an upload (`/_blob/<id>`). */
 export const BLOB_REF = /\/_blob\/[A-Za-z0-9_-]+(?:\.[A-Za-z0-9]+)?/g;
@@ -150,15 +153,39 @@ export interface StandaloneInput {
   runtime: string;
 }
 
+/** A single-file export, and what it could not embed. */
+export interface StandaloneResult {
+  html: string;
+  /** Stylesheet imports left as they were, one line each. */
+  warnings: string[];
+}
+
+/** The `<style>` blocks of a page: their CSS goes through {@link inlineCss}, the rest through {@link rewriteRefs}. */
+const STYLE_BLOCK = /(<style\b[^>]*>)([\s\S]*?)(<\/style\s*>)/gi;
+
 /** One artboard as a single HTML file that runs without a server. */
-export function standaloneDocument({ path, source, files, uploads, runtime }: StandaloneInput): string {
+export function standaloneDocument({ path, source, files, uploads, runtime }: StandaloneInput): StandaloneResult {
   const binaries = [...files].filter(([name, data]) => typeof data !== 'string' || !TEXT_FILE.test(name));
   const dataUrls = new Map(binaries.map(([name, data]) => [name, dataUrl(name, data)]));
+  const warnings = new Set<string>();
+  const sources: CssSources = { files, dataUrls, uploads, textUrl: dataUrl };
   /** References to binaries and uploads in a text at `name`, rewritten to data URLs. */
-  const inline = (name: string, text: string): string => {
+  const rewrite = (name: string, text: string): string => {
     const refs = new Map<string, string>(uploads);
     for (const [file, url] of dataUrls) refs.set(relativePath(dirOf(name), file), url);
     return rewriteRefs(text, refs);
+  };
+  /** A text file at `name` with its references embedded: stylesheets by their CSS, pages around their `<style>` blocks. */
+  const inline = (name: string, text: string): string => {
+    if (/\.css$/i.test(name)) return inlineCss(text, name, sources, warnings);
+    if (!/\.html?$/i.test(name)) return rewrite(name, text);
+    let out = '';
+    let last = 0;
+    for (const match of text.matchAll(STYLE_BLOCK)) {
+      out += rewrite(name, text.slice(last, match.index)) + match[1] + inlineCss(match[2]!, name, sources, warnings) + match[3];
+      last = match.index + match[0].length;
+    }
+    return out + rewrite(name, text.slice(last));
   };
   const boardDir = dirOf(path);
   const texts = new Map<string, string>();
@@ -170,7 +197,8 @@ export function standaloneDocument({ path, source, files, uploads, runtime }: St
   for (const [name, text] of texts) {
     const rel = escapeRegExp(relativePath(boardDir, name));
     if (/\.css$/i.test(name)) {
-      html = html.replace(new RegExp(`<link\\b[^>]*\\bhref=["'](?:\\./)?${rel}["'][^>]*>`, 'gi'), () => `<style>\n${text.replace(/<\/(style)/gi, '<\\/$1')}\n</style>`);
+      const css = escapeTemplateBraces(text).replace(/<\/(style)/gi, '<\\/$1');
+      html = html.replace(new RegExp(`<link\\b[^>]*\\bhref=["'](?:\\./)?${rel}["'][^>]*>`, 'gi'), () => `<style>\n${css}\n</style>`);
     } else if (/\.m?js$/i.test(name)) {
       html = html.replace(new RegExp(`<script\\b([^>]*?)\\bsrc=["'](?:\\./)?${rel}["']([^>]*)>\\s*</script>`, 'gi'), (_m, a: string, b: string) => `<script${a}${b}>\n${inlineScript(text)}\n</script>`);
     }
@@ -178,15 +206,18 @@ export function standaloneDocument({ path, source, files, uploads, runtime }: St
   const bootstrap = standaloneBootstrap(self, Object.fromEntries(texts), path);
   const scripts = `<script>${inlineScript(bootstrap)}</script>\n<script>\n${inlineScript(runtime)}\n</script>`;
   const tag = supportScriptTag(html);
-  if (tag) return html.replace(tag, () => scripts);
   const head = /<head(\s[^>]*)?>/i.exec(html);
-  if (head) return `${html.slice(0, head.index + head[0].length)}\n${scripts}${html.slice(head.index + head[0].length)}`;
-  return `${scripts}\n${html}`;
+  const out = tag
+    ? html.replace(tag, () => scripts)
+    : head
+      ? `${html.slice(0, head.index + head[0].length)}\n${scripts}${html.slice(head.index + head[0].length)}`
+      : `${scripts}\n${html}`;
+  return { html: out, warnings: [...warnings] };
 }
 
 /* --------------------------------- canvas --------------------------------- */
 
-/** An artboard in the canvas export's index and README. */
+/** An artboard as an export's index and README describe it. */
 export interface ExportedBoard {
   path: string;
   title: string;
@@ -221,7 +252,7 @@ Array.from(pages.keys()).forEach((path, i) => show(frames[i], path));
 </script></html>`;
 }
 
-/** `index.html` of the canvas export: every artboard, page by page, as a link. */
+/** `index.html` of the entire project's export: every artboard, page by page, as a link. */
 export function canvasIndexHtml(title: string, boards: readonly ExportedBoard[]): string {
   const pages = new Map<string, ExportedBoard[]>();
   for (const board of boards) pages.set(board.page, [...(pages.get(board.page) ?? []), board]);
@@ -272,7 +303,7 @@ export interface ReadmeInput {
   runtimes: readonly string[];
 }
 
-/** README.md of an HTML export (one artboard or the whole canvas). */
+/** README.md of one artboard's HTML export. */
 export function exportReadme({ title, boards, resources, assets, missing, runtimes }: ReadmeInput): string {
   const lines = [
     `# ${title} — design reference`,

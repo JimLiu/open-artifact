@@ -21,6 +21,8 @@ describe('outlines in captures', () => {
     assert.equal(visibleOutline(style({ outlineWidth: '0px' })), null);
     assert.equal(visibleOutline(style({ outlineColor: 'rgba(0, 0, 0, 0)' })), null);
     assert.equal(visibleOutline(style({ outlineColor: 'transparent' })), null);
+    assert.equal(visibleOutline(style({ outlineColor: 'rgb(10 20 30 / 0)' })), null);
+    for (const color of ['rgb(0, 0, 0)', 'rgb(255, 0, 0)', 'rgb(0 0 0)', 'rgba(0, 0, 0, 0.5)']) assert.ok(visibleOutline(style({ outlineColor: color })), `${color} shows`);
     assert.equal(visibleOutline(style({ visibility: 'hidden' })), null);
     assert.equal(visibleOutline(style({ outlineStyle: 'double' }))?.dash, 'solid');
   });

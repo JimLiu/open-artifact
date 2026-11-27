@@ -17,7 +17,7 @@
 - **Rich exports**:
   - **PNG / JPEG** (single artboards or responsive full-page captures at 1×/2×)
   - **PDF** (fixed frames or paginated print flow)
-  - **HTML** — Standalone web page, **Figma capture HTML** (open in Chrome and capture with Figma's Chrome extension), or **Whole canvas ZIP** (every artboard, assets, runtime, index, and README)
+  - **HTML** — Standalone web page, **Figma capture HTML** (open in Chrome and capture with Figma's Chrome extension), or **Entire project (.zip)** (every project file with `canvas.json`, uploads, runtime, index, and README; hidden dot-files stay out, a large project is split into numbered zips, and the README lists anything left out). The one-file HTML embeds stylesheets an artboard pulls in with `@import`, and a full-window page exported with a lot of empty frame below its content gets a notice saying how much.
 
 ## How to use (for users)
 
@@ -33,12 +33,15 @@
   Artboard titles and their buttons keep their size while you zoom. Double-click a title, or right-click a selected artboard and choose **Rename**, to rename it: **Enter** saves, **Escape** cancels. When the title is off screen, the canvas first slides it into view without changing the zoom.
 - **Move around the canvas**: Scroll or swipe with two fingers to pan, and **⌘ + scroll** (Ctrl + scroll) or pinch to zoom at the pointer. Drag with the **right** or **middle** mouse button, or hold **Space** and drag, to pan; a right-button drag leaves the selection alone and opens no menu, while a right-click without moving still opens the menu. **⌘0** / **⇧1** fit the canvas, **⇧2** zooms to the selection.
 - **Lock and arrange**: Press **⌘L** (Ctrl+L) to lock an artboard, note or element so it can't be moved, resized or deleted by accident; unlock it the same way or from the layers list. Reorder pages with **Move up / Move down** or by dragging them in the page list, and restack with **⌘]** / **⌘[** (one step) and **]** / **[** or **⌥⌘]** / **⌥⌘[** (to the front or back); artboards restack the same way. A locked note or artboard is skipped by Delete; only an all-locked selection refuses.
+- **Select, copy and align**: Shift-click or drag a marquee across artboards, notes and elements to select them together (**N selected**) and move them as one undo step. Hold **Alt** while dragging to drop a copy instead (press or release Alt mid-drag to switch, **Esc** cancels); hold **⌘** (Ctrl) while drawing to turn snapping off. With elements selected, **⌥A** / **⌥H** / **⌥D** align left, horizontal centers or right and **⌥W** / **⌥V** / **⌥S** align top, vertical centers or bottom (several elements line up with each other, one with its parent). **⌥⌘C** / **⌥⌘V** copy one thing's style and paste it onto others.
+- **Between canvas and artboards**: Paste onto a selected artboard to place copied notes or layers inside it as positioned layers. Drag a note or a piece onto an artboard (it lights up) to add it at that spot in the layout, or hold **Ctrl** to keep it exactly where you drop it. Drag an element off an artboard onto bare canvas and it becomes a frameless piece of its own; drag a row in the layers list onto another artboard's row to move that element there. Double-click a path in an artboard to edit its points.
+- **Shape styles**: Rectangles and ovals take a fill, a border placed **Inside**, **Center** or **Outside** the edge, corner radius and opacity from the Properties panel; a new rectangle keeps the last radius you set.
 - **Test prototypes**: Click the **Play** button in the toolbar to run interactive artboards and test responsive screen widths.
 - **Collaborate with your agent**: Pin comments directly onto an artboard and click **Send to agent**.
 - **Live updates**: Files your agent writes appear on the canvas in place. If the connection drops, what changed meanwhile is merged once it is back, without moving the canvas or losing the selection or an Ask draft.
 - **Fix errors**: An artboard that fails to run shows a notice underneath it with **Ask agent to fix**, and **N errors** at the top right lists every artboard with errors on the page and asks the agent to fix them all. Close a notice with **×**; the warning mark it leaves next to the artboard's name brings it back. If the agent can't be reached, the list keeps the request for you to copy into its conversation.
 - **Deep links**: Append `#artboard-<name>`, `#play-<name>`, or `#page-<id>` to the artifact URL to jump straight to a board or page.
-- **Export**: Use **Share → Export** for PNG, JPEG, PDF, Figma-ready HTML, or a full-canvas ZIP.
+- **Export**: Use **Share → Export** for PNG, JPEG, PDF, Figma-ready HTML, or the entire project as a ZIP.
 
 ### Using a Gemini model?
 

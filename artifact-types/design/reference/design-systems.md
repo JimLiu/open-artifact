@@ -79,6 +79,10 @@ alone is then what you read and install.
    bundle's global (CDS: `Cds`), its Index every component; read
    `project/api/components/<Comp>.md` (props and their values, parts, an `x-import`
    example) before mounting one — all the cards you need in one parallel batch.
+   A README that sends you to another file for how each component is used: read
+   that file's note on every component you will use, the same way, before using
+   it (no note: its type file). A component that has a note is mounted, never
+   redrawn in markup.
    The files its README says to bring come onto the canvas
    with the install (above). Skip its
    React and ReactDOM files (even if its README's load order lists

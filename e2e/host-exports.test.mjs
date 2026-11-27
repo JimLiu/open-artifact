@@ -299,7 +299,7 @@ describe('exports on a cloud host, made in the browser', { skip: skip() }, () =>
     await expectFile(page, 'Design web page', { ext: 'html', kind: 'html', min: 1000 });
     await pickExport(page, 'HTML · All artboards on this page for Figma');
     await expectFile(page, 'Design for Figma', { ext: 'html', kind: 'html', min: 200 });
-    await pickExport(page, 'HTML · The whole canvas with an index and a README (.zip)');
+    await pickExport(page, 'HTML · Entire project (.zip)');
     await expectFile(page, 'Design canvas', { ext: 'zip', kind: 'zip', min: 200 });
     await pickExport(page, 'Whole folder (.zip)');
     await expectFile(page, 'Design folder', { ext: 'zip', kind: 'zip', min: 200 });

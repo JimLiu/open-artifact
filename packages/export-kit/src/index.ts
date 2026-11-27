@@ -10,6 +10,8 @@
  *   measured on a rendered page, words grouped into lines);
  * - document-measure.ts, pagination.ts and pdf-text.ts: a long document
  *   measured, cut into paper pages, and its text and links placed on each;
+ * - content-bottom.ts: where a rendered page's content ends, above any blank
+ *   space its frame leaves;
  * - pictures.ts: `data:` URLs, canvas encoding, decoding and shrinking pictures;
  * - outline.ts: CSS outlines, which dom-to-svg leaves out, drawn into its SVG;
  * - canvas-area.ts: how large a canvas captures draw on, lowered once the browser would not make one;
@@ -19,12 +21,13 @@
  *
  * It never imports an editor or a document model; each editor passes its
  * own limits and policies. The pure modules (text-layer.ts, pagination.ts,
- * pdf-text.ts, fonts.ts, font-subset.ts, canvas-area.ts, and outline.ts's
- * geometry) load in `node --test`.
+ * pdf-text.ts, fonts.ts, font-subset.ts, canvas-area.ts, outline.ts's
+ * geometry and content-bottom.ts's test of one element) load in `node --test`.
  */
 
 export * from './canvas-area.ts';
 export * from './capture.ts';
+export * from './content-bottom.ts';
 export * from './document-measure.ts';
 export * from './font-embed.ts';
 export * from './font-subset.ts';

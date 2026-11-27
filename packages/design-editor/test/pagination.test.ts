@@ -138,7 +138,7 @@ describe('the HTML exports', () => {
 
   it('builds one file that inlines the runtime, styles and images', () => {
     const source = `<!doctype html><html><head><title>A</title>\n<script src="./support.js"></script>\n<link rel="stylesheet" href="ds/x/tokens.css"></head><body><x-dc><img src="img/a.png"><dc-import name="Card"></dc-import></x-dc><script type="text/x-dc" data-dc-script>class Component extends DCLogic {}</script></body></html>`;
-    const html = standaloneDocument({
+    const { html, warnings } = standaloneDocument({
       path: 'Main.dc.html',
       source,
       files: new Map<string, Uint8Array | string>([
@@ -156,6 +156,28 @@ describe('the HTML exports', () => {
     assert.ok(html.includes('<\\/script>'));
     assert.ok(html.includes('window.RUNTIME = 1'));
     assert.ok(html.includes('Card.dc.html'));
+    assert.deepEqual(warnings, []);
+  });
+
+  it('inlines @imported stylesheets and their images, in the page’s own <style> too', () => {
+    const source = `<!doctype html><html><head><link rel="stylesheet" href="a.css"><style>/* url(img/a.png) */ .x { background: url('img/a.png#frag one') }</style></head><body><x-dc></x-dc></body></html>`;
+    const { html, warnings } = standaloneDocument({
+      path: 'Main.dc.html',
+      source,
+      files: new Map<string, Uint8Array | string>([
+        ['a.css', '@import "css/b.css" screen; @import url(data.json); .a {}'],
+        ['css/b.css', '.b { background: url(../img/a.png) }'],
+        ['data.json', '{}'],
+        ['img/a.png', new Uint8Array([1, 2, 3])],
+      ]),
+      uploads: new Map(),
+      runtime: '',
+    });
+    assert.ok(html.includes('/**/@media screen {\n.b { background: url(data:image/png;base64,AQID) }\n}/**/'));
+    assert.ok(html.includes('/* url(img/a.png) */'), 'a comment is left alone');
+    assert.ok(html.includes("url('data:image/png;base64,AQID#frag%20one')"));
+    assert.ok(html.includes('@import url(data.json);'));
+    assert.deepEqual(warnings, ['stylesheet import not embedded (data.json): it is not a CSS file']);
   });
 
   it('serves the embedded copies to the runtime’s fetch', async () => {

@@ -46,7 +46,8 @@ const px = (value: string): number => {
 const clear = (color: string): boolean => {
   const value = color.trim().toLowerCase();
   if (!value || value === 'transparent') return true;
-  const alpha = /^rgba?\([^)]*[,/]\s*([\d.]+)(%?)\s*\)$/.exec(value);
+  // Only a fourth value is alpha: `rgb(255, 0, 0)` ends in a 0 that is its blue.
+  const alpha = /^rgba?\((?:[^,)]*,){3}\s*([\d.]+)(%?)\s*\)$/.exec(value) ?? /^rgba?\([^)]*\/\s*([\d.]+)(%?)\s*\)$/.exec(value);
   return alpha !== null && Number.parseFloat(alpha[1]!) === 0;
 };
 

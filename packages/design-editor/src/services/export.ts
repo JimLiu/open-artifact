@@ -6,8 +6,8 @@
  * text layer, its web links and an outline bookmark per artboard), the
  * artboard's HTML with what it uses as a .zip or as one self-contained file,
  * a frameless HTML page for Figma's capture extension, every artboard of the
- * page as one PDF or a .zip of PNGs, and the whole canvas as a folder of web
- * pages with an index and a README.
+ * page as one PDF or a .zip of PNGs, and the entire project as .zip files
+ * (split when it is large) with an index and a README.
  *
  * Each export renders the artboard in a hidden frame at the requested size.
  * Preview-width PNGs use the width selected in the focused view.
@@ -24,9 +24,11 @@ import { attributeValue, parseDcDocument, parseTemplate, SUPPORT_SCRIPT_TAG, sup
 import { boardsOnPage, pageOf, type BoardEntry } from '@open-artifact/design-core';
 import { saveFile } from '@open-artifact/editor-kit';
 import { toast } from '@open-artifact/ui';
-import { groupLines, maxCaptureScale } from '@open-artifact/export-kit';
+import { contentBottom, groupLines, maxCaptureScale } from '@open-artifact/export-kit';
 import { buildPdf, optimizePng, packZip, PT_PER_PX, type PdfPage, type ZipEntry } from '@open-artifact/wasm-export';
 import { ExportFonts } from '../lib/export-fonts.ts';
+import { blankTail, blankTailNotice, type BlankTail } from '../lib/export-notices.ts';
+import { FAILED, INCOMPLETE, keptInProjectZip, leftOutNotice, OVER_LIMIT, planZipParts, PREPARING, preparingPart, PROJECT_ZIP_LIMITS, projectReadme, readmeName, savedAll, savedSome, UNREADABLE, WAITING, zipPartName, type LeftOut } from '../lib/project-zip.ts';
 import type { ExportJob } from '../lib/export-formats.ts';
 import { assetName, blobRefs, canvasIndexHtml, dataUrl, exportReadme, relativePath, rewriteRefs, standaloneCanvas, standaloneDocument, TEXT_FILE, type ExportedBoard } from '../lib/export-html.ts';
 import { dirOf, frameDocument } from '../lib/frame.ts';
@@ -190,22 +192,51 @@ const noteSmaller = (): void => {
   drewSmaller = true;
 };
 
+/** Things an export could not do as asked, shown once it is saved (a line each, no repeats). */
+const notes = new Set<string>();
+const note = (text: string): void => {
+  notes.add(text);
+};
+
+/** Artboards that fill the window saved with blank space below their content (see lib/export-notices.ts). */
+const tails: BlankTail[] = [];
+
+/**
+ * Notes an artboard captured `height` px tall when it fills the window and
+ * its frame, exported at its own height, reaches well below its content. A
+ * Flow artboard is cut to its content and a frameless one has no frame.
+ */
+function noteTail(path: string, doc: Document, height: number): void {
+  const entry = entryOf(path);
+  if (entry.expand !== 'fill' || entry.print === 'flow' || entry.frameless || height > entry.h) return;
+  const tail = blankTail(height, contentBottom(doc));
+  if (tail !== null) tails.push({ name: boardName(path), tail });
+}
+
 /** True while an export runs. */
 export const exportBusy = (): boolean => busy;
 
 /** What became of an export. */
 export type ExportOutcome = { state: 'done' } | { state: 'busy' } | { state: 'failed'; reason: string };
 
-/** Runs one export at a time, reporting failures. */
-async function run(label: string, work: () => Promise<void>): Promise<ExportOutcome> {
+/**
+ * Runs one export at a time, reporting failures. The progress notice reads
+ * `Exporting {label}…` unless `title` says otherwise; `work` can change it.
+ */
+async function run(label: string, work: (status: (title: string) => void) => Promise<void>, title = `Exporting ${label}…`): Promise<ExportOutcome> {
   if (busy) return { state: 'busy' };
   busy = true;
-  const progress = toast.add({ title: `Exporting ${label}…`, timeout: 0 });
+  const progress = toast.add({ title, timeout: 0 });
   lostFonts.clear();
+  notes.clear();
+  tails.length = 0;
   drewSmaller = false;
   try {
-    await work();
+    await work((next) => toast.update(progress, { title: next }));
     if (lostFonts.size) toast.add({ title: 'Some fonts could not be embedded', description: `Drawn in a fallback font: ${[...lostFonts].join(', ')}` });
+    const tail = blankTailNotice(tails);
+    if (tail) toast.add({ title: tail });
+    for (const text of notes) toast.add({ title: text });
     return { state: 'done' };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
@@ -249,7 +280,10 @@ export function exportPng(path: string, scale: number, width?: number): Promise<
   return run('PNG', async () => {
     const entry = entryOf(path);
     const size = width ? { width, height: entry.h, fullLength: true } : { width: entry.w, height: entry.h };
-    const blob = await withBoard(path, size, (doc, w, h) => pageImage(doc, w, h, { scale, onSkippedFonts: noteLostFonts, onSmaller: noteSmaller }));
+    const blob = await withBoard(path, size, (doc, w, h) => {
+      noteTail(path, doc, h);
+      return pageImage(doc, w, h, { scale, onSkippedFonts: noteLostFonts, onSmaller: noteSmaller });
+    });
     const suffix = width ? ` ${width}w` : '';
     await save(fileName(`${boardName(path)}${suffix}${scale > 1 ? `@${scale}x` : ''}`, 'png'), blobOf(await optimizePng(blob), 'image/png'));
   });
@@ -259,9 +293,23 @@ export function exportPng(path: string, scale: number, width?: number): Promise<
 export function exportJpeg(path: string, scale: number): Promise<ExportOutcome> {
   return run('JPEG', async () => {
     const entry = entryOf(path);
-    const blob = await withBoard(path, { width: entry.w, height: entry.h }, (doc, w, h) => pageImage(doc, w, h, { scale, type: 'image/jpeg', onSkippedFonts: noteLostFonts, onSmaller: noteSmaller }));
+    const blob = await withBoard(path, { width: entry.w, height: entry.h }, (doc, w, h) => {
+      noteTail(path, doc, h);
+      return pageImage(doc, w, h, { scale, type: 'image/jpeg', onSkippedFonts: noteLostFonts, onSmaller: noteSmaller });
+    });
     await save(fileName(`${boardName(path)}${scale > 1 ? `@${scale}x` : ''}`, 'jpg'), blob);
   });
+}
+
+/**
+ * How much of a Flow artboard laid out `frame` px tall goes into its pages:
+ * down to where its content ends, so blank space below it (a full-height
+ * wrapper, a large bottom padding) adds no empty pages.
+ */
+function flowHeight(doc: Document, frame: number): number {
+  const full = Math.max(frame, documentHeight(doc));
+  const bottom = contentBottom(doc);
+  return bottom > 0 ? Math.min(full, bottom) : full;
 }
 
 /** Most pages one PDF holds. */
@@ -285,10 +333,11 @@ async function pdfPages(paths: readonly string[]): Promise<PdfPage[]> {
     const pageHeight = paper?.height ?? entry.h;
     const scale = Math.min(2, maxCaptureScale(width, pageHeight, captureLimits()));
     const out = await withBoard(path, { width, height: paper ? paper.height : entry.h, fullLength: Boolean(paper) }, async (doc, w, h) => {
+      if (!paper) noteTail(path, doc, h);
       const lines = groupLines(documentWords(doc));
       const links = documentLinks(doc);
       const slices: PageSlice[] = paper
-        ? flowPages({ contentHeight: Math.max(h, documentHeight(doc)), bands: documentBands(doc), blocks: documentKeepBlocks(doc) }, paper.height)
+        ? flowPages({ contentHeight: flowHeight(doc, h), bands: documentBands(doc), blocks: documentKeepBlocks(doc) }, paper.height)
         : [{ top: 0, bottom: entry.h, offset: 0 }];
       const background = paper ? documentBackground(doc) : '#ffffff';
       const made: PdfPage[] = [];
@@ -353,7 +402,10 @@ export function exportAllPng(page: string | null): Promise<ExportOutcome> {
     for (const path of paths) {
       const entry = entryOf(path);
       const scale = maxCaptureScale(entry.w, entry.h, captureLimits()) >= 2 ? 2 : 1;
-      const blob = await withBoard(path, { width: entry.w, height: entry.h }, (doc, w, h) => pageImage(doc, w, h, { scale, onSkippedFonts: noteLostFonts, onSmaller: noteSmaller }));
+      const blob = await withBoard(path, { width: entry.w, height: entry.h }, (doc, w, h) => {
+        noteTail(path, doc, h);
+        return pageImage(doc, w, h, { scale, onSkippedFonts: noteLostFonts, onSmaller: noteSmaller });
+      });
       let name = fileName(boardName(path), 'png');
       for (let n = 2; taken.has(name); n++) name = fileName(`${boardName(path)} ${n}`, 'png');
       taken.add(name);
@@ -548,7 +600,9 @@ async function standaloneBoard(path: string, runtime: string, fonts: ExportFonts
   const urls = new Map([...uploads.found].map(([ref, upload]) => [ref, dataUrl(assetName(ref, upload.type), upload.data)]));
   files.delete(path);
   if (uploads.missing.length) toast.add({ title: 'Some uploads could not be included', description: uploads.missing.map(m => m.ref).join(', ') });
-  return standaloneDocument({ path, source, files, uploads: urls, runtime });
+  const { html, warnings } = standaloneDocument({ path, source, files, uploads: urls, runtime });
+  warnings.forEach(note);
+  return html;
 }
 
 /** Interactive artboards share one offline runtime, and links stay inside their frame. */
@@ -571,58 +625,169 @@ export function exportStandalonePage(page: string | null): Promise<ExportOutcome
   });
 }
 
+/** Text files read as text (and checked to be UTF-8); the rest are copied as bytes. */
+const READ_AS_TEXT = (file: string): boolean => TEXT_FILE.test(file) || file.endsWith('.svg');
+
+/** How long to wait between two zips of one export, so the browser saves each. */
+const BETWEEN_ZIPS = 1200;
+
 /**
- * The whole canvas as a folder of web pages: every project file (artboards
- * as edited here), uploads under `assets/`, the board runtime next to every
- * artboard folder, an `index.html` linking every artboard page by page, and
- * a README.
+ * The entire project as .zip files: every project file but hidden ones
+ * (artboards as edited here, `canvas.json` among them), uploads under
+ * `assets/`, the board runtime next to every artboard folder, an
+ * `index.html` linking every artboard page by page, and a README. A project
+ * too large for one zip is split (see lib/project-zip.ts); files past what
+ * the browser can hold are left out and listed in the README.
  */
 export function exportCanvasZip(): Promise<ExportOutcome> {
-  return run('canvas', async () => {
-    const { canvas, trash, boards } = useDocument.getState();
-    const listed = await projectFiles();
-    const names = [...new Set([...listed, ...Object.keys(boards).filter((path) => boards[path]?.source != null && path in canvas.boards)])].filter((file) => !trash.includes(file));
-    if (!names.some((file) => file in canvas.boards)) throw new Error('This canvas has no artboards.');
-    const files = new Map<string, Uint8Array | string>();
-    for (const file of names) {
+  return run(
+    'project',
+    (status) =>
+      projectZips(status).catch((error: unknown) => {
+        // What went wrong inside says nothing a person can act on; an empty canvas does.
+        throw error instanceof Error && error.message === NO_ARTBOARDS ? error : new Error(FAILED);
+      }),
+    PREPARING,
+  );
+}
+
+const NO_ARTBOARDS = 'This canvas has no artboards.';
+
+/** The project's zips, saved one after another; `status` updates the progress notice. */
+async function projectZips(status: (title: string) => void): Promise<void> {
+  const { canvas, trash, boards } = useDocument.getState();
+  let listing: Record<string, { size: number }> = {};
+  let complete = true;
+  try {
+    listing = await session().artifact.list();
+  } catch {
+    complete = false;
+  }
+  const sizes = new Map<string, number>();
+  for (const [path, entry] of Object.entries(listing)) {
+    const file = projectPath(path);
+    if (file !== null) sizes.set(file, entry.size);
+  }
+  const loaded = Object.keys(boards).filter((path) => boards[path]?.source != null && path in canvas.boards);
+  const names = [...new Set([...(sizes.has('canvas.json') || !complete ? ['canvas.json'] : []), ...sizes.keys(), ...loaded])].filter((file) => keptInProjectZip(file) && !trash.includes(file));
+  if (!names.some((file) => file in canvas.boards)) throw new Error(NO_ARTBOARDS);
+  const pages = canvas.pages.length ? canvas.pages.map((p) => p.id) : [null];
+  const ordered = pages.flatMap((page) => pageArtboards(page)).filter((path) => names.includes(path));
+  const others = names.filter((file) => !(file in canvas.boards)).sort((a, b) => (a === 'canvas.json' ? -1 : b === 'canvas.json' ? 1 : a.localeCompare(b)));
+
+  // Read the files in order, leaving out what would take the export past its limit.
+  const files = new Map<string, Uint8Array | string>();
+  const leftOut: LeftOut[] = [];
+  const notUtf8: string[] = [];
+  let total = 0;
+  for (const file of [...ordered, ...others]) {
+    const source = boards[file]?.source;
+    const known = source != null ? new TextEncoder().encode(source).length : sizes.get(file);
+    if (known !== undefined && total + known > PROJECT_ZIP_LIMITS.totalBytes) {
+      leftOut.push({ path: file, why: OVER_LIMIT });
+      continue;
+    }
+    let data: Uint8Array | string;
+    try {
+      data = source ?? (await session().artifact.readBytes(artifactPath(file)));
+    } catch {
+      if (sizes.has(file)) leftOut.push({ path: file, why: UNREADABLE });
+      continue;
+    }
+    if (typeof data !== 'string' && READ_AS_TEXT(file)) {
       try {
-        files.set(file, await readProjectFile(file));
+        data = new TextDecoder('utf-8', { fatal: true }).decode(data);
       } catch {
-        // A file that went away while exporting is left out.
+        notUtf8.push(file);
       }
     }
-    const uploads = await readUploads(files);
-    const zipped = withAssets(files, uploads.found);
-    const taken = new Set(zipped.map((entry) => entry.name));
-    const runtime = await runtimeCode();
-    const folders = [...new Set(names.filter((file) => file.endsWith('.dc.html')).map(dirOf))].sort();
-    for (const folder of folders) {
-      const name = `${folder}support.js`;
-      if (taken.has(name)) continue;
-      zipped.push({ name, data: runtime });
-      taken.add(name);
+    const size = typeof data === 'string' ? new TextEncoder().encode(data).length : data.length;
+    if (total + size > PROJECT_ZIP_LIMITS.totalBytes) {
+      leftOut.push({ path: file, why: OVER_LIMIT });
+      continue;
     }
-    const pages = canvas.pages.length ? canvas.pages.map((p) => p.id) : [null];
-    const ordered = pages.flatMap((page) => pageArtboards(page)).filter((path) => files.has(path));
-    const exported = ordered.map(exportedBoard);
-    const title = useDocument.getState().title || canvas.title || 'Design';
-    const index = freeName('index.html', taken);
-    taken.add(index);
-    zipped.push({ name: index, data: canvasIndexHtml(title, exported) });
-    zipped.push({
-      name: freeName('README.md', taken),
-      data: exportReadme({
-        title,
-        boards: exported,
-        resources: names.filter((file) => !(file in canvas.boards)).sort(),
-        assets: uploads.found.size,
-        missing: uploads.missing,
-        runtimes: folders,
-      }).replace('`index.html`', `\`${index}\``),
+    total += size;
+    files.set(file, data);
+  }
+
+  const uploads = await readUploads(files);
+  const found = new Map<string, ReadUpload>();
+  for (const [ref, upload] of uploads.found) {
+    if (total + upload.data.length > PROJECT_ZIP_LIMITS.totalBytes) {
+      leftOut.push({ path: assetName(ref, upload.type), why: OVER_LIMIT });
+      continue;
+    }
+    total += upload.data.length;
+    found.set(ref, upload);
+  }
+  // The canvas keeps its upload addresses: they are how the editor finds them.
+  const canvasFile = files.get('canvas.json');
+  files.delete('canvas.json');
+  const zipped = withAssets(files, found);
+  if (canvasFile !== undefined) zipped.unshift({ name: 'canvas.json', data: canvasFile });
+  const taken = new Set(zipped.map((entry) => entry.name));
+  const runtime = await runtimeCode();
+  const folders = [...new Set([...files.keys()].filter((file) => file.endsWith('.dc.html')).map(dirOf))].sort();
+  for (const folder of folders) {
+    const name = `${folder}support.js`;
+    if (taken.has(name)) continue;
+    zipped.push({ name, data: runtime });
+    taken.add(name);
+  }
+  const exported = ordered.filter((path) => files.has(path)).map(exportedBoard);
+  const title = useDocument.getState().title || canvas.title || 'Design';
+  const index = freeName('index.html', taken);
+  taken.add(index);
+  zipped.push({ name: index, data: canvasIndexHtml(title, exported) });
+
+  const byName = new Map(zipped.map((entry) => [entry.name, entry]));
+  const sizeOf = (data: ZipEntry['data']): number => (typeof data === 'string' ? new TextEncoder().encode(data).length : data instanceof Blob ? data.size : data.length);
+  const plan = planZipParts(zipped.map((entry) => ({ name: entry.name, size: sizeOf(entry.data) })));
+  leftOut.push(...plan.leftOut);
+  const packed = new Set(plan.parts.flat());
+  const parts = plan.parts.length;
+  const pageNames = new Map(canvas.pages.map((p) => [p.id, p.name]));
+  const readmePages = pages
+    .map((page) => ({ name: page === null ? 'Page 1' : pageNames.get(page) || 'Untitled page', boards: exported.filter((board) => packed.has(board.path) && pageOfBoard(board.path) === page).map((board) => ({ path: board.path, title: canvas.boards[board.path]?.title })) }))
+    .filter((page) => page.boards.length);
+  const base = fileName(title, 'zip').replace(/\.zip$/, '');
+  let saved = 0;
+  for (const [i, names] of plan.parts.entries()) {
+    const part = i + 1;
+    if (parts > 1) status(preparingPart(part, parts));
+    const readme = projectReadme({
+      title,
+      part,
+      parts,
+      pages: readmePages,
+      files: others.filter((file) => packed.has(file)),
+      index: packed.has(index) ? index : null,
+      assets: [...found].some(([ref, upload]) => packed.has(assetName(ref, upload.type))),
+      runtimes: folders.filter((folder) => packed.has(`${folder}support.js`)),
+      notUtf8,
+      missing: uploads.missing,
+      leftOut,
+      complete,
     });
-    await save(fileName(title, 'zip'), blobOf(await packZip(zipped), 'application/zip'));
-  });
+    const entries = [...names.map((name) => byName.get(name)!), { name: freeName(readmeName(part, parts), taken), data: readme }];
+    try {
+      await save(zipPartName(base, part, parts), blobOf(await packZip(entries), 'application/zip'));
+    } catch (error) {
+      if (!saved) throw error;
+      note(savedSome(saved, parts));
+      return;
+    }
+    saved++;
+    if (part < parts) {
+      status(WAITING);
+      await new Promise((resolve) => setTimeout(resolve, BETWEEN_ZIPS));
+    }
+  }
+  if (leftOut.length) note(leftOutNotice(leftOut.length, parts));
+  if (!complete) note(INCOMPLETE);
+  if (parts > 1) note(savedAll(parts));
 }
+
 /** Flatten an artboard for Figma while its DOM and computed styles are available. */
 async function figmaBoard(path: string, fonts: ExportFonts) {
   const entry = entryOf(path);

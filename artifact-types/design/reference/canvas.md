@@ -57,13 +57,21 @@ The key is the artboard path under `project/`. Fields:
 | `is_interactive` | It has working controls: the frame gets a Play button that hands clicks to the artboard. |
 | `expand: "fill"` | The artboard fills the window in the focused view instead of keeping its size. |
 | `print: "flow"`, `paper: "letter" \| "a4"` | Marks a document-like artboard for paginated printing. Share → Export → PDF in the frame shell paginates the artboard at the chosen paper width. |
-| `frameless` | Drawn without a frame. Set by the page; leave it. |
+| `frameless` | Drawn without a frame, name or white page: a piece (below). Set by the page; leave it. |
 | `locked` | `true`: the person locked the frame in the editor, so it can't be moved, resized or deleted there until they unlock it (that removes the key). Leave it. |
 | `radius` | Corner radius of the frame, px: a phone or tablet screen (about 40 for a phone). Leave it off a PAGE, print or poster. |
 | `guides` | Up to 6 layout guides: `{ "kind": "columns" \| "rows" \| "grid", "count": 12, "gutter": 24, "margin": 32 }`. |
 
 Keep boards on one page apart: lay them out on a grid with 80–120 px
 gaps; leave at least 223 px above a row that has a title note.
+
+A **piece** is an element someone dragged out of an artboard onto bare
+canvas: the editor writes it as a small artboard file of its own
+(`Piece.dc.html`, `Piece-2.dc.html`, …) sized to the element, with
+`frameless: true`, the element's tag as `title`, and the page it was
+dropped on. It is an ordinary `.dc.html` otherwise: edit its file like any
+artboard, keep its entry. Dragged onto an artboard again, a piece (like a
+note) becomes part of that artboard and its file goes away.
 
 ## Notes
 
@@ -78,6 +86,7 @@ Keyed by id (`[A-Za-z0-9_-]{1,40}`), as many as you need while the whole index s
 - Both take `size` (px, or `s m l xl xxl`), `bold`, `italic`, `page`, and `color` (sticky: `fill`)
   from `gray red orange green teal blue purple pink`.
 - `rect`, `oval`, `pen`, `line`, `arrow` and `image` are what people draw on the canvas: leave them.
+  Their look can sit in `css` (below).
 - `locked: true` on any note is the person's lock from the editor: it can't be moved, resized or deleted
   there until they unlock it, which removes the key. Leave it; copies made in the editor come unlocked.
 - `groups` lists the groups a note belongs to, innermost first (ids like `g1`, at most 8 levels): people
@@ -92,6 +101,31 @@ Keyed by id (`[A-Za-z0-9_-]{1,40}`), as many as you need while the whole index s
 
 Use notes sparingly: a title per group, a sticky for a decision the person should see. Rationale and
 options go in your reply, never on the canvas.
+
+### A note's `css`
+
+A drawn note keeps its look in `css`, an object of style keys to string values. Only these keys are kept:
+
+| Keys | Values |
+|---|---|
+| `background`, `background-color` | A colour or gradient. |
+| `opacity` | `0`–`1` (more is read as `1`) or a percentage. |
+| `border-style` | `none`, `solid`, `dashed`, `dotted` or `double`. |
+| `border-color`, `border-width`, `border-top-width`, `border-right-width`, `border-bottom-width`, `border-left-width` | A colour; a length. |
+| `border-position` | `center` or `outside`; left out, the border sits inside the box as usual. |
+| `border-radius`, `border-top-left-radius`, `border-top-right-radius`, `border-bottom-right-radius`, `border-bottom-left-radius` | A length. |
+| `box-shadow`, `filter`, `backdrop-filter` | A shadow; filter functions. |
+| `object-fit` (`fill`, `contain`, `cover`, `none`, `scale-down`), `object-position` | How an image note's picture sits in its box. |
+| `stroke`, `stroke-width`, `stroke-dasharray` | A line's colour (no `none`, no gradient); its width in px; one to four whole numbers of at most three digits, space-separated. |
+
+Values are plain: letters, digits, spaces and `# % ( ) , . / + -`, with no `;`, braces, quotes or colons. The only
+functions are colours (`rgb()`, `hsl()`, `oklch()`, `color-mix()`, …), gradients and filter functions: no `url()`,
+`var()` or `calc()`. Anything else is dropped when the canvas is read, and `check` names it.
+
+A border at `center` or `outside` with a style, one width on all four sides and one colour is drawn as an outline;
+any other border stays inside the box. An older
+`css.fill` on a `rect` or `oval` moves to the note's `fill`. A dashed or dotted `pen` stroke is also written as
+`stroke-dasharray` for whoever reads the file (the editor draws from `dash`).
 
 ## Pages
 
@@ -112,4 +146,5 @@ bad page or note ids, boards whose file is missing, sizes out of range,
 unknown pages, boards missing from `order` (or listed twice), artboard files
 not on the canvas, a `launch` that names nothing, a
 `locked` on a board or note that is not `true` or `false`, and installed
-systems without `tokens.json`.
+systems without `tokens.json`. A note's `css` that is not an object, or a key
+in it a note drops, is a warning: `Note "<id>" css "<key>" is ignored: …`.

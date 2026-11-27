@@ -13,6 +13,7 @@ import { pathToFileURL } from 'node:url';
 import { createTypeServer } from '../packages/type-server/src/server.ts';
 import { buttonNamed, clickOn, editorSuite, middleOf, startWait, textIn, typeInto } from './lib/editor.mjs';
 import { blockFont } from './lib/font.mjs';
+import { zipNames } from './lib/downloads.mjs';
 import { png, until } from './lib/http.mjs';
 import { copyFixture, fixtures, repoRoot, tmpDir } from './lib/target.mjs';
 
@@ -783,6 +784,69 @@ editorSuite({
           const frame = ${board}.querySelector('iframe');
           return frame === window.zoomProbe.frame && frame.contentWindow.performance.timeOrigin === window.zoomProbe.timeOrigin;
         })()`), 'the overview reused the same booted frame');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    // 2026-11-27: the one-file HTML export follows `@import` into stylesheets it inlines; a "fill" artboard much taller
+    // than its content says the file ends in blank space; the entire project's zip carries canvas.json, no hidden files.
+    it('one-file HTML embeds @imported styles, a fill artboard names its blank tail, the project zip skips hidden files', T, async () => {
+      const browser = await ctx.browser();
+      fs.mkdirSync(ctx.downloads, { recursive: true });
+      await browser.downloadsTo(ctx.downloads);
+      const menuItem = text => `[...document.querySelectorAll('[role=menuitem]')].find(item => item.textContent.trim().endsWith(${JSON.stringify(text)}) && item.getAttribute('aria-disabled') !== 'true')`;
+      const toastText = page => page.evaluate("[...document.querySelectorAll('[data-toast]')].map(el => el.innerText).join(' | ')");
+      const exported = async (page, item, match) => {
+        const before = new Set(fs.readdirSync(ctx.downloads));
+        await clickOn(page, buttonNamed('Export'));
+        assert.ok(await page.waitFor(menuItem(item)), `the Export menu lists ${item}`);
+        await page.evaluate(`(${menuItem(item)}).scrollIntoView({ block: 'center' })`);
+        await clickOn(page, menuItem(item), item);
+        let name;
+        assert.ok(await until(() => (name = fs.readdirSync(ctx.downloads).find(file => !before.has(file) && match.test(file) && fs.statSync(path.join(ctx.downloads, file)).size > 0)), 30000), `${item} was not saved: ${await toastText(page)}`);
+        return path.join(ctx.downloads, name);
+      };
+      const { url } = await ctx.openNew('export-extras', (_ctx, root) => {
+        copyFixture('design', root);
+        for (const dir of ['css', 'img', '.cache']) fs.mkdirSync(path.join(root, 'project', dir));
+        fs.writeFileSync(path.join(root, 'project/img/dot.png'), png([20, 120, 220]));
+        fs.writeFileSync(path.join(root, 'project/look.css'), '@import "css/hero.css";\n');
+        fs.writeFileSync(path.join(root, 'project/css/hero.css'), '/* url(gone.png) */ #hero { background: url(../img/dot.png) 0 0 / 100% 100%; }\n');
+        fs.writeFileSync(path.join(root, 'project/.cache/state.txt'), 'hidden');
+        fs.writeFileSync(path.join(root, 'project/.notes'), 'hidden');
+        const index = canvasOf(root);
+        Object.assign(index.boards['Main.dc.html'], { title: 'Tall page', w: 600, h: 1080, expand: 'fill' });
+        fs.writeFileSync(path.join(root, 'project/canvas.json'), JSON.stringify(index));
+        const file = path.join(root, BOARD);
+        fs.writeFileSync(file, fs.readFileSync(file, 'utf8')
+          .replace('<script src="./support.js"></script>', '<script src="./support.js"></script>\n<link rel="stylesheet" href="look.css">')
+          .replace(/<x-dc>[\s\S]*?<\/x-dc>/, '<x-dc><helmet><style>body{margin:0}</style></helmet><div id="hero" style="width:600px;height:300px"><p style="margin:0">Short content</p></div></x-dc>')
+          .replace('"width":880,"height":560', '"width":600,"height":1080'));
+      });
+      const page = await browser.load(new URL('index.html', url).href, { ready: `document.querySelector('[data-board-title="Main.dc.html"]')`, settle: 800 });
+      try {
+        await clickOn(page, `document.querySelector('[data-board-title="Main.dc.html"] button[aria-label="Focus"], [data-board-title="Main.dc.html"] button[aria-label="Play full screen"]')`, 'Focus');
+        assert.ok(await page.waitFor(buttonNamed('Back to canvas')), 'the focused view opened');
+
+        const single = await exported(page, 'Selected artboard as one file that works offline', /^Tall page.*\.html$/);
+        const html = fs.readFileSync(single, 'utf8');
+        assert.doesNotMatch(html, /@import "css\/hero\.css"/, 'the import is written in place');
+        assert.match(html, /\/\* url\(gone\.png\) \*\//, 'a comment is left as it was');
+        const offline = await browser.load(pathToFileURL(single).href, { ready: "document.querySelector('#hero')" });
+        try {
+          assert.match(await offline.evaluate("getComputedStyle(document.querySelector('#hero')).backgroundImage"), /^url\("data:image\/png;base64,/);
+        } finally { await offline.close(); }
+
+        await exported(page, 'Selected artboard', /^Tall page.*\.pdf$/);
+        const notice = /“Tall page”’s frame is about (\d+) px taller than its content, so the file ends with that much blank space\./;
+        assert.ok(await page.waitFor(`[...document.querySelectorAll('[data-toast]')].some(el => el.innerText.includes('px taller than its content'))`, 10000), `no blank-space notice: ${await toastText(page)}`);
+        const px = Number(notice.exec(await toastText(page))[1]);
+        assert.ok(px % 10 === 0 && px >= 700 && px <= 800, `about 780 px of blank space, said ${px}`);
+
+        const zip = await exported(page, 'Entire project (.zip)', /\.zip$/);
+        const names = zipNames(fs.readFileSync(zip));
+        for (const name of ['canvas.json', 'Main.dc.html', 'look.css', 'css/hero.css', 'img/dot.png', 'support.js', 'index.html', 'README.md']) assert.ok(names.includes(name), `the zip holds ${name}: ${names}`);
+        assert.ok(!names.some(name => name.split('/').some(part => part.startsWith('.'))), `no hidden files: ${names}`);
         assert.deepEqual(page.problems, []);
       } finally { await page.close(); }
     });

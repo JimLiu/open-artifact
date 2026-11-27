@@ -116,7 +116,7 @@ export function exportFormats(scene: ExportScene): ChromeFormat[] {
         { id: 'figma', label: 'Selected artboard as one page for Figma’s capture extension', ...off(none) },
         { id: 'standalone', label: 'Standalone web page (all artboards on this page)', ...off(all) },
         { id: 'figmapage', label: 'All artboards on this page for Figma', ...off(all) },
-        { id: 'canvas', label: 'The whole canvas with an index and a README (.zip)', ...off(scene.canvasArtboards === 0) },
+        { id: 'canvas', label: 'Entire project (.zip)', ...off(scene.canvasArtboards === 0) },
       ],
     },
   ];
