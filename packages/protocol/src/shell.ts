@@ -91,7 +91,8 @@ export type ChromeWhy = 'older_version' | 'agent_working' | 'draft_open' | 'comm
  * A page action the Shell offers (its menu, its save indicator). Built-in
  * ids the Shell names itself: `save_now`, `open_find`, `undo`, `redo`,
  * `edit_page`, `use_page`, `comment_selection`, `open_page_list`,
- * `hand_off_code`; `chat_toggle` is not shown (the Shell has Ask).
+ * `hand_off_code`. The Shell's Refresh menu runs `refresh` when declared;
+ * `chat_toggle` is not shown (the Shell has Ask).
  * Other ids show `label`.
  */
 export interface ChromeAction {

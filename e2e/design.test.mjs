@@ -198,6 +198,56 @@ editorSuite({
   },
 
   chrome(ctx) {
+    it('Refresh picks up a missed file change without losing the canvas, selection or Ask draft', T, async () => {
+      const root = tmpDir('design-refresh');
+      copyFixture('design', root);
+      const board = `document.querySelector('[data-board-title="Main.dc.html"]')`;
+      await withDesignShell(ctx, root, board, async page => {
+        const bounds = async () => (await page.evaluateAll(`(() => {
+          const rect = ${board}?.getBoundingClientRect();
+          return rect && [rect.x, rect.y, rect.width];
+        })()`)).find(Boolean);
+        const [x, y, width] = await bounds();
+        const top = await page.evaluate(`document.querySelector('iframe[name="open-artifact-shell"]').getBoundingClientRect().top`);
+        await page.click(x + 12, top + y + 8);
+        assert.ok(await page.waitFor(`${board}?.querySelector('.text-accent')`), 'the board was selected');
+        await page.cdp('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 600, y: 400, deltaX: 36, deltaY: 62 });
+        assert.ok(await until(async () => (await bounds())[1] !== y));
+        await page.cdp('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 600, y: 400, deltaX: 0, deltaY: -80, modifiers: 2 });
+        assert.ok(await until(async () => (await bounds())[2] !== width));
+        await page.evaluateAll(`[...document.querySelectorAll('[aria-label="Canvas tools"] button')].find(b => /^Ask /i.test(b.textContent.trim()))?.click()`);
+        const draft = `document.querySelector('textarea[placeholder]')`;
+        assert.ok(await page.waitFor(`${draft} && document.activeElement === ${draft}`));
+        await page.cdp('Input.insertText', { text: 'Keep this draft' });
+        // A writer does not receive its own change event. Leave a real change on disk that the editor missed.
+        await page.evaluateAll(`(async () => {
+          if (!${board}) return;
+          const artifact = await window.openartifact.use('artifact');
+          const path = 'project/canvas.json';
+          const canvas = JSON.parse(await artifact.readText(path));
+          canvas.boards['Main.dc.html'].title = 'Updated on disk';
+          const boardPath = 'project/Main.dc.html';
+          const source = await artifact.readText(boardPath);
+          await artifact.publish({
+            [path]: { content: JSON.stringify(canvas) },
+            [boardPath]: { content: source.replace('>Smoke canvas</h1>', '>Updated artboard</h1>') },
+          });
+        })()`);
+        assert.equal(canvasOf(root).boards['Main.dc.html'].title, 'Updated on disk');
+        assert.ok(!(await page.evaluateAll(`${board}?.textContent.includes('Updated on disk')`)).includes(true));
+
+        const camera = await bounds();
+        await clickOn(page, buttonNamed('Artifact options'));
+        await clickOn(page, buttonNamed('Refresh'));
+        assert.ok(await page.waitFor(`${board}?.textContent.includes('Updated on disk')`), 'the editor reread the file');
+        assert.ok((await page.evaluateAll(`${draft}?.value`)).includes('Keep this draft'), 'the draft survived Refresh');
+        assert.deepEqual(await bounds(), camera, 'the camera stayed in place');
+        assert.ok(await page.waitFor(`${board}?.querySelector('.text-accent')`), 'the board stayed selected');
+        assert.ok(await page.waitFor(textIn('Updated artboard')), 'the editor rendered the changed board source');
+        assert.ok(await page.waitFor(textIn('Artifact refreshed')));
+      });
+    });
+
     for (const renderer of ['default', 'dom']) {
       it(`link cards and prototype navigation in the ${renderer} canvas`, T, async () => {
         const { root, url } = await ctx.openNew('prototype', (_ctx, root) => {

@@ -650,7 +650,7 @@ export function actionOf(report: ChromeReport, id: string): ChromeAction | undef
 }
 
 /** Actions the Shell's own controls stand for, never listed as page actions. */
-const DRAWN_ELSEWHERE = new Set(['chat_toggle']);
+const DRAWN_ELSEWHERE = new Set(['chat_toggle', 'refresh']);
 
 /** The actions the artifact menu lists. */
 export function menuActions(report: ChromeReport): ChromeAction[] {

@@ -7,6 +7,7 @@
 
 import type { ChromeReport, ShellConnection } from '@open-artifact/runtime';
 import { agentChrome, chromeReporter, mayExportHere } from '@open-artifact/editor-kit';
+import { toast } from '@open-artifact/ui';
 import { exportFormats, exportJob, selectedArtboard, type ExportScene } from '../lib/export-formats.ts';
 import { useDocument, type SaveState } from '../state/document.ts';
 import { useView } from '../state/view.ts';
@@ -14,6 +15,7 @@ import { useAgent } from './agent.ts';
 import { exportBusy, pageArtboards, pageOfBoard, pngOptions, runJob } from './export.ts';
 import { useComments, canComment } from './comments.ts';
 import { session } from './session.ts';
+import { refreshProject } from './sync.ts';
 import { collabChromeReport, handleCollabCommand, subscribeCollab } from './collab.ts';
 import { leadMember } from '../lib/selection.ts';
 
@@ -72,12 +74,16 @@ async function runFormat(shell: ShellConnection, request: string, format: string
 export function startShellBridge(): void {
   const shell = session().shell;
   if (!shell) return;
+  let refreshing = false;
   const report = chromeReporter(shell, () => {
     const doc = useDocument.getState();
     const { mode, selection } = useView.getState();
     const hasSelection = leadMember(selection) !== null;
     return {
-      actions: mode === 'canvas' && hasSelection && useComments.getState().available && canComment() ? [{ id: 'comment_selection' }] : [],
+      actions: [
+        ...(doc.status === 'ready' ? [{ id: 'refresh' }] : []),
+        ...(mode === 'canvas' && hasSelection && useComments.getState().available && canComment() ? [{ id: 'comment_selection' }] : []),
+      ],
       agent: agentChrome(useAgent.getState().status),
       exports: false,
       formats: mayExportHere(session().viewer.role, session().downloads) ? exportFormats(exportScene()) : [],
@@ -99,6 +105,15 @@ export function startShellBridge(): void {
   // The sync service merges remote changes live.
   shell.onFilesChanged(() => true);
   shell.onCommand((command) => {
+    if (command.cmd === 'action' && command.id === 'refresh') {
+      if (refreshing) return;
+      refreshing = true;
+      void refreshProject()
+        .then(() => toast.add({ title: 'Artifact refreshed' }))
+        .catch((error: unknown) => toast.add({ title: 'Could not refresh the design', description: error instanceof Error ? error.message : String(error) }))
+        .finally(() => { refreshing = false; });
+      return;
+    }
     if (handleCollabCommand(command)) return;
     if (command.cmd === 'exports') return [];
     if (command.cmd === 'export_format') void runFormat(shell, command.request, command.format, command.variant);

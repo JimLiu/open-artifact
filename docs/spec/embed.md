@@ -74,6 +74,8 @@ host messages above.
 - `shellArtifactId()` and `ShellConnection.artifactId` read the stable `open_artifact_id` from the framed page's
   URL, or return `null` outside the Shell or without an id. Use it to key remembered page state instead of a
   cloud-host page path whose token changes on each reload; it is not an authorization credential.
+- A page can report an action with `id: 'refresh'` to handle the Shell's **Refresh** menu item in place.
+  The Shell sends `{ cmd: 'action', id: 'refresh' }` to that page. With no such action, it reloads the frame.
 
 ## Who is a declared host
 

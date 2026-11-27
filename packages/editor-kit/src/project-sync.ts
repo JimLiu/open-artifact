@@ -76,6 +76,12 @@ export interface ProjectSyncOptions<Sent, Run> {
   window?: Pick<Window, 'addEventListener'> | null;
 }
 
+interface RemoteOptions {
+  force?: boolean;
+  /** Files already read together for a manual refresh. */
+  contents?: ReadonlyMap<string, string>;
+}
+
 /** A running sync (see {@link createProjectSync}). */
 export interface ProjectSync {
   /** Listens to remote changes, local changes, text edits and unload. Call once, after loading. */
@@ -92,7 +98,7 @@ export interface ProjectSync {
   /** Retries a failed save now, resetting the backoff. */
   retryNow(): void;
   /** Applies changes made elsewhere (path → new hash, `null`: deleted). `force` re-reads even known hashes and ignores text edits. */
-  applyRemote(changes: Record<string, string | null>, options?: { force?: boolean }): Promise<void>;
+  applyRemote(changes: Record<string, string | null>, options?: RemoteOptions): Promise<void>;
 }
 
 /** First offline retry delay, ms (doubles up to {@link OFFLINE_MAX_MS}). */
@@ -200,7 +206,7 @@ export function createProjectSync<Sent, Run>(options: ProjectSyncOptions<Sent, R
     await applyRemote(changes, { force: true });
   }
 
-  async function applyRemote(changes: Record<string, string | null>, { force = false }: { force?: boolean } = {}): Promise<void> {
+  async function applyRemote(changes: Record<string, string | null>, { force = false, contents }: RemoteOptions = {}): Promise<void> {
     const artifact = options.artifact();
     const run = options.remote.begin();
     for (const [path, hash] of Object.entries(changes)) {
@@ -211,7 +217,7 @@ export function createProjectSync<Sent, Run>(options: ProjectSyncOptions<Sent, R
         deferred.set(path, hash);
         continue;
       }
-      const text = hash === null ? null : await artifact.readText(path).catch(() => null);
+      const text = hash === null ? null : contents?.get(path) ?? await artifact.readText(path).catch(() => null);
       file.apply(text, hash);
     }
     options.remote.end(run);

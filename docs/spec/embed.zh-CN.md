@@ -55,6 +55,7 @@
 - `ready: false` 让 Shell 在初始视图上保留加载遮罩。在框架加载前发送，视图恢复后再发送 `ready: true`。省略 `ready` 也会显示页面。文档一旦显示，后续的 `false` 报告不能再次遮住它；即使页面始终没有就绪，Shell 也会在 `CHROME_READY_TIMEOUT_MS`（10 秒）后移除遮罩。
 - `saved: 'saving'` 包括仍在等待防抖写入的编辑。Shell 只在持续 500 毫秒后显示“Saving…”。保存失败才使用 `saved: 'unsaved'`；没有保存状态可报告时省略 `saved`。
 - `shellArtifactId()` 和 `ShellConnection.artifactId` 读取框架页面 URL 中稳定的 `open_artifact_id`；不在 Shell 内或没有 id 时返回 `null`。用它作为页面记忆状态的键，避免使用每次刷新都会更换令牌的云端页面路径；它不是授权凭据。
+- 页面可以在报告中声明 `id: 'refresh'` 的操作，接管 Shell 菜单中的 **Refresh**。Shell 会向页面发送 `{ cmd: 'action', id: 'refresh' }`。未声明该操作时，Shell 会重新加载页面。
 
 ## 谁是已声明宿主
 

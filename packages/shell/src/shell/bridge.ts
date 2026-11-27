@@ -228,6 +228,12 @@ function exportState(request: unknown, state: unknown, reason: unknown): void {
   toast.add({ title: t(key, { label }), ...(detail ? { description: detail } : {}) });
 }
 
+/** Lets the page handle a manual Refresh, or reloads its frame. */
+export function refreshPage(): void {
+  if (actionOf(useShell.getState().report, 'refresh')) runAction('refresh');
+  else reloadPage();
+}
+
 /** Reloads the page's frame. */
 export function reloadPage(): void {
   if (!frame) return;

@@ -34,6 +34,7 @@
 - **Lock and arrange**: Press **⌘L** (Ctrl+L) to lock an artboard, note or element so it can't be moved, resized or deleted by accident; unlock it the same way or from the layers list. Reorder pages with **Move up / Move down** or by dragging them in the page list, and restack with **⌘]** / **⌘[** (one step) and **]** / **[** or **⌥⌘]** / **⌥⌘[** (to the front or back); artboards restack the same way. A locked note or artboard is skipped by Delete; only an all-locked selection refuses.
 - **Test prototypes**: Click the **Play** button in the toolbar to run interactive artboards and test responsive screen widths.
 - **Collaborate with your agent**: Pin comments directly onto an artboard and click **Send to agent**.
+- **Refresh changed files**: Choose **Refresh** in the artifact menu to pick up changes made outside the editor. Your canvas position, zoom, selection and Ask draft stay in place.
 - **Fix errors**: An artboard that fails to run shows a notice underneath it with **Ask agent to fix**, and **N errors** at the top right lists every artboard with errors on the page and asks the agent to fix them all. Close a notice with **×**; the warning mark it leaves next to the artboard's name brings it back. If the agent can't be reached, the list keeps the request for you to copy into its conversation.
 - **Deep links**: Append `#artboard-<name>`, `#play-<name>`, or `#page-<id>` to the artifact URL to jump straight to a board or page.
 - **Export**: Use **Share → Export** for PNG, JPEG, PDF, Figma-ready HTML, or a full-canvas ZIP.

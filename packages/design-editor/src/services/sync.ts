@@ -92,6 +92,36 @@ export async function loadProject(): Promise<void> {
   sync.start();
 }
 
+function savedFileHashes(): Map<string, string | null> {
+  const { canvasHash, boards } = useDocument.getState();
+  const hashes = new Map([[CANVAS_PATH, canvasHash]]);
+  for (const [path, board] of Object.entries(boards)) hashes.set(artifactPath(path), board.hash);
+  return hashes;
+}
+
+/** Rereads changed project files without replacing the open editor or its pending edits. */
+export async function refreshProject(): Promise<void> {
+  const { artifact } = session();
+  const before = savedFileHashes();
+  const listing = await artifact.list();
+  const changes: Record<string, string | null> = {};
+  const contents = new Map<string, string>();
+  for (const path of new Set([...before.keys(), ...Object.keys(listing)])) {
+    if (path !== CANVAS_PATH && !projectPath(path)?.endsWith('.dc.html')) continue;
+    const hash = listing[path]?.sha256 ?? null;
+    if (hash === (before.get(path) ?? null)) continue;
+    // Finish all reads before merging. A failed read must leave the open project intact.
+    if (hash !== null) contents.set(path, await artifact.readText(path));
+    changes[path] = hash;
+  }
+  const current = savedFileHashes();
+  for (const path of Object.keys(changes)) {
+    // A save or live update that landed while we were reading takes precedence.
+    if (current.get(path) !== before.get(path)) delete changes[path];
+  }
+  await sync.applyRemote(changes, { contents });
+}
+
 /** Schedules a save. */
 export function schedule(delay = SAVE_DELAY): void {
   sync.schedule(delay);
