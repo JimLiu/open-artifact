@@ -548,8 +548,8 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
     this.store = new ArtifactStore(options.workspaceFoldersOnly === true);
     // A session took page requests that waited for it (or an adapter put them back): their pages show it.
     this.inbox = new Inbox({
-      taken: (_key, messages) => this.wakesMoved(messages, 'taken'),
-      returned: (_key, messages) => this.wakesMoved(messages, 'inbox'),
+      taken: (key, messages) => this.wakesMoved(key, messages, 'taken'),
+      returned: (key, messages) => this.wakesMoved(key, messages, 'inbox'),
     });
     this.wake = new WakeRouter({
       store: this.store,
@@ -1104,12 +1104,16 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
   }
 
   /**
-   * One `wake/state` per artifact whose wakes a session just took from its inbox (`taken`), or an adapter put back
-   * there with `inbox.return` (`inbox`): the Ask pane of its page shows whether what the person sent still waits.
+   * One `wake/state` per artifact whose wakes its owner session just took from its inbox (`taken`), or an adapter put
+   * back there with `inbox.return` (`inbox`): the Ask pane of its page shows whether what the person sent still waits.
+   * Another session's inbox (the end of a long action it started, say) says nothing about the owner's.
    */
-  private wakesMoved(messages: InboxMessage[], via: 'taken' | 'inbox'): void {
+  private wakesMoved(key: string, messages: InboxMessage[], via: 'taken' | 'inbox'): void {
     const ids = new Set(messages.filter((m) => m.kind === 'wake' && m.artifactId).map((m) => m.artifactId!));
-    for (const artifactId of ids) this.broadcast({ type: 'wake/state', artifactId, via });
+    for (const artifactId of ids) {
+      if (sessionKeyOf(this.store.get(artifactId)?.owner) !== key) continue;
+      this.broadcast({ type: 'wake/state', artifactId, via });
+    }
   }
 
   /** Sends an event to the Library event streams, subscribed adapters and type servers. */

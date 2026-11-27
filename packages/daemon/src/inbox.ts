@@ -87,7 +87,7 @@ export class Inbox {
     const items = this.peek(key);
     if (items.length) {
       rmSync(this.fileOf(key), { force: true });
-      this.options.taken?.(key, items);
+      this.report('taken', key, items);
     }
     return items;
   }
@@ -125,12 +125,21 @@ export class Inbox {
     if (waiting && first) {
       waiting.delete(first);
       first(messages);
-      this.options.taken?.(key, messages);
+      this.report('taken', key, messages);
       return;
     }
     ensureDir(files.inbox());
     this.keep(key, [...messages, ...this.peek(key)]);
-    this.options.returned?.(key, messages);
+    this.report('returned', key, messages);
+  }
+
+  /** Tells the {@link InboxOptions} callback; what it throws never reaches the caller, who has the messages now. */
+  private report(what: 'taken' | 'returned', key: string, messages: InboxMessage[]): void {
+    try {
+      this.options[what]?.(key, messages);
+    } catch {
+      /* a listener's failure is not the inbox's */
+    }
   }
 
   /** Rewrites a key's file with `kept` only (removes it when empty). */

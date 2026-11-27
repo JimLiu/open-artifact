@@ -8,7 +8,7 @@ import { tempDir, until } from './helpers.ts';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
-import type { DaemonState, LibraryEvent, SessionRef } from '@open-artifact/protocol';
+import { artifactUrl, taskMessage, type DaemonState, type LibraryEvent, type SessionRef } from '@open-artifact/protocol';
 import { readDaemon } from '../src/client.ts';
 import { startDaemon, type Daemon } from '../src/daemon.ts';
 import { Inbox } from '../src/inbox.ts';
@@ -87,13 +87,32 @@ test('attaching (the Harness API) takes it too, and says so once', async () => {
   assert.equal(takenOf(id).length, 1);
 });
 
-test('an empty take sends nothing', () => {
+test('another session taking a wake of the artifact (a long action it started) is not the owner taking it', async () => {
+  const { id, owner } = await waiting('owner-away');
+  const other: SessionRef = { harness: 'away-app', session: 'started-a-task', workspace };
+  // What the end of a long action this other session started sends it (Daemon.taskEnded).
+  const done = taskMessage(daemon.store.require(id), { task: 't1', action: 'render', result: null }, { viewUrl: 'v' });
+  await daemon.wake.send(other, { artifact: artifactUrl(id), artifactId: id, text: done.text, source: done.source });
+  const result = await daemon.tools.call('Artifact', { action: 'list' }, other);
+  assert.equal((result.messages as string[] | undefined)?.length, 1, 'the other session got its task message');
+  await new Promise((done) => setTimeout(done, 100));
+  assert.equal(takenOf(id).length, 0, "the owner's request still waits: no taken");
+  assert.equal(daemon.inbox.count(sessionKeyOf(owner)!), 1);
+});
+
+test('a take and a put-back report what moved, never an empty list', () => {
   const seen: string[][] = [];
   const inbox = new Inbox({ taken: (_key, messages) => seen.push(messages.map((m) => m.text)) });
   assert.deepEqual(inbox.take('nobody'), []);
   inbox.append('somebody', { kind: 'wake', text: 'hi', artifactId: 'art_x' });
   inbox.take('somebody');
   assert.deepEqual(seen, [['hi']]);
+});
+
+test('a listener that throws loses nothing: the caller still gets what it took', () => {
+  const inbox = new Inbox({ taken: () => { throw new Error('broken listener'); } });
+  inbox.append('k-throws', { kind: 'wake', text: 'kept', artifactId: 'art_x' });
+  assert.deepEqual(inbox.take('k-throws').map((m) => m.text), ['kept']);
 });
 
 test('what an adapter took and put back with inbox.return waits again: wake/state inbox follows the taken', async () => {
