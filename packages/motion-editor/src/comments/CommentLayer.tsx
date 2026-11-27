@@ -8,6 +8,7 @@ import { useUi } from '../stores/ui.ts';
 import { useWorking } from '../stores/working.ts';
 import { anchorShowsAt, anchorWorldBox, boxAnchorAt, filmMomentOf, pinWorldPoint, pointAnchorAt, stageCamera, type VideoAnchor } from './anchor-place.ts';
 import { filmComments, useComments, useRangeMark } from './comments.ts';
+import { usePopupSide } from '../transport/placement.ts';
 import { formatPlaybackTime } from '../transport/time-format.ts';
 import * as words from './words.ts';
 
@@ -92,5 +93,5 @@ function RangeMarkNote(): ReactElement | null {
 
 /** The toolbar's Comments button: comment mode, and the list of every comment. */
 export function FilmCommentsButton(): ReactElement {
-  return <CommentsButton comments={filmComments} side="top" />;
+  return <CommentsButton comments={filmComments} side={usePopupSide()} />;
 }

@@ -1,7 +1,7 @@
 /** The properties panel and tab name. */
 export const PROPERTIES = 'Properties';
-export const SHOW_PROPERTIES = 'Show the properties panel';
-export const HIDE_PROPERTIES = 'Hide the properties panel';
+export const SHOW_PANEL = 'Show the side panel';
+export const HIDE_PANEL = 'Hide the side panel';
 export const ON_SCREEN_NOW = 'On screen now';
 export const sceneOf = (number: number, total: number): string => `Scene ${number} of ${total}`;
 export const PREVIOUS_SCENE = 'Previous scene';

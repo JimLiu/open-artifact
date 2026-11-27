@@ -17,7 +17,7 @@ export function VolumeControl(): ReactElement | null {
   return (
     <div className="group flex items-center">
       <ToolButton label={silent ? words.UNMUTE : words.MUTE} shortcut="M" size="lg" icon={icon} onClick={toggleMuted} />
-      <div className="w-0 overflow-hidden opacity-0 transition-[width,opacity] group-focus-within:w-24 group-focus-within:opacity-100 group-hover:w-24 group-hover:opacity-100">
+      <div data-volume-slider="" className="w-0 overflow-hidden opacity-0 transition-[width,opacity] group-focus-within:w-24 group-focus-within:opacity-100 group-hover:w-24 group-hover:opacity-100">
         <div className="w-20 px-1">
           <SliderInput value={silent ? 0 : Math.round(volume * 100)} min={0} max={100} aria-label={words.VOLUME} onChange={(value) => setVolume(value / 100)} />
         </div>

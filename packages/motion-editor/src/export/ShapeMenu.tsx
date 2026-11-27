@@ -6,6 +6,7 @@ import { Ratio } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { askShape } from '../agent/requests.ts';
 import { useFilm } from '../stores/film.ts';
+import { usePopupSide } from '../transport/placement.ts';
 import { useWorking } from '../stores/working.ts';
 import { openExport, pick } from './run.ts';
 import { otherShapeIds, ownShapeLabel, typedStart } from './shapes.ts';
@@ -15,10 +16,11 @@ export function ShapeMenu(): ReactNode {
   const meta = useFilm((state) => (state.stage === 'ready' ? state.meta : null));
   const canAsk = useWorking((state) => state.canAsk);
   const agent = useWorking((state) => state.name);
+  const side = usePopupSide();
   if (meta === null || !canAsk) return null;
   const own = { width: meta.width, height: meta.height };
   return (
-    <ChromeMenu side="top" align="end" trigger={<ToolButton label={words.ANOTHER_SHAPE} size="lg" icon={<Ratio />} />}>
+    <ChromeMenu side={side} align="end" trigger={<ToolButton label={words.ANOTHER_SHAPE} size="lg" icon={<Ratio />} />}>
       <ChromeMenuLabel>{ownShapeLabel(own)}</ChromeMenuLabel>
       {otherShapeIds(own).map((id) => (
         <ChromeMenuItem key={id} onSelect={() => void askShape(FILM_SHAPES[id])} title={words.shapeSecondAnimation(agent)}>

@@ -14,7 +14,7 @@ import { PROPERTIES } from './words.ts';
 export function installTweaks(): () => void {
   const stops = [
     registerPanel({ id: TWEAKS_PANEL, label: PROPERTIES, order: TOOLBAR_ORDER.tweaks, render: () => createElement(TweaksPanel) }),
-    registerToolbarItem({ id: TWEAKS_PANEL, side: 'end', order: TOOLBAR_ORDER.tweaks, render: () => createElement(TweaksButton) }),
+    registerToolbarItem({ id: TWEAKS_PANEL, side: 'last', order: TOOLBAR_ORDER.tweaks, render: () => createElement(TweaksButton) }),
     registerSceneMenuItem({ id: 'scene-name', order: SCENE_MENU_ORDER.name, writes: true, render: (context) => createElement(SceneNameItems, context) }),
     registerSceneMenuItem({ id: 'scene-length', order: SCENE_MENU_ORDER.length, writes: true, render: (context) => createElement(SceneLengthItems, context) }),
     registerSceneMenuItem({ id: 'scene-speed', order: SCENE_MENU_ORDER.speed, writes: true, render: (context) => createElement(SceneSpeedItems, context) }),

@@ -1,5 +1,5 @@
 // End-to-end tests of the installed Motion type: CLI validation and write rules, live playback in Chrome,
-// compact Properties / Theme inspector, panel toggle announcements, layer retouching (Esc in Text styles back to the
+// the toolbar on top or at the bottom, compact Properties / Theme inspector, panel toggle announcements, layer retouching (Esc in Text styles back to the
 // picked row, a line whose words set their own weight) and SVG group hide parts, standalone HTML export after an
 // editor rebuild, the reload ask when a rebuild took away a part not loaded yet, Export dialog Escape, stray file-drop
 // guard, Read as text from the More menu (saved text, focus back to More), the
@@ -140,6 +140,32 @@ describe(TYPE, { skip: skip() }, () => {
     assert.ok(!fs.existsSync(docPath(root, 'modules/retouched.json')));
   });
 
+  // 2026-11-26: the toolbar floats as two bars on top while they fit, and goes back to one bottom bar when not.
+  it('floats the playback and action bars on top, and joins them at the bottom when the page is narrow', { ...T, skip: browserSkip }, async () => {
+    const bars = `JSON.stringify([...document.querySelectorAll('[data-video-transport]')].map((bar) => ({
+      label: bar.getAttribute('aria-label'),
+      top: Math.round(bar.getBoundingClientRect().top),
+      panel: !!bar.querySelector('button[aria-label="Properties"]'),
+    })))`;
+    try {
+      await page.cdp('Emulation.setDeviceMetricsOverride', { width: 1200, height: 800, deviceScaleFactor: 1, mobile: false });
+      assert.ok(await page.waitFor(`document.querySelectorAll('[data-video-transport]').length === 2`, 10_000), await page.evaluate(bars));
+      const top = JSON.parse(await page.evaluate(bars));
+      assert.deepEqual(top.map((bar) => bar.label), ['Playback', 'Actions']);
+      assert.ok(top.every((bar) => bar.top < 40), JSON.stringify(top));
+      assert.deepEqual(top.map((bar) => bar.panel), [false, true]);
+      assert.equal(await page.evaluate(`document.querySelectorAll('button[aria-label="Theme"]').length`), 0);
+
+      await page.cdp('Emulation.setDeviceMetricsOverride', { width: 420, height: 800, deviceScaleFactor: 1, mobile: false });
+      assert.ok(await page.waitFor(`document.querySelectorAll('[data-video-transport]').length === 1`, 10_000), await page.evaluate(bars));
+      const [bottom] = JSON.parse(await page.evaluate(bars));
+      assert.ok(bottom.top > 400 && bottom.panel, JSON.stringify(bottom));
+    } finally {
+      await page.cdp('Emulation.clearDeviceMetricsOverride', {});
+    }
+    assert.ok(await page.waitFor(`document.querySelectorAll('[data-video-transport]').length === 2`, 10_000), await page.evaluate(bars));
+  });
+
   it('opens in compact inspector mode, announces Properties toggle, and switches palette under Theme', { ...T, skip: browserSkip }, async () => {
     assert.equal(await page.evaluate(`document.documentElement.hasAttribute('data-inspector-v1')`), true);
 
@@ -180,9 +206,11 @@ describe(TYPE, { skip: skip() }, () => {
       const home = document.querySelector('[data-video-transport] button[aria-label="Back to start"]');
       if (home) home.click();
       if (!document.querySelector('[data-video-panel]')) document.querySelector('button[aria-label="Properties"]').click();
-      const propsTab = [...document.querySelectorAll('[data-video-panel] [role="tab"]')].find((t) => t.textContent?.trim() === 'Properties');
-      if (propsTab) propsTab.click();
     })()`);
+    // The panel toggle opens the tab used last (Theme, after the case above).
+    const PROPERTIES_TAB = `[...document.querySelectorAll('[data-video-panel] [role="tab"]')].find((t) => t.textContent?.trim() === 'Properties')`;
+    assert.ok(await page.waitFor(PROPERTIES_TAB, 10_000));
+    await page.evaluate(`${PROPERTIES_TAB}.click()`);
     assert.ok(await page.waitFor(`document.querySelector('[data-layers-tree] [role="treeitem"]')`, 20_000));
 
     // Pick the Text layer and verify Text styles, Appearance and Animate sections appear.

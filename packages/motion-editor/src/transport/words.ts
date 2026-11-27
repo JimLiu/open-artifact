@@ -12,6 +12,7 @@ export const EXIT_FULL_SCREEN = 'Exit full screen';
 export const FULL_SCREEN_UNAVAILABLE = 'Full screen isn’t available in this view';
 export const FULLSCREEN_REFUSED = 'The browser would not go full screen here.';
 export const PLAYBACK = 'Playback';
+export const ACTIONS = 'Actions';
 export const PLAYHEAD = 'Playhead';
 export const NO_ANIMATION_TO_PLAY = 'No animation to play yet';
 export const MORE = 'More';

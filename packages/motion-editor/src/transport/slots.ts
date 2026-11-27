@@ -1,7 +1,7 @@
 /**
- * Buttons later parts of the page add to the bottom toolbar. `start` items follow the playback controls; `end`
- * items sit before full screen, ordered by {@link TOOLBAR_ORDER} so Properties, Theme, Layers, Export and Comments keep
- * their places whichever registers first.
+ * Buttons later parts of the page add to the actions bar. `start` items lead it; `end` items follow, ordered by
+ * {@link TOOLBAR_ORDER} so Export and Comments keep their places whichever registers first; More and full screen come
+ * next, and `last` items (the panel toggle) close the bar, beside the side panel.
  */
 
 import type { ReactNode } from 'react';
@@ -11,7 +11,7 @@ export const TOOLBAR_ORDER = { tweaks: 10, style: 20, layers: 30, export: 40, co
 
 export interface ToolbarItem {
   id: string;
-  side: 'start' | 'end';
+  side: 'start' | 'end' | 'last';
   order: number;
   render: () => ReactNode;
 }

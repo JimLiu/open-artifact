@@ -1,6 +1,5 @@
 /** The theme tab's name. */
 export const THEME_LABEL = 'Theme';
-export const STYLE_TOOLTIP = 'Palette and font';
 
 export const FINDING_STYLE = 'Finding this animation’s colors and fonts…';
 export const NOTHING_TO_STYLE = (agent: string): string => `Nothing here can be changed in Theme. Ask ${agent} instead.`;

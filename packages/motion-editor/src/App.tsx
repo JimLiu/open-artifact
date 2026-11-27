@@ -12,13 +12,14 @@ import { Player } from './player/Player.tsx';
 import { SceneWords } from './reading/SceneWords.tsx';
 import { Timeline } from './timeline/Timeline.tsx';
 import { setFullscreenTarget } from './transport/fullscreen.ts';
-import { Transport } from './transport/Transport.tsx';
+import { TopBars, Transport, useToolbarRoom } from './transport/Transport.tsx';
 import { SpokenLines } from './voiceover/SpokenLines.tsx';
 
 
 function VideoPage(): ReactElement {
   const root = useRef<HTMLDivElement>(null);
   const agent = useAgentBadge();
+  useToolbarRoom(root);
   useEffect(() => {
     setFullscreenTarget(root.current);
     return () => setFullscreenTarget(null);
@@ -26,6 +27,7 @@ function VideoPage(): ReactElement {
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-chrome text-chrome-fg">
       <main ref={root} className="relative flex min-w-0 flex-1 flex-col bg-chrome">
+        <TopBars />
         <Notices />
         <Player />
         <Timeline />
