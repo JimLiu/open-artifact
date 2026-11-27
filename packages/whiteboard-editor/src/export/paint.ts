@@ -37,6 +37,8 @@ import {
   TEXT_SIZE_STYLES,
   arrowCircleCenter,
   arrowEndBoxes,
+  arrowFlowDashOffset,
+  arrowFlowsBackward,
   arrowHeads,
   arrowTextKnockouts,
   blockColorHex,
@@ -151,6 +153,12 @@ export interface PaintOptions {
   showAuthors: boolean;
   /** The display name of a person id (face sticker initials). */
   faceName(personId: string): string | undefined;
+  /**
+   * How far flowing arrows' dashes have travelled, 0 to 1 of one dash
+   * period (`ARROW_FLOW`). Default 0: the dashes sit where a still dashed
+   * line has them.
+   */
+  flowPhase?: number;
 }
 
 /** The 2D context the painter draws with. */
@@ -257,12 +265,14 @@ function paintArrow(scope: PaintScope, el: ArrowElement): void {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   if (el.dash) ctx.setLineDash([...ARROW_STROKE.dash]);
+  if (el.dash && el.flow) ctx.lineDashOffset = arrowFlowDashOffset(options.flowPhase ?? 0, arrowFlowsBackward(el));
   const heads = arrowHeads(el);
   ctx.save();
   for (const knockout of arrowTextKnockouts(el, line, byId, options.measures)) ctx.clip(new Path2D(rectPathData(options.frame.board) + rectPathData(knockout)), 'evenodd');
   ctx.stroke(new Path2D(arrowPathData(line, heads)));
   ctx.restore();
   ctx.setLineDash([]);
+  ctx.lineDashOffset = 0;
   const vHead = (tipX: number, tipY: number, fromX: number, fromY: number): void => {
     const dx = tipX - fromX;
     const dy = tipY - fromY;

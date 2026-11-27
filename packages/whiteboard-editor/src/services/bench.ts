@@ -11,6 +11,7 @@ import type { Camera } from '../lib/camera.ts';
 import { useCamera } from '../state/camera.ts';
 import { currentMeasures } from '../state/measures.ts';
 import { useSelection } from '../state/selection.ts';
+import { renderBoardGif, renderBoardMp4, renderBoardPng } from './export.ts';
 
 /** What `window.__openArtifactWhiteboard` offers. */
 export interface WhiteboardBench {
@@ -24,6 +25,8 @@ export interface WhiteboardBench {
   setCamera(camera: Camera): void;
   /** Where an arrow is drawn now, or `null`. */
   arrowLine(id: ElementId): { x1: number; y1: number; x2: number; y2: number } | null;
+  /** The board's exported picture (PNG) or animation (GIF, MP4) as base64, as the Export tab makes it; `null` when there is none. */
+  picture(format: 'png' | 'gif' | 'mp4'): Promise<string | null>;
 }
 
 declare global {
@@ -69,6 +72,13 @@ export function installBenchHook(search: string = location.search): () => void {
       const arrow = byId.get(id);
       const line = arrow?.type === 'arrow' ? measuredArrowGeometry(arrow, byId, currentMeasures()) : undefined;
       return line ? { x1: line.x1, y1: line.y1, x2: line.x2, y2: line.y2 } : null;
+    },
+    async picture(format) {
+      const blob = await (format === 'gif' ? renderBoardGif() : format === 'mp4' ? renderBoardMp4() : renderBoardPng());
+      if (!blob) return null;
+      let binary = '';
+      for (const byte of new Uint8Array(await blob.arrayBuffer())) binary += String.fromCharCode(byte);
+      return btoa(binary);
     },
   };
   return () => {

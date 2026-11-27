@@ -461,6 +461,32 @@
   pointer-events: none;
 }
 
+/* A flowing line: its dashes travel one period (set inline from ARROW_FLOW) towards the head. */
+.wb-arrow-flow {
+  animation: wb-arrow-flow var(--wb-flow-time, 0.5s) linear infinite;
+}
+
+.wb-arrow-flow-back {
+  animation-direction: reverse;
+}
+
+@keyframes wb-arrow-flow {
+  to {
+    stroke-dashoffset: var(--wb-flow-offset, -11px);
+  }
+}
+
+/* "Animate lines" off in the zoom menu: plain dashes. */
+.wb-surface[data-wb-still-lines] .wb-arrow-flow {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wb-arrow-flow {
+    animation: none;
+  }
+}
+
 .wb-arrow-label {
   font: 400 14px var(--wb-face);
   paint-order: stroke;

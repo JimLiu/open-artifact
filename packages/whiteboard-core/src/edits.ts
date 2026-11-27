@@ -364,7 +364,7 @@ export function setArrowHeads(arrow: ArrowElement, heads: readonly [ArrowHeadKin
 
 /** The arrow's fields in their stored order, absent optional fields dropped. */
 export function normalizeArrow(arrow: ArrowElement): ArrowElement {
-  const { type, id, from, to, fromSide, toSide, jog, bends, head, heads, dash, color, label, locked, groups } = arrow;
+  const { type, id, from, to, fromSide, toSide, jog, bends, head, heads, dash, flow, color, label, locked, groups } = arrow;
   return {
     type,
     id,
@@ -377,6 +377,7 @@ export function normalizeArrow(arrow: ArrowElement): ArrowElement {
     head,
     ...(heads !== undefined ? { heads } : {}),
     dash,
+    ...(dash && flow === true ? { flow } : {}),
     color,
     ...(label !== undefined ? { label } : {}),
     ...pickAuthorshipFields(arrow as unknown as Record<string, unknown>),

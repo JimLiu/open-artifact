@@ -12,6 +12,7 @@ import { installRightDragPan } from '@open-artifact/editor-kit';
 import { COMMENT_CURSOR } from '@open-artifact/editor-kit/react';
 import { cameraLayerTransform, panBy } from '../lib/camera.ts';
 import { useCamera } from '../state/camera.ts';
+import { usePreferences } from '../state/preferences.ts';
 import { effectiveTool, useTool } from '../state/tool.ts';
 import { attachViewportGestures } from '../services/viewport.ts';
 import { installPalmRejection } from '../services/palm-rejection.ts';
@@ -42,6 +43,8 @@ export function BoardSurface({ elements, children, overlay }: BoardSurfaceProps)
   const layer = useRef<HTMLDivElement>(null);
   const tool = useTool((state) => effectiveTool(state));
   const commenting = useTool((state) => state.commentMode);
+  // Flowing arrows stand still when the viewer turned "Animate lines" off (elements.css).
+  const stillLines = usePreferences((state) => !state.animateLines);
   const spacePan = useTool((state) => state.commentMode && state.handOverride);
   // Size.
   useEffect(() => {
@@ -239,6 +242,7 @@ export function BoardSurface({ elements, children, overlay }: BoardSurfaceProps)
       // Comment mode's pointer is the comments' speech bubble, as in every editor (styles.css).
       style={commenting ? ({ '--wb-comment-cursor': COMMENT_CURSOR } as CSSProperties) : undefined}
       {...(spacePan ? { 'data-wb-space-pan': '' } : {})}
+      {...(stillLines ? { 'data-wb-still-lines': '' } : {})}
       tabIndex={-1}
       data-wb-region="canvas"
       data-testid="board-surface"

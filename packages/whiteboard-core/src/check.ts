@@ -273,6 +273,17 @@ export function tableTintFindings(fills: unknown, heat: unknown, table: TableDat
   return findings;
 }
 
+/**
+ * Findings about a stored arrow's `flow`: it moves only a dashed line and is
+ * exactly `true`; anything else is dropped and the line stands still.
+ */
+export function arrowFlowFindings(arrow: Record<string, unknown>): Array<[BoardCheckLevel, string]> {
+  if (arrow.flow === undefined) return [];
+  if (arrow.flow !== true) return [['warning', `"flow" is ${JSON.stringify(arrow.flow)}; it is true or left out. The board drops it and the line stands still.`]];
+  if (arrow.dash !== true) return [['warning', '"flow" moves the dashes of a dashed line: add "dash": true, or the board drops "flow" and draws a still solid line.']];
+  return [];
+}
+
 /** True for paths the board reads. */
 function isKnownPath(path: string): boolean {
   return (
@@ -361,6 +372,9 @@ export function checkBoardDocuments(
       if (blob && options.blobExists && !options.blobExists(blob)) {
         add(path, 'error', `/_blob/${blob} is not an upload of this board: upload the image first and use the url it prints.`);
       }
+    }
+    if (stored?.type === 'arrow') {
+      for (const [level, message] of arrowFlowFindings(stored)) add(path, level, message);
     }
     const element = normalizeElement(raw, taken);
     if (element === undefined) {

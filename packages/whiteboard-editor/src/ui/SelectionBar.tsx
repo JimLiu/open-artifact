@@ -41,7 +41,9 @@ import {
   TEXT_SIZE_STYLES,
   alignmentUnits,
   arrowBoundsBox,
+  ARROW_LINE_STYLES,
   arrowHeads,
+  arrowLineStyle,
   blockColorHex,
   capitalizeFirstLetter,
   elementBoundsWithTitle,
@@ -55,6 +57,7 @@ import {
   withoutLockedIds,
   withoutLockedIdsUnlessAll,
   type ArrowHeadKind,
+  type ArrowLineStyle,
   type BoardElement,
   type BoardInk,
   type Box,
@@ -88,7 +91,7 @@ import {
   ensureEditable,
   patchElements,
   selectedIds,
-  setArrowDash,
+  setArrowLineStyle,
   setArrowHead,
   setBlockKind,
   setFillColor,
@@ -266,10 +269,13 @@ function commonLineColor(elements: readonly BoardElement[]): string | undefined 
 /** What a line control works on: shape borders (arrows too), arrow lines, or drawing ink. */
 type StrokeKind = 'border' | 'line' | 'ink';
 
-/** A line control: its kind, the line style shared (`none`, `solid`, `dashed`) and the color. */
+/** A line style in the line popovers: a missing border, or an arrow's line style. */
+type LineStyle = 'none' | ArrowLineStyle;
+
+/** A line control: its kind, the line style shared (`none`, `solid`, `dashed`, `flowing`) and the color. */
 interface StrokeModel {
   kind: StrokeKind;
-  style: 'none' | 'solid' | 'dashed' | undefined;
+  style: LineStyle | undefined;
   color: string | undefined;
 }
 
@@ -340,7 +346,7 @@ function barModel(all: readonly BoardElement[], elements: readonly BoardElement[
   const strokeKind: StrokeKind =
     shapes.length > 0 && shapes.length + arrows.length === strokable.length ? 'border' : arrows.length > 0 && arrows.length === strokable.length ? 'line' : 'ink';
   const strokeless = shapes.filter((shape) => shape.type === 'shape' && shape.stroke === undefined).length;
-  const dashed = arrows.filter((arrow) => arrow.type === 'arrow' && arrow.dash === true).length;
+  const lineStyle = sameValue(arrows.map((arrow) => (arrow.type === 'arrow' ? arrowLineStyle(arrow) : 'solid')));
   const strokeStyle: StrokeModel['style'] =
     strokeKind === 'border'
       ? strokeless === shapes.length
@@ -348,11 +354,7 @@ function barModel(all: readonly BoardElement[], elements: readonly BoardElement[
         : strokeless === 0
           ? 'solid'
           : undefined
-      : dashed === arrows.length
-        ? 'dashed'
-        : dashed === 0
-          ? 'solid'
-          : undefined;
+      : lineStyle;
 
   return {
     editable,
@@ -459,7 +461,7 @@ const ARROW_HEAD_LABELS: Readonly<Record<ArrowHeadKind, string>> = {
 };
 
 /** Line styles as named in the line popovers. */
-const LINE_STYLE_LABELS = { none: 'None', solid: 'Solid', dashed: 'Dashed' } as const;
+const LINE_STYLE_LABELS: Readonly<Record<LineStyle, string>> = { none: 'None', solid: 'Solid', dashed: 'Dashed', flowing: 'Flowing' };
 
 /** Alignment edges, in the align popover's two rows. */
 const ALIGN_EDGE_ROWS: readonly (readonly { edge: AlignEdge; icon: ReactNode }[])[] = [
@@ -493,9 +495,18 @@ function LineWeightIcon() {
   );
 }
 
-/** A solid, dashed or missing line, drawn like a lucide icon. */
-function LineStyleIcon({ style }: { style: 'none' | 'solid' | 'dashed' }) {
+/** A solid, dashed, flowing or missing line, drawn like a lucide icon. */
+function LineStyleIcon({ style }: { style: LineStyle }) {
   if (style === 'none') return <Minus aria-hidden="true" className="opacity-40" />;
+  if (style === 'flowing') {
+    // Dashes running into a chevron: dashes on the move.
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M3 12h13" strokeDasharray="3 4" />
+        <path d="m16 8 4 4-4 4" />
+      </svg>
+    );
+  }
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" aria-hidden="true">
       <path d="M4 12h16" strokeDasharray={style === 'dashed' ? '3 4' : undefined} />
@@ -814,9 +825,9 @@ function LineStylePopover({ stroke, side }: SideProps & { stroke: StrokeModel })
   const swatches = useInkSwatches();
   const border = stroke.kind === 'border';
   const name = border ? 'Border' : 'Line';
-  const styles = border ? (['none', 'solid'] as const) : (['solid', 'dashed'] as const);
-  const pickStyle = (style: 'none' | 'solid' | 'dashed'): void => {
-    if (!border) setArrowDash(style === 'dashed');
+  const styles: readonly LineStyle[] = border ? ['none', 'solid'] : ARROW_LINE_STYLES;
+  const pickStyle = (style: LineStyle): void => {
+    if (!border) setArrowLineStyle(style === 'none' ? 'solid' : style);
     else if (style === 'none') setShapeBorder(null);
     else paintLines('ink', 'border', true);
   };

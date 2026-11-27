@@ -40,6 +40,22 @@ export const ARROW_LABEL_HEAD_MARGIN = 5;
 export const ARROW_LABEL_PAD_Y = 3.5;
 /** How arrows are stroked. */
 export const ARROW_STROKE = { width: 1.5, dash: [6, 5] as readonly number[], head: 7, wing: 0.62 } as const;
+/**
+ * How a flowing arrow moves: its dashes travel one dash period (a dash and
+ * a gap) every `seconds`, so every flowing line on a board repeats together.
+ */
+export const ARROW_FLOW = { period: ARROW_STROKE.dash.reduce((sum, length) => sum + length, 0), seconds: 0.5 } as const;
+
+/**
+ * The dash offset of a flowing line at `phase` (0 to 1) of one period. The
+ * line is drawn from its `from` end, so a negative offset moves the dashes
+ * towards `to`; `backward` moves them the other way.
+ */
+export function arrowFlowDashOffset(phase: number, backward = false): number {
+  const offset = (((phase % 1) + 1) % 1) * ARROW_FLOW.period;
+  return offset === 0 ? 0 : backward ? offset : -offset;
+}
+
 /** Half the stroke plus antialiasing. */
 export const ARROW_LABEL_STROKE_CLEARANCE = 1.75;
 /** Length of an arrow head. */

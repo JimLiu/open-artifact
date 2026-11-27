@@ -12,6 +12,7 @@ import {
   arrowDirectedEnds,
   arrowEndIds,
   arrowHeads,
+  arrowLineStyle,
   capitalizeFirstLetter,
   describeTimer,
   elementLayoutBox,
@@ -143,7 +144,8 @@ export function describeElement(element: BoardElement, byId: ElementsById, measu
       return `Section${title ? `, ${title}` : ''}, ${formatItemCount(count)}`;
     }
     case 'arrow': {
-      const name = `${element.dash ? 'dashed ' : ''}${arrowKind(arrowHeads(element))}`;
+      const style = arrowLineStyle(element);
+      const name = `${style === 'solid' ? '' : `${style} `}${arrowKind(arrowHeads(element))}`;
       const ends = arrowEndIds(element).length === 0 ? ', not attached' : (() => {
         const { from, to } = arrowDirectedEnds(element);
         return ` from ${describeArrowEnd(from, byId)} to ${describeArrowEnd(to, byId)}`;

@@ -10,11 +10,13 @@
 import { memo, useEffect, useId } from 'react';
 import {
   ARROW_CIRCLE_RADIUS,
+  ARROW_FLOW,
   ARROW_LABEL_LINE_HEIGHT,
   ARROW_STROKE,
   TEXT_PROFILES,
   arrowCircleCenter,
   arrowEndBoxes,
+  arrowFlowsBackward,
   arrowHeads,
   arrowLineBounds,
   arrowTextKnockouts,
@@ -139,6 +141,14 @@ function useArrowLabelMeasure(arrow: ArrowElement): void {
   }, [id, label]);
 }
 
+/** One period of dash travel, as the `wb-arrow-flow` keyframes read it (elements.css). */
+const FLOW_STYLE = { '--wb-flow-offset': `${-ARROW_FLOW.period}px`, '--wb-flow-time': `${ARROW_FLOW.seconds}s` } as ViewStyle;
+
+/** The class and timing of a flowing line; `backward` runs it from `to` to `from`. */
+function flowingLineProps(backward: boolean): { className: string; style: ViewStyle } {
+  return { className: backward ? 'wb-arrow-flow wb-arrow-flow-back' : 'wb-arrow-flow', style: FLOW_STYLE };
+}
+
 /**
  * An arrow: its line (straight or routed), heads, and label. Where the line
  * passes under text it is masked out so the text stays readable.
@@ -175,7 +185,16 @@ export const ArrowView = memo(function ArrowView({ element }: { element: ArrowEl
           </mask>
         ) : null}
         <g mask={knockouts.length > 0 ? `url(#${maskId})` : undefined}>
-          <path d={d} fill="none" stroke={color} strokeWidth={ARROW_STROKE.width} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={element.dash ? ARROW_STROKE.dash.join(' ') : undefined} />
+          <path
+            d={d}
+            fill="none"
+            stroke={color}
+            strokeWidth={ARROW_STROKE.width}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeDasharray={element.dash ? ARROW_STROKE.dash.join(' ') : undefined}
+            {...(element.dash && element.flow ? flowingLineProps(arrowFlowsBackward(element)) : {})}
+          />
           <ArrowHead kind={heads[0]} line={line} end="from" color={color} />
           <ArrowHead kind={heads[1]} line={line} end="to" color={color} />
         </g>

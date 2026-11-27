@@ -21,6 +21,7 @@ import {
   applyGroupChanges,
   arrowHeadFields,
   arrowHeads,
+  withArrowLineStyle,
   arrowNeedsEndsMessage,
   captureRotationStart,
   collectMoveIdsWithAttached,
@@ -52,6 +53,7 @@ import {
   withoutLockedIds,
   type AlignEdge,
   type ArrowHeadKind,
+  type ArrowLineStyle,
   type BoardContent,
   type BoardElement,
   type EditAuthor,
@@ -609,9 +611,12 @@ export function setArrowHead(end: 'start' | 'end', kind: ArrowHeadKind): boolean
   );
 }
 
-/** Makes the selected arrows dashed or solid. */
-export function setArrowDash(dash: boolean): boolean {
-  return restyle((element) => (element.type === 'arrow' && element.dash !== dash ? { ...element, dash } : element), 'Line style', dash ? 'Dashed' : 'Solid');
+/** What is said when arrows take a line style. */
+export const ARROW_LINE_STYLE_MESSAGES: Readonly<Record<ArrowLineStyle, string>> = { solid: 'Solid', dashed: 'Dashed', flowing: 'Flowing' };
+
+/** Makes the selected arrows solid, dashed or flowing (moving dashes). */
+export function setArrowLineStyle(style: ArrowLineStyle): boolean {
+  return restyle((element) => (element.type === 'arrow' ? withArrowLineStyle(element, style) : element), 'Line style', ARROW_LINE_STYLE_MESSAGES[style]);
 }
 
 /** Drops the hand-set route of the selected arrows (they route themselves again). */

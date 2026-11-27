@@ -317,6 +317,100 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
     } finally { await p.close(); }
   });
 
+  it('makes an arrow flow from the Line menu, keeps it after a reload, and stills it with Dashed', { skip: noBrowser }, async () => {
+    const flowRoot = tmpDir('whiteboard-flow');
+    const elements = {
+      s1: { type: 'shape', kind: 'rect', x: 0, y: 0, w: 120, h: 80, color: 'white', text: 'Queue' },
+      s2: { type: 'shape', kind: 'rect', x: 420, y: 0, w: 120, h: 80, color: 'white', text: 'Worker' },
+      a1: { type: 'arrow', from: 's1', to: 's2', head: 'end', dash: false, color: 'ink' },
+      back: { type: 'arrow', from: [0, 220], to: [540, 220], head: 'end', heads: ['arrow', 'none'], dash: true, flow: true, color: 'ink' },
+    };
+    for (const sub of ['db/elements', 'db/board']) fs.mkdirSync(path.join(flowRoot, sub), { recursive: true });
+    fs.writeFileSync(path.join(flowRoot, 'db/board/meta.json'), JSON.stringify({ v: 1, title: 'Flow', order: Object.keys(elements) }));
+    for (const [id, el] of Object.entries(elements)) fs.writeFileSync(path.join(flowRoot, 'db/elements', id + '.json'), JSON.stringify(el));
+    const { url: flowUrl } = await run.json(['open', flowRoot, '--type', 'whiteboard', '--json']);
+    const p = await browser.load(flowUrl + '?open_artifact_bench=1', { ready });
+    try {
+      const line = id => `document.querySelector('#wb-${id} path.wb-arrow-flow')`;
+      const animation = id => `(l => l && getComputedStyle(l).animationName)(${line(id)})`;
+      assert.ok(await p.waitFor(`document.querySelector('#wb-a1 .wb-hit')`));
+      assert.ok(await p.waitFor(`${line('back')}?.classList.contains('wb-arrow-flow-back')`), 'an arrow pointing back flows the other way');
+      assert.equal(await p.evaluate(`${line('a1')}`), null);
+      const middle = await p.evaluate(`(() => {
+        const path = document.querySelector('#wb-a1 .wb-hit');
+        const at = path.getPointAtLength(path.getTotalLength() / 2);
+        const m = path.getScreenCTM();
+        return [at.x * m.a + at.y * m.c + m.e, at.x * m.b + at.y * m.d + m.f];
+      })()`);
+      await p.click(...middle);
+      assert.ok(await p.waitFor('window.__openArtifactWhiteboard.state().selection[0] === "a1"'), 'the arrow is selected');
+      const pick = async style => {
+        await clickOn(p, `document.querySelector('button[aria-label="Line"]')`, 'the Line button');
+        const radio = `[...document.querySelectorAll('[role=radiogroup][aria-label="Line style"] [role=radio]')].find(b => b.textContent.trim() === ${JSON.stringify(style)})`;
+        assert.ok(await p.waitFor(radio), `the Line menu offers ${style}`);
+        await clickOn(p, radio, style);
+        await p.press('Escape');
+      };
+      await pick('Flowing');
+      const saved = () => JSON.parse(fs.readFileSync(path.join(flowRoot, 'db/elements/a1.json')));
+      assert.ok(await until(() => saved().flow === true && saved().dash === true), 'Flowing saves dash and flow');
+      assert.ok(await p.waitFor(`${animation('a1')} === 'wb-arrow-flow'`), 'the line runs its animation');
+      assert.equal(await p.evaluate(`${line('a1')}.classList.contains('wb-arrow-flow-back')`), false);
+
+      // "Animate lines" in the zoom menu stills them for this viewer only.
+      await clickOn(p, `document.querySelector('button[aria-label^="Zoom"]')`, 'the zoom menu');
+      const animate = "[...document.querySelectorAll('[role^=menuitem]')].find(e => e.textContent.includes('Animate lines'))";
+      assert.ok(await p.waitFor(animate), 'the zoom menu offers Animate lines');
+      await clickOn(p, animate, 'Animate lines');
+      assert.ok(await p.waitFor(`${animation('a1')} === 'none' && ${animation('back')} === 'none'`), 'Animate lines off stills the lines');
+      assert.equal(saved().flow, true, 'the board keeps its flowing arrow');
+      await p.cdp('Page.reload', {});
+      assert.ok(await p.waitFor(`${line('a1')} && ${animation('a1')} === 'none'`), 'the line still flows after a reload, held still by the viewer\'s choice');
+      await clickOn(p, `document.querySelector('button[aria-label^="Zoom"]')`, 'the zoom menu');
+      assert.ok(await p.waitFor(animate));
+      await clickOn(p, animate, 'Animate lines');
+      assert.ok(await p.waitFor(`${animation('a1')} === 'wb-arrow-flow'`), 'Animate lines on moves them again');
+      await p.press('Escape');
+      await p.cdp('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+      assert.ok(await p.waitFor(`${animation('a1')} === 'none'`), 'reduced motion stills the lines');
+      await p.cdp('Emulation.setEmulatedMedia', { features: [] });
+      assert.ok(await p.waitFor(`${animation('a1')} === 'wb-arrow-flow'`));
+
+      const again = await p.evaluate(`(() => {
+        const path = document.querySelector('#wb-a1 .wb-hit');
+        const at = path.getPointAtLength(path.getTotalLength() / 2);
+        const m = path.getScreenCTM();
+        return [at.x * m.a + at.y * m.c + m.e, at.x * m.b + at.y * m.d + m.f];
+      })()`);
+      await p.click(...again);
+      assert.ok(await p.waitFor('window.__openArtifactWhiteboard.state().selection[0] === "a1"'));
+      await pick('Dashed');
+      assert.ok(await until(() => saved().dash === true && saved().flow === undefined), 'Dashed drops flow');
+      assert.ok(await p.waitFor(`!${line('a1')} && document.querySelector('#wb-a1 path[stroke-dasharray]')`), 'a still dashed line');
+      assert.deepEqual(p.problems, []);
+    } finally { await p.close(); }
+  });
+
+  it('paints a flowing arrow in the PNG exactly like a still dashed one', { skip: noBrowser }, async () => {
+    const p = await browser.load(url + '?open_artifact_bench=1', { ready });
+    try {
+      const board = flow => JSON.stringify([
+        { type: 'shape', id: 's1', kind: 'rect', x: 0, y: 0, w: 120, h: 80, color: 'white', text: 'A' },
+        { type: 'shape', id: 's2', kind: 'rect', x: 300, y: 120, w: 120, h: 80, color: 'white', text: 'B' },
+        { type: 'arrow', id: 'a1', from: 's1', to: 's2', head: 'end', dash: true, ...(flow ? { flow: true } : {}), color: 'ink', label: 'next' },
+      ]);
+      const bench = 'window.__openArtifactWhiteboard';
+      assert.ok(await p.waitFor(bench));
+      await p.evaluate(`${bench}.show(${board(false)})`);
+      const still = await p.evaluate(`${bench}.picture('png')`, { timeout: 30000 });
+      assert.equal(await p.evaluate(`${bench}.picture('gif')`), null, 'no GIF without a flowing arrow');
+      await p.evaluate(`${bench}.show(${board(true)})`);
+      const flowing = await p.evaluate(`${bench}.picture('png')`, { timeout: 30000 });
+      assert.ok(still && still.length > 1000);
+      assert.equal(flowing, still, 'the PNG is the same file');
+    } finally { await p.close(); }
+  });
+
   describe('global frame shell', { skip: noBrowser }, () => {
     let daemon, shellUrl, downloads, shellRoot, previous;
 
@@ -412,6 +506,147 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
           const img = new Image(); img.src = ${JSON.stringify(embedded)}; await img.decode(); return img.naturalWidth;
         })()`), 2);
         assert.equal(exported.items.find(el => el.id === 'video').video, undefined);
+        assert.deepEqual(p.problems, []);
+      } finally { await p.close(); }
+    });
+
+    it('offers an animated GIF only for a board with flowing arrows, and downloads ten looping frames', async () => {
+      const openExport = async page => {
+        await page.evaluate("document.querySelector('button[aria-label=Share]').click()");
+        assert.ok(await page.waitFor("document.body.innerText.includes('Only this computer')"));
+        await page.evaluate("[...document.querySelectorAll('button')].find(b => b.textContent === 'Export').click()");
+        assert.ok(await page.waitFor(`document.querySelector('[data-export-row="PNG image"]')?.disabled === false`));
+      };
+      const gifRow = `document.querySelector('[data-export-row="Animated GIF"]')`;
+      const still = await browser.load(shellUrl, { ready });
+      try {
+        await openExport(still);
+        assert.equal(await still.evaluate(`Boolean(${gifRow})`), false, 'a board without flowing arrows has no GIF');
+      } finally { await still.close(); }
+
+      const flowRoot = tmpDir('whiteboard-shell-flow');
+      const elements = {
+        s1: { type: 'shape', kind: 'rect', x: 0, y: 0, w: 120, h: 80, color: 'blue', text: 'In' },
+        s2: { type: 'shape', kind: 'rect', x: 360, y: 0, w: 120, h: 80, color: 'green', text: 'Out' },
+        a1: { type: 'arrow', from: 's1', to: 's2', head: 'end', dash: true, flow: true, color: 'ink' },
+      };
+      for (const sub of ['db/elements', 'db/board']) fs.mkdirSync(path.join(flowRoot, sub), { recursive: true });
+      fs.writeFileSync(path.join(flowRoot, 'db/board/meta.json'), JSON.stringify({ v: 1, title: 'Flowing board', order: Object.keys(elements) }));
+      for (const [id, el] of Object.entries(elements)) fs.writeFileSync(path.join(flowRoot, 'db/elements', id + '.json'), JSON.stringify(el));
+      const board = daemon.store.create({ root: flowRoot, type: 'whiteboard', title: 'Flowing board' });
+      const p = await browser.load(daemon.viewUrl(board.id), { ready });
+      try {
+        await openExport(p);
+        assert.ok(await p.waitFor(`${gifRow}?.disabled === false`), 'the Export tab lists the animated GIF');
+        await p.evaluate(gifRow + '.click()');
+        const filename = path.join(downloads, 'Flowing board.gif');
+        assert.ok(await until(() => fs.existsSync(filename) && fs.statSync(filename).size > 0, 30000), 'a GIF reached the download folder');
+        const file = fs.readFileSync(filename);
+        assert.equal(file.subarray(0, 6).toString(), 'GIF89a');
+        const loop = file.indexOf('NETSCAPE2.0');
+        assert.ok(loop > 0, 'the GIF has a loop block');
+        assert.equal(file.readUInt16LE(loop + 13), 0, 'it loops for ever');
+        const frames = await p.evaluate(`(async () => {
+          const bytes = Uint8Array.from(atob('${file.toString('base64')}'), c => c.charCodeAt(0));
+          const decoder = new ImageDecoder({ data: bytes, type: 'image/gif' });
+          await decoder.tracks.ready;
+          const track = decoder.tracks.selectedTrack;
+          await decoder.completed;
+          const pixels = [];
+          const durations = [];
+          for (let i = 0; i < track.frameCount; i++) {
+            const { image } = await decoder.decode({ frameIndex: i });
+            durations.push(image.duration);
+            const canvas = new OffscreenCanvas(image.displayWidth, image.displayHeight);
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(image, 0, 0);
+            image.close();
+            let hash = 0;
+            for (const v of ctx.getImageData(0, 0, canvas.width, canvas.height).data) hash = (hash * 31 + v) | 0;
+            pixels.push(hash);
+          }
+          return { count: track.frameCount, repetition: String(track.repetitionCount), pixels, durations };
+        })()`, { timeout: 30000 });
+        assert.equal(frames.count, 10, 'ten frames');
+        assert.equal(frames.repetition, 'Infinity', 'it loops');
+        assert.ok(frames.durations.every(d => d === 50_000), `each frame shows 5/100 s: ${frames.durations}`);
+        for (let i = 0; i < frames.count; i++) {
+          assert.notEqual(frames.pixels[i], frames.pixels[(i + 1) % frames.count], `frames ${i} and ${(i + 1) % frames.count} differ`);
+        }
+        assert.deepEqual(p.problems, []);
+      } finally { await p.close(); }
+    });
+
+    it('offers an MP4 video only for a board with flowing arrows, and downloads six silent seconds', async t => {
+      const openExport = async page => {
+        await page.evaluate("document.querySelector('button[aria-label=Share]').click()");
+        assert.ok(await page.waitFor("document.body.innerText.includes('Only this computer')"));
+        await page.evaluate("[...document.querySelectorAll('button')].find(b => b.textContent === 'Export').click()");
+        assert.ok(await page.waitFor(`document.querySelector('[data-export-row="PNG image"]')?.disabled === false`));
+      };
+      const mp4Row = `document.querySelector('[data-export-row="MP4 video"]')`;
+      const still = await browser.load(shellUrl, { ready });
+      try {
+        await openExport(still);
+        assert.equal(await still.evaluate(`Boolean(${mp4Row})`), false, 'a board without flowing arrows has no video');
+        const encodes = await still.evaluate(`(async () => {
+          if (typeof VideoEncoder === 'undefined') return false;
+          for (const codec of ['avc1.42001f', 'vp09.00.10.08', 'av01.0.04M.08']) {
+            const { supported } = await VideoEncoder.isConfigSupported({ codec, width: 640, height: 360, bitrate: 2_000_000 }).catch(() => ({}));
+            if (supported) return true;
+          }
+          return false;
+        })()`);
+        if (!encodes) {
+          t.skip('this browser has no video encoder');
+          return;
+        }
+      } finally { await still.close(); }
+
+      const flowRoot = tmpDir('whiteboard-shell-flow-video');
+      const elements = {
+        s1: { type: 'shape', kind: 'rect', x: 0, y: 0, w: 120, h: 80, color: 'blue', text: 'In' },
+        s2: { type: 'shape', kind: 'rect', x: 361, y: 0, w: 121, h: 81, color: 'green', text: 'Out' },
+        a1: { type: 'arrow', from: 's1', to: 's2', head: 'end', dash: true, flow: true, color: 'ink' },
+      };
+      for (const sub of ['db/elements', 'db/board']) fs.mkdirSync(path.join(flowRoot, sub), { recursive: true });
+      fs.writeFileSync(path.join(flowRoot, 'db/board/meta.json'), JSON.stringify({ v: 1, title: 'Flowing video', order: Object.keys(elements) }));
+      for (const [id, el] of Object.entries(elements)) fs.writeFileSync(path.join(flowRoot, 'db/elements', id + '.json'), JSON.stringify(el));
+      const board = daemon.store.create({ root: flowRoot, type: 'whiteboard', title: 'Flowing video' });
+      const p = await browser.load(daemon.viewUrl(board.id), { ready });
+      try {
+        await openExport(p);
+        assert.ok(await p.waitFor(`${mp4Row}?.disabled === false`), 'the Export tab lists the MP4 video');
+        assert.equal(
+          await p.evaluate(`[...document.querySelectorAll('[data-export-row]')].map(row => row.dataset.exportRow).slice(0, 4).join('|')`),
+          'PNG image|Animated GIF|MP4 video|Board file',
+          'the video comes after the GIF',
+        );
+        await p.evaluate(mp4Row + '.click()');
+        const filename = path.join(downloads, 'Flowing video.mp4');
+        assert.ok(await until(() => fs.existsSync(filename) && fs.statSync(filename).size > 0, 60000), 'a video reached the download folder');
+        const file = fs.readFileSync(filename);
+        assert.equal(file.subarray(4, 8).toString(), 'ftyp', 'an MP4 starts with its ftyp box');
+        // The top-level boxes, then the movie's length from its mvhd box.
+        const boxes = new Map();
+        for (let at = 0; at + 8 <= file.length; ) {
+          const size = file.readUInt32BE(at);
+          boxes.set(file.subarray(at + 4, at + 8).toString(), at);
+          if (size < 8) break;
+          at += size;
+        }
+        assert.ok(boxes.has('moov'), 'the file has a moov box');
+        const moov = boxes.get('moov');
+        const mvhd = file.indexOf('mvhd', moov);
+        const version = file[mvhd + 4];
+        const timescale = file.readUInt32BE(mvhd + (version === 1 ? 24 : 16));
+        const duration = version === 1 ? Number(file.readBigUInt64BE(mvhd + 28)) : file.readUInt32BE(mvhd + 20);
+        const seconds = duration / timescale;
+        assert.ok(Math.abs(seconds - 6) < 0.15, `about six seconds: ${seconds}`);
+        const handlers = [];
+        for (let at = file.indexOf('hdlr', moov); at > 0; at = file.indexOf('hdlr', at + 4)) handlers.push(file.subarray(at + 12, at + 16).toString());
+        assert.ok(handlers.includes('vide'), `a video track: ${handlers}`);
+        assert.ok(!handlers.includes('soun'), 'no sound track');
         assert.deepEqual(p.problems, []);
       } finally { await p.close(); }
     });
