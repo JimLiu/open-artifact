@@ -16,11 +16,24 @@ export type InboxItem = Omit<InboxMessage, 'at'> & { at?: string };
 
 type Waiter = (messages: InboxMessage[]) => void;
 
+/** Options of {@link Inbox}. */
+export interface InboxOptions {
+  /**
+   * A session took what waited for it ({@link Inbox.take}: an attach, a tool call, a hook, `inbox.take`, a wait that
+   * found messages there). Called with what it took, never with nothing.
+   */
+  taken?: (key: string, messages: InboxMessage[]) => void;
+  /** Messages taken earlier were put back ({@link Inbox.giveBack}) and wait again. */
+  returned?: (key: string, messages: InboxMessage[]) => void;
+}
+
 /** Session inboxes on disk, with in-memory waits. */
 export class Inbox {
   private readonly waiters = new Map<string, Set<Waiter>>();
+  private readonly options: InboxOptions;
 
-  constructor() {
+  constructor(options: InboxOptions = {}) {
+    this.options = options;
     ensureDir(files.inbox());
   }
 
@@ -69,10 +82,13 @@ export class Inbox {
     return this.peek(key).length;
   }
 
-  /** The waiting messages, removed. */
+  /** The waiting messages, removed: the session took them. */
   take(key: string): InboxMessage[] {
     const items = this.peek(key);
-    if (items.length) rmSync(this.fileOf(key), { force: true });
+    if (items.length) {
+      rmSync(this.fileOf(key), { force: true });
+      this.report('taken', key, items);
+    }
     return items;
   }
 
@@ -109,10 +125,21 @@ export class Inbox {
     if (waiting && first) {
       waiting.delete(first);
       first(messages);
+      this.report('taken', key, messages);
       return;
     }
     ensureDir(files.inbox());
     this.keep(key, [...messages, ...this.peek(key)]);
+    this.report('returned', key, messages);
+  }
+
+  /** Tells the {@link InboxOptions} callback; what it throws never reaches the caller, who has the messages now. */
+  private report(what: 'taken' | 'returned', key: string, messages: InboxMessage[]): void {
+    try {
+      this.options[what]?.(key, messages);
+    } catch {
+      /* a listener's failure is not the inbox's */
+    }
   }
 
   /** Rewrites a key's file with `kept` only (removes it when empty). */

@@ -52,6 +52,7 @@ import {
   type DaemonHealth,
   type DataRefreshResult,
   type DaemonState,
+  type InboxMessage,
   type LibraryEvent,
   type OpenArtifactSettings,
   type ResolvedEntry,
@@ -545,7 +546,11 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
     const log = (line: string): void => this.log(line);
     this.types = new TypeRegistry(() => this.settings, options.builtinTypesDir !== undefined ? { builtinDir: options.builtinTypesDir } : {});
     this.store = new ArtifactStore(options.workspaceFoldersOnly === true);
-    this.inbox = new Inbox();
+    // A session took page requests that waited for it (or an adapter put them back): their pages show it.
+    this.inbox = new Inbox({
+      taken: (key, messages) => this.wakesMoved(key, messages, 'taken'),
+      returned: (key, messages) => this.wakesMoved(key, messages, 'inbox'),
+    });
     this.wake = new WakeRouter({
       store: this.store,
       inbox: this.inbox,
@@ -1096,6 +1101,19 @@ export class Daemon extends EventEmitter<{ exit: [] }> {
       /* no lock */
     }
     this.log(`daemon ${VERSION} stopped (${reason})`);
+  }
+
+  /**
+   * One `wake/state` per artifact whose wakes its owner session just took from its inbox (`taken`), or an adapter put
+   * back there with `inbox.return` (`inbox`): the Ask pane of its page shows whether what the person sent still waits.
+   * Another session's inbox (the end of a long action it started, say) says nothing about the owner's.
+   */
+  private wakesMoved(key: string, messages: InboxMessage[], via: 'taken' | 'inbox'): void {
+    const ids = new Set(messages.filter((m) => m.kind === 'wake' && m.artifactId).map((m) => m.artifactId!));
+    for (const artifactId of ids) {
+      if (sessionKeyOf(this.store.get(artifactId)?.owner) !== key) continue;
+      this.broadcast({ type: 'wake/state', artifactId, via });
+    }
   }
 
   /** Sends an event to the Library event streams, subscribed adapters and type servers. */
