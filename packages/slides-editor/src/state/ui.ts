@@ -6,7 +6,7 @@
 import { create } from 'zustand';
 
 /** The dialogs of the editor. */
-export type DialogId = 'newSlide' | 'scale' | 'videoLink' | 'shortcuts' | 'table';
+export type DialogId = 'newSlide' | 'videoLink' | 'shortcuts' | 'table';
 
 interface UiState {
   dialog: DialogId | null;

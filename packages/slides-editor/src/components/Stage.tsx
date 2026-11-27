@@ -37,6 +37,7 @@ import { claimStageDrag, setAltHeld } from '../services/stage-keys.ts';
 import { Overlay } from './stage/Overlay.tsx';
 import { StageMenuItems } from './stage/StageMenu.tsx';
 import { useStageGesture } from './stage/store.ts';
+import { useScale } from '../services/scale.ts';
 
 /** Space kept left and right of the slide, px. */
 const SIDE = 24;
@@ -59,6 +60,7 @@ export function Stage(): ReactNode {
   const current = useView((s) => s.current);
   const entry = useDeck((s) => (current ? s.slides[current] : undefined));
   const draft = useStageGesture((s) => s.draft);
+  const scaled = useScale((s) => (s.session?.slideId === current ? s.session.preview : null));
   const scale = useView(stageScale);
   const textEdit = useView((s) => s.textEdit);
   const tool = useView((s) => s.tool);
@@ -101,7 +103,7 @@ export function Stage(): ReactNode {
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
 
-  const slide = draft && draft.slideId === current ? draft.slide : entry?.slide;
+  const slide = draft && draft.slideId === current ? draft.slide : (scaled ?? entry?.slide);
   const ctx = useMemo<StageContext | null>(() => (root && current ? { root, scale, slideId: current } : null), [root, scale, current]);
 
   const options = useMemo<RenderOptions>(() => {

@@ -16,6 +16,7 @@ import {
   MessageCircle,
   Paintbrush,
   Scissors,
+  Scaling,
   SendToBack,
   Trash2,
   Type,
@@ -51,6 +52,7 @@ import {
 } from '../../services/commands.ts';
 import { SlideMenuItems } from '../SlideMenu.tsx';
 import { useStageGesture } from './store.ts';
+import { startScale } from '../../services/scale.ts';
 import { MOD } from '@open-artifact/editor-kit';
 
 const ALT = MOD === '⌘' ? '⌥' : 'Alt+';
@@ -185,6 +187,9 @@ export function StageMenuItems(): ReactNode {
               Ungroup
             </MenuItem>
           ) : null}
+          <MenuItem icon={<Scaling className="size-4" />} shortcut="K" {...why(locked)} onSelect={startScale}>
+            Scale…
+          </MenuItem>
           <MenuItem icon={<Paintbrush className="size-4" />} shortcut={`${ALT}${MOD}C`} onSelect={copyStyle}>
             Copy style
           </MenuItem>

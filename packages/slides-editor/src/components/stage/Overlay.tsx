@@ -37,6 +37,7 @@ import {
   type StageContext,
 } from './gestures.ts';
 import { useStageGesture } from './store.ts';
+import { SCALE_GRIP_ATTRIBUTE, startScaleGrip, useScale } from '../../services/scale.ts';
 
 /** Props of the overlay. */
 export interface OverlayProps {
@@ -94,6 +95,7 @@ export function Overlay({ ctx, slide, children }: OverlayProps): ReactNode {
   const draw = useStageGesture((s) => s.draw);
   const tick = useStageGesture((s) => s.layoutTick);
   const gesturing = useStageGesture((s) => Boolean(s.draft || s.move));
+  const scaleGrips = useScale((s) => s.session?.grips ?? null);
   // Comment mode outlines what a click comments on, in the comments' color, until a card or composer opens.
   const commenting = useComments((s) => s.on);
   const commentOpen = useComments((s) => s.draft !== null || s.active !== null);
@@ -127,12 +129,14 @@ export function Overlay({ ctx, slide, children }: OverlayProps): ReactNode {
 
       {frames.map((frame) => (
         <FrameBox key={frame.key} box={shifted(frame)} scale={s} className={cn('border-accent', frames.length > 1 ? 'border' : 'border-[1.5px]', textEdit && 'border-dashed')}>
-          {reshapes && single === frame && singleNode && singleNode.kind !== 'connector' ? <ResizeHandles ctx={ctx} path={frame.path} /> : null}
-          {showHandles && single === frame && singleNode?.kind === 'table' ? <TableAddButtons table={singleNode} path={frame.path} /> : null}
+          {reshapes && single === frame && singleNode && singleNode.kind !== 'connector' && scaleGrips !== 'none' ? (
+            <ResizeHandles ctx={ctx} path={frame.path} scaling={scaleGrips ?? undefined} />
+          ) : null}
+          {showHandles && !scaleGrips && single === frame && singleNode?.kind === 'table' ? <TableAddButtons table={singleNode} path={frame.path} /> : null}
         </FrameBox>
       ))}
 
-      {reshapes && single && singleNode?.kind === 'connector' && singleNode.points ? <ConnectorHandles ctx={ctx} slide={slide} path={single.path} /> : null}
+      {reshapes && !scaleGrips && single && singleNode?.kind === 'connector' && singleNode.points ? <ConnectorHandles ctx={ctx} slide={slide} path={single.path} /> : null}
 
       {union ? (
         <div
@@ -209,11 +213,16 @@ function FrameBox({ box, scale, className, children }: { box: Box; scale: number
   );
 }
 
-/** The eight resize handles and the rotation handle of one element. */
-function ResizeHandles({ ctx, path }: { ctx: StageContext; path: NodePath }): ReactNode {
+/**
+ * The eight resize handles and the rotation handle of one element. While
+ * Scale is on they scale instead (`far`: only the bottom-right one, for an
+ * element in the flow that keeps its top-left).
+ */
+function ResizeHandles({ ctx, path, scaling }: { ctx: StageContext; path: NodePath; scaling?: 'all' | 'far' }): ReactNode {
+  const handles = scaling === 'far' ? HANDLES.filter((handle) => handle.id === 'se') : HANDLES;
   return (
     <>
-      {HANDLES.map((handle) => (
+      {handles.map((handle) => (
         <div
           key={handle.id}
           role="presentation"
@@ -223,8 +232,15 @@ function ResizeHandles({ ctx, path }: { ctx: StageContext; path: NodePath }): Re
             top: `calc(${((handle.hy + 1) / 2) * 100}% - 5px)`,
             cursor: handle.cursor,
           }}
+          {...(scaling ? { [SCALE_GRIP_ATTRIBUTE]: handle.id } : {})}
+          // The Scale field keeps the focus while a grip is dragged.
+          onMouseDown={scaling ? (event) => event.preventDefault() : undefined}
           onPointerDown={(event) => {
             if (event.button !== 0) return;
+            if (scaling) {
+              startScaleGrip(event, handle.id);
+              return;
+            }
             event.stopPropagation();
             event.preventDefault();
             startResize(ctx, event, path, handle);

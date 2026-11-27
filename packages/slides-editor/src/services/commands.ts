@@ -776,22 +776,6 @@ export function pasteStyle(): void {
   });
 }
 
-/** K: scales pinned selected elements about their top-left corner. */
-export function scaleSelection(factor: number): void {
-  if (!(factor > 0) || factor === 1) return;
-  const paths = unlockedFor(selectedPaths());
-  if (!paths?.length) return;
-  const scaled = (node: SlideNode): SlideNode => {
-    const r = pinnedRectOf(node);
-    if (!r) return node;
-    let next = pinNode(node, { x: r.x, y: r.y, w: r.w * factor, h: r.h * factor });
-    const size = /^([\d.]+)px$/.exec(node.style['font-size'] ?? '');
-    if (size) next = { ...next, style: { ...next.style, 'font-size': pxValue(Number(size[1]) * factor) } } as SlideNode;
-    return next;
-  };
-  changeCurrent('Scale', (slide) => paths.reduce((next, path) => updateNodeAt(next, path, scaled), slide));
-}
-
 /** An edge or center line elements align on. */
 export type AlignEdge = 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom';
 

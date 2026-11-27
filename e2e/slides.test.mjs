@@ -1375,28 +1375,120 @@ describe('slides', { skip: skipFor('slides') }, () => {
       }
     });
 
-    it('keeps the format strip where it was while the Scale dialog is open, and centers it again once it closes', async () => {
+    const scaleField = `document.querySelector('[data-open-artifact-scale] input')`;
+    const scaleOn = `Boolean(document.querySelector('[data-open-artifact-scale]'))`;
+    const width = (tab, el) => tab.evaluate(`(${el}).getBoundingClientRect().width`);
+    /** K as a keyboard sends it, typing a k wherever the focus lands: the Scale field must not get it. */
+    const scaleKeyPress = async tab => {
+      await tab.cdp('Input.dispatchKeyEvent', { type: 'keyDown', key: 'k', code: 'KeyK', windowsVirtualKeyCode: 75, text: 'k' });
+      await tab.cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'k', code: 'KeyK', windowsVirtualKeyCode: 75 });
+    };
+
+    it('scales the selection from the Scale strip: a live preview, kept as one undo step with Enter, put back with Escape', async () => {
+      const tab = await openDeck();
+      try {
+        await selectBack(tab);
+        // The properties panel is open (no format strip for a shape): K still brings up the Scale strip.
+        await scaleKeyPress(tab);
+        assert.ok(await tab.waitFor(`${scaleField}?.value === '100%' && document.activeElement === ${scaleField}`), 'K did not bring up a focused Scale field at 100%');
+        const before = await width(tab, back);
+        await tab.type('150%');
+        assert.ok(await tab.waitFor(`Math.abs((${back}).getBoundingClientRect().width - ${before * 1.5}) < 1`), 'typing 150% did not preview the scale');
+        await pause(300);
+        assert.equal(shapes(), SHAPES, 'the preview was written');
+        await tab.press('Escape');
+        assert.ok(await tab.waitFor(`!${scaleOn} && Math.abs((${back}).getBoundingClientRect().width - ${before}) < 1`), 'Escape did not put the element back');
+        assert.ok(await tab.waitFor(`${announced} === 'Scale cancelled'`));
+        assert.equal(shapes(), SHAPES);
+
+        await scaleKeyPress(tab);
+        assert.ok(await tab.waitFor(`document.activeElement === ${scaleField}`));
+        await tab.type('50');
+        await tab.press('Enter');
+        const half = SHAPES.replace('left:200px;top:200px;width:400px;height:300px', 'left:200px;top:200px;width:200px;height:150px');
+        assert.ok(await until(() => shapes() === half), shapes());
+        assert.ok(await tab.waitFor(`!${scaleOn} && ${announced} === 'Scaled to 50%'`));
+        assert.ok(await tab.waitFor(`document.activeElement !== document.body`), 'the focus was dropped when the strip went');
+        const checked = await run.run(['check', deck]);
+        assert.equal(checked.code, 0, checked.stdout + checked.stderr);
+        await undoKey(tab);
+        assert.ok(await until(() => shapes() === SHAPES), 'one undo did not take the scale back');
+
+        // The arrow keys step it; a click elsewhere keeps it.
+        await selectBack(tab);
+        await scaleKeyPress(tab);
+        assert.ok(await tab.waitFor(`document.activeElement === ${scaleField}`));
+        await tab.press('ArrowUp', { shift: true });
+        assert.ok(await tab.waitFor(`${scaleField}?.value === '110%' && ${announced} === '110%'`));
+        await tab.press('ArrowDown');
+        assert.ok(await tab.waitFor(`${scaleField}?.value === '109%'`));
+        // Not a size: the field says so and the preview stays.
+        await tab.press('a', { meta: mac, ctrl: !mac });
+        await tab.type('abc');
+        assert.ok(await tab.waitFor(`${scaleField}?.getAttribute('aria-invalid') === 'true' && ${scaleField}.title.startsWith('Type a scale from')`));
+        assert.ok(Math.abs((await width(tab, back)) - before * 1.09) < 1);
+        await tab.click(...(await middle(tab, caption)));
+        const kept = SHAPES.replace('left:200px;top:200px;width:400px;height:300px', 'left:200px;top:200px;width:436px;height:327px');
+        assert.ok(await until(() => shapes() === kept), shapes());
+        assert.ok(await tab.waitFor(`!${scaleOn} && /stays at 109%/.test(${announced})`), await tab.evaluate(announced));
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await tab.close();
+      }
+    });
+
+    it('scales from a grip with the opposite corner in place, and from Scale… in the menu', async () => {
+      const tab = await openDeck();
+      try {
+        await selectBack(tab);
+        await tab.rightClick(...(await middle(tab, back)));
+        assert.ok(await tab.waitFor(`${menuItem('Scale…')}`));
+        await tab.evaluate(`${menuItem('Scale…')}.click()`);
+        assert.ok(await tab.waitFor(`document.activeElement === ${scaleField}`), 'Scale… did not bring up the Scale field');
+        const grips = await tab.evaluate(`document.querySelectorAll('[data-open-artifact-scale-grip]').length`);
+        assert.equal(grips, 8);
+        const box = () => tab.evaluate(`(() => { const r = (${back}).getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; })()`);
+        const [left, top, right, bottom] = await box();
+        const grip = await middle(tab, `document.querySelector('[data-open-artifact-scale-grip="nw"]')`);
+        // Pulled out by half the width: twice as large less half, about the bottom-right corner.
+        await tab.dragMouse(grip, [grip[0] - (right - left) / 2, grip[1] - (bottom - top) / 2]);
+        assert.ok(await tab.waitFor(`${scaleField}?.value === '150%'`), await tab.evaluate(`${scaleField}?.value`));
+        const [l2, t2, r2, b2] = await box();
+        assert.ok(Math.abs(r2 - right) < 1.5 && Math.abs(b2 - bottom) < 1.5, `the far corner moved: ${[right, bottom]} → ${[r2, b2]}`);
+        assert.ok(l2 < left - 10 && t2 < top - 10);
+        assert.equal(shapes(), SHAPES, 'the drag was written before the scale was kept');
+        assert.equal(await tab.evaluate(`document.activeElement === ${scaleField}`), true, 'the drag took the focus from the field');
+        await tab.press('Enter');
+        const grown = SHAPES.replace('left:200px;top:200px;width:400px;height:300px', 'left:0px;top:50px;width:600px;height:450px');
+        assert.ok(await until(() => shapes() === grown), shapes());
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await tab.close();
+      }
+    });
+
+    it('keeps the Scale strip where it appeared while the selection grows, and centers the format strip again after', async () => {
       const tab = await openDeck();
       const off = `(() => { const s = ${strip}.getBoundingClientRect(), c = (${caption}).getBoundingClientRect(); return s.left + s.width / 2 - (c.left + c.width / 2); })()`;
-      const stripMiddle = `(() => { const s = ${strip}.getBoundingClientRect(); return s.left + s.width / 2; })()`;
+      const stripBox = `(() => { const s = ${strip}.getBoundingClientRect(); return [Math.round(s.left + s.width / 2), Math.round(s.top)]; })()`;
       try {
         await tab.click(...(await middle(tab, caption)));
         assert.ok(await tab.waitFor(`${selectedCount} === 1`));
         await propertiesKey(tab);
         assert.ok(await tab.waitFor(`${strip} && Math.abs(${off}) <= 1`, 4000), 'no format strip centered over the caption');
-        await chord(tab, 'k', 'KeyK', 75, { mac });
-        assert.ok(await tab.waitFor(`[...document.querySelectorAll('[role="dialog"]')].some(d => d.textContent.includes('Scale'))`), 'K did not open the Scale dialog');
-        const before = await tab.evaluate(stripMiddle);
-        const width = await tab.evaluate(`(${caption}).getBoundingClientRect().width`);
-        // The caption grows on disk while the dialog is open: the strip stays.
-        fs.writeFileSync(shapesFile(), SHAPES.replace('width:800px;font-size:48px', 'width:1200px;font-size:48px'));
-        assert.ok(await tab.waitFor(`(${caption}).getBoundingClientRect().width > ${width} + 20`, 5000), 'the wider caption never showed');
-        await pause(500);
-        const held = await tab.evaluate(stripMiddle);
-        assert.ok(Math.abs(held - before) <= 1, `the strip moved from ${before} to ${held} with the dialog open`);
+        await scaleKeyPress(tab);
+        assert.ok(await tab.waitFor(`document.activeElement === ${scaleField}`));
+        await pause(200);
+        const before = await tab.evaluate(stripBox);
+        // Only the bottom-right grip for an element whose top-left stays put is checked elsewhere; here: no table buttons, no resize.
+        const captionWidth = await width(tab, caption);
+        await tab.type('120');
+        assert.ok(await tab.waitFor(`(${caption}).getBoundingClientRect().width > ${captionWidth} + 20`), 'the caption did not grow');
+        await pause(300);
+        assert.deepEqual(await tab.evaluate(stripBox), before, 'the Scale strip moved with the preview');
         await tab.press('Escape');
-        assert.ok(await tab.waitFor(`![...document.querySelectorAll('[role="dialog"]')].some(d => d.textContent.includes('Scale'))`), 'Escape left the Scale dialog open');
-        assert.ok(await tab.waitFor(`${strip} && Math.abs(${off}) <= 1`, 2000), `the strip stayed ${await tab.evaluate(off)}px off the caption's middle`);
+        assert.ok(await tab.waitFor(`!${scaleOn} && ${strip} && Math.abs(${off}) <= 1`, 2000), `the strip stayed ${await tab.evaluate(off)}px off the caption's middle`);
+        assert.equal(shapes(), SHAPES);
         assert.deepEqual(tab.problems, []);
       } finally {
         await forgetView(tab);

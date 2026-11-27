@@ -56,6 +56,8 @@ import { isLinkKey } from '../lib/shortcut-keys.ts';
 import { linkPromptBox } from '../lib/link-prompt.ts';
 import { activeEditor, editorHasMark, editorSelectionCollapsed, editorSelectionHref, editorSelectionInLink, editorSelectionRange, focusEditor, formatEditor, linkEditorSelection } from './TextEditor.tsx';
 import { useStageGesture } from './stage/store.ts';
+import { ScaleStrip } from './ScaleStrip.tsx';
+import { useScale } from '../services/scale.ts';
 import { hasOpenOverlay } from '../lib/open-overlay.ts';
 import { ColorPanel, useColorGroups } from './properties/ColorField.tsx';
 import { Button, NumberInput, TextInput } from './properties/kit.tsx';
@@ -279,7 +281,8 @@ function FormatStrip(): ReactNode {
   const measuring = useStageGesture((s) => s.measuring);
   //.
   const showProperties = useView((s) => s.showProperties);
-  const visible = !readOnly && canChange() && !showProperties && nodes.length > 0 && nodes.every(hasText) && tool === 'select' && !cropping && !gesturing;
+  const scaleOn = useScale((s) => s.session !== null);
+  const visible = scaleOn || (!readOnly && canChange() && !showProperties && nodes.length > 0 && nodes.every(hasText) && tool === 'select' && !cropping && !gesturing);
   const anchor = useAnchor(visible ? paths : null);
   const strip = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -287,19 +290,22 @@ function FormatStrip(): ReactNode {
     if (strip.current) setWidth(strip.current.offsetWidth);
   });
   const spotKey = `${paths.map((p) => p.join('.')).join(',')}|${textEdit?.cell?.join('.') ?? ''}`;
-  const middle = useStripMiddle(strip, spotKey, anchor, Boolean(textEdit && !textEdit.cell));
+  const middle = useStripMiddle(strip, spotKey, anchor, Boolean(textEdit && !textEdit.cell) || scaleOn);
+  // While scaling, the strip stays where it appeared: the preview and the grips move under it.
+  const heldTop = useRef<number | null>(null);
+  if (!scaleOn) heldTop.current = null;
 
   if (!visible || !anchor || !slide) return null;
   const { band } = anchor;
   // Scrolled out of view: hide rather than pin to an edge.
-  if (anchor.bottom < band.top || anchor.top > band.bottom) return null;
+  if (!scaleOn && (anchor.bottom < band.top || anchor.top > band.bottom)) return null;
   const left = placeFloatingAcross(middle, width, band.left, band.right);
   //. A selected element
   // (not being typed into) has a rotation handle above its middle: when the
   // strip would cover it, the strip goes above the handle instead.
   const handle = (anchor.left + anchor.right) / 2;
   const lift = !textEdit && nodes.length === 1 && handle >= left - HANDLE_CLEARANCE && handle <= left + width + HANDLE_CLEARANCE ? ROTATE_HANDLE : 0;
-  const { top } = placeFloatingToolbar({
+  const placed = placeFloatingToolbar({
     selTop: anchor.top - lift,
     selBottom: anchor.bottom,
     menuH: STRIP_HEIGHT,
@@ -307,6 +313,7 @@ function FormatStrip(): ReactNode {
     bandBottom: band.bottom,
     caret: caretBox,
   });
+  const top = scaleOn ? (heldTop.current ??= placed.top) : placed.top;
 
   return (
     <div
@@ -316,7 +323,9 @@ function FormatStrip(): ReactNode {
       className="pointer-events-none fixed z-30 flex"
       style={{ left, top, maxWidth: band.right - band.left - 16 }}
     >
-      {nodes.length === 1 && nodes[0]!.kind === 'table' && !textEdit ? (
+      {scaleOn ? (
+        <ScaleStrip />
+      ) : nodes.length === 1 && nodes[0]!.kind === 'table' && !textEdit ? (
         <TableStrip table={nodes[0] as TableNode} path={paths[0]!} />
       ) : (
         <Strip nodes={nodes} />

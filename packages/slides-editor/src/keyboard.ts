@@ -59,7 +59,6 @@ import {
   nudgeSelection,
   pasteStyle,
   redo,
-  refuse,
   reorderSelection,
   selectAll,
   selectionLockRefusal,
@@ -73,6 +72,7 @@ import { useAgent } from './services/agent.ts';
 import { maybeSession } from './services/session.ts';
 import { useComments } from './services/comments.ts';
 import { useFind } from './services/find.ts';
+import { scaleKey, startScale } from './services/scale.ts';
 import { playableSlides } from './services/present.ts';
 import { nudgeCrop } from './components/stage/gestures.ts';
 import { undoesScrub } from './lib/number-scrub.ts';
@@ -166,6 +166,7 @@ export function installKeyboard(): () => void {
     const elsewhere = Boolean(document.querySelector('[aria-modal="true"]')) || view.presenting || useDeck.getState().status !== 'ready';
     // The stacking-order keys are the browser's back and forward: held back even where they do nothing.
     if ((elsewhere || typing(event)) && holdsLayerKeyInField(event, apple)) event.preventDefault();
+    if (!elsewhere && scaleKey(event)) return;
     if (isSpaceKey(event)) {
       holdSpace(event, Boolean(elsewhere) || spaceIsElsewhere(event));
       return;
@@ -416,7 +417,11 @@ export function installKeyboard(): () => void {
     if (!editing || !view.current) return;
     if (key === ']') reorderSelection('front');
     else if (key === '[') reorderSelection('back');
-    else if (letter === 'k' && hasSelection) openScale();
+    else if (letter === 'k' && hasSelection) {
+      // The field Scale focuses would otherwise get the K.
+      event.preventDefault();
+      startScale();
+    }
     else if (letter === 't') view.setTool('text');
     else if (letter === 'r') view.setTool(event.shiftKey ? 'rounded' : 'rect');
     else if (letter === 'o') view.setTool('ellipse');
@@ -430,13 +435,6 @@ export function installKeyboard(): () => void {
     window.removeEventListener('keydown', onKey);
     stageKeys();
   };
-}
-
-/** K: the Scale dialog, unless the selection is locked. */
-function openScale(): void {
-  const refusal = selectionLockRefusal();
-  if (refusal) refuse(refusal);
-  else useUi.getState().open('scale');
 }
 
 /** Every slide id in order (⌘A in the rail or grid). */

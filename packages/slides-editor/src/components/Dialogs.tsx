@@ -1,6 +1,6 @@
 /**
- * The editor's dialogs: the new-slide layout picker, scale the selection
- * (K), insert or change a video link, insert a table, the keyboard
+ * The editor's dialogs: the new-slide layout picker, insert or change a
+ * video link, insert a table, the keyboard
  * shortcuts, the PDF and web page download options (which warn when the
  * file will miss slides), "download anyway?" while the agent is still
  * writing the deck, and the notes of the last download (what it could not
@@ -8,13 +8,13 @@
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { LAYOUT_IDS, LAYOUT_NAMES, LIMITS, makeLayout, parseVideoUrl, pinnedRectOf, VIDEO_PROVIDER_LABELS, type LayoutId, type VideoProvider } from '@open-artifact/slides-core';
+import { LAYOUT_IDS, LAYOUT_NAMES, LIMITS, makeLayout, parseVideoUrl, VIDEO_PROVIDER_LABELS, type LayoutId, type VideoProvider } from '@open-artifact/slides-core';
 import { Button, Dialog, NumberInput, Segmented, SwitchInput, cn, isComposingKey } from '@open-artifact/ui';
 import { useDeck } from '../state/deck.ts';
 import { useSelectedNodes } from '../state/selection.ts';
 import { useUi } from '../state/ui.ts';
 import { insertVideoLink } from '../services/assets.ts';
-import { addSlide, insertTable, scaleSelection } from '../services/commands.ts';
+import { addSlide, insertTable } from '../services/commands.ts';
 import { useAgent } from '../services/agent.ts';
 import { useCreation, writingShortfall } from '../services/creation.ts';
 import { heldSlideNumbers, type HtmlQuality, type PdfQuality } from '../services/exports.ts';
@@ -34,7 +34,6 @@ export function Dialogs(): ReactNode {
   return (
     <>
       {dialog === 'newSlide' ? <NewSlideDialog onClose={close} /> : null}
-      {dialog === 'scale' ? <ScaleDialog onClose={close} /> : null}
       {dialog === 'videoLink' ? <VideoLinkDialog onClose={close} /> : null}
       {dialog === 'table' ? <TableDialog onClose={close} /> : null}
       <ShortcutsDialog open={dialog === 'shortcuts'} onClose={close} />
@@ -82,76 +81,6 @@ function NewSlideDialog({ onClose }: { onClose: () => void }): ReactNode {
           </button>
         ))}
       </div>
-    </Dialog>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/* Scale                                                                       */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Reads a scale entry: `150%`, `1.5x` / `×1.5`, or a width in px (`800px`,
- * `800`) relative to `width`. Returns the factor, or null.
- */
-export function parseScale(text: string, width: number | null): number | null {
-  const value = text.trim().toLowerCase().replace(/\s+/g, '');
-  let m = /^([\d.]+)%$/.exec(value);
-  if (m) return Number(m[1]) / 100 || null;
-  m = /^(?:[x×]([\d.]+)|([\d.]+)[x×])$/.exec(value);
-  if (m) return Number(m[1] ?? m[2]) || null;
-  m = /^([\d.]+)(?:px)?$/.exec(value);
-  if (m && width) return Number(m[1]) / width || null;
-  return null;
-}
-
-function ScaleDialog({ onClose }: { onClose: () => void }): ReactNode {
-  const { nodes } = useSelectedNodes();
-  const rects = nodes.map(pinnedRectOf).filter((r) => r !== null);
-  const width = rects.length === 1 ? rects[0]!.w : null;
-  const [text, setText] = useState('100%');
-  const factor = parseScale(text, width);
-  const valid = factor !== null && factor > 0.01 && factor <= 20;
-  const apply = (): void => {
-    if (!valid) return;
-    scaleSelection(factor);
-    onClose();
-  };
-  return (
-    <Dialog
-      open
-      onOpenChange={(open) => !open && onClose()}
-      title="Scale"
-      description={
-        rects.length === 0
-          ? 'Select an element placed freely on the slide to scale it.'
-          : `Scales ${rects.length === 1 ? 'the element' : `${rects.length} elements`} from the top-left corner, text included.`
-      }
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button variant="primary" disabled={!valid || rects.length === 0} onClick={apply}>
-            Scale
-          </Button>
-        </>
-      }
-    >
-      <label className="flex flex-col gap-1 text-xs text-fg-muted">
-        Percent, multiple{width ? ' or width' : ''}
-        <input
-          autoFocus
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !isComposingKey(event.nativeEvent)) apply();
-          }}
-          placeholder={width ? `150%, 2x or ${Math.round(width)}px` : '150% or 2x'}
-          className={cn('h-8 rounded-control border bg-canvas px-2 text-[13px] text-fg outline-none focus:border-accent', valid || !text ? 'border-line' : 'border-danger')}
-        />
-      </label>
-      {valid && width ? <p className="mt-2 text-xs text-fg-muted">New width: {Math.round(width * factor)} px</p> : null}
     </Dialog>
   );
 }
