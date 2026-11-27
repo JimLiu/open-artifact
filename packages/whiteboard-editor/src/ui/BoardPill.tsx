@@ -3,18 +3,19 @@
  * not draw it), the board timer, the zoom menu and, for viewers, a
  * “Read-only” badge (“Comment only” for commenters) saying why.
  *
- * The zoom menu also holds the view options: follow someone, ask everyone
- * to follow you, single-key tool shortcuts and the timer chime.
+ * The zoom menu also holds going to a section and the view options: follow
+ * someone, ask everyone to follow you, single-key tool shortcuts and the
+ * timer chime.
  */
 
 import { LIVE_MESSAGES } from '@open-artifact/whiteboard-core';
 import { ChevronDown, CloudOff, Loader2, Lock, MessageCircle, TriangleAlert } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { MAX_ZOOM, ZOOM_PRESETS, zoomPercent } from '../lib/camera.ts';
 import { modKey } from '../lib/tools.ts';
 import { redo, undo } from '../services/commands.ts';
 import { useShellDraws } from '../services/shell.ts';
-import { fitBoard, fitSelection } from '../services/navigation.ts';
+import { fitBoard, fitSelection, goToSection, titledSections } from '../services/navigation.ts';
 import { readOnlyLabel } from '@open-artifact/editor-kit';
 import { maybeSession } from '../services/session.ts';
 import { zoomStep, zoomTo } from '../services/viewport.ts';
@@ -138,6 +139,7 @@ function ZoomMenu({ readOnly, corner = false }: { readOnly: boolean; corner?: bo
       >
         Zoom to selection
       </ChromeMenuItem>
+      <SectionItems />
       <ChromeMenuSeparator />
       {preset ? null : <ChromeMenuLabel>Now {percent}</ChromeMenuLabel>}
       {ZOOM_PRESETS.map((value) => (
@@ -235,6 +237,22 @@ function FollowItems() {
       ) : null}
       {people.length > 0 || canLead ? <ChromeMenuSeparator /> : null}
     </>
+  );
+}
+
+/** “Go to section”: the board's titled sections, in reading order; nothing when it has none. */
+function SectionItems() {
+  const elements = useBoard((state) => state.board.content.elements);
+  const sections = useMemo(() => titledSections(elements), [elements]);
+  if (sections.length === 0) return null;
+  return (
+    <ChromeSubmenu label="Go to section">
+      {sections.map((section) => (
+        <ChromeMenuItem key={section.id} onSelect={() => goToSection(section.id)}>
+          {section.text.trim()}
+        </ChromeMenuItem>
+      ))}
+    </ChromeSubmenu>
   );
 }
 

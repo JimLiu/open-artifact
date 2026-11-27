@@ -114,8 +114,12 @@ export function zoomStep(direction: 1 | -1): void {
   zoomTo(nextZoomStep(state.camera.zoom, direction, min, max));
 }
 
-/** Shows a board rectangle, fitted (never past 100%); `bottomRoom` keeps that many more screen pixels free below it. */
-export function fitTo(rect: Rect | null, options: { maxZoom?: number; bottomRoom?: number } = {}): void {
+/**
+ * Shows a board rectangle, fitted (never past 100%); `bottomRoom` keeps that
+ * many more screen pixels free below it, and `glide` moves there over a
+ * moment instead of at once.
+ */
+export function fitTo(rect: Rect | null, options: { maxZoom?: number; bottomRoom?: number; glide?: boolean } = {}): void {
   const state = useCamera.getState();
   if (!rect) {
     setCamera(centerOn({ x: 0, y: 0 }, 1, state.width, state.height));
@@ -123,7 +127,9 @@ export function fitTo(rect: Rect | null, options: { maxZoom?: number; bottomRoom
   }
   const { min } = zoomRange();
   const insets = options.bottomRoom ? { ...state.insets, bottom: state.insets.bottom + options.bottomRoom } : state.insets;
-  setCamera(fitRect(rect, state.width, state.height, { insets, minZoom: min, ...(options.maxZoom !== undefined ? { maxZoom: options.maxZoom } : {}) }));
+  const target = fitRect(rect, state.width, state.height, { insets, minZoom: min, ...(options.maxZoom !== undefined ? { maxZoom: options.maxZoom } : {}) });
+  if (options.glide) glideCamera(target);
+  else setCamera(target);
 }
 
 /** Centers a board point at the current zoom. */
