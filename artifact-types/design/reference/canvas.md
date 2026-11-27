@@ -5,6 +5,10 @@ on which page, plus notes and installed design systems. The page edits it
 too (people drag, resize, add pages and notes), so read it again before
 each change and change only what you mean to.
 
+The editor keeps displayed live artboards live during a zoom gesture. When the zoom settles below 30%, nearby
+artboards switch to overview thumbnails and return to their retained frames at 32% or higher. The viewport admits
+up to 16 nearby live artboards. Artboards in use, such as a selected artboard or one playing a prototype, can remain live.
+
 ```json
 {
   "v": 3,

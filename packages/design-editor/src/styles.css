@@ -109,6 +109,15 @@ body,
   visibility: hidden;
 }
 
+[data-live-board]:not([data-live-visible]) {
+  visibility: hidden;
+}
+
+/* Reuse the frame's raster during scripted zoom. At rest the browser can sharpen it at the final scale. */
+[data-canvas-surface][data-zooming] [data-live-board][data-live-visible] {
+  will-change: transform;
+}
+
 /* Creation tools keep their crosshair over the engine's canvas, which sets its own cursor. */
 [data-canvas-surface][data-tool-cursor] > canvas {
   cursor: inherit !important;

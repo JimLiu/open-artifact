@@ -532,6 +532,76 @@ editorSuite({
       } finally { await paged.close(); }
     });
 
+    it('keeps the WebGL artboard frame through zoom, then rests and reuses it in the overview', T, async () => {
+      const { url } = await ctx.openNew('webgl-zoom-artboard', (_ctx, root) => webFontBoard(root));
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: 'window.__openArtifactCanvas', settle: 0 });
+      const board = `document.querySelector('[data-live-board][data-board="Main.dc.html"]')`;
+      const surface = `document.querySelector('[data-canvas-surface]')`;
+      const camera = 'window.__openArtifactCanvas()';
+      const zoomTo = async (zoom) => {
+        const current = await page.evaluate(`${camera}.zoom`);
+        await page.cdp('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 720, y: 450, deltaX: 0, deltaY: Math.log(current / zoom) / 0.0025, modifiers: 2 });
+        assert.ok(await page.evaluate(`new Promise(resolve => {
+          const until = performance.now() + 2000;
+          const check = () => {
+            if (Math.abs(${camera}.zoom - ${zoom}) < 0.001) resolve(true);
+            else if (performance.now() > until) resolve(false);
+            else requestAnimationFrame(check);
+          };
+          requestAnimationFrame(check);
+        })`), `camera reaches ${zoom}`);
+      };
+      const settled = (holes) => page.waitFor(`!${surface}.hasAttribute('data-moving') && ${camera}.stats.holes === ${holes}`);
+      try {
+        assert.ok(await page.waitFor(`(${camera}.snapshots === 1) && (${WEB_FONT_LOADED})`, 20000), 'the WebGL canvas has the loaded frame and its snapshot');
+        await zoomTo(0.43);
+        assert.ok(await settled(1));
+        await page.evaluate(`(() => {
+          const board = ${board};
+          const frame = board.querySelector('iframe');
+          const win = frame.contentWindow;
+          const probe = window.zoomProbe = { frame, timeOrigin: win.performance.timeOrigin, resizes: 0, styles: [] };
+          win.addEventListener('resize', () => probe.resizes++);
+          probe.observer = new MutationObserver(() => {
+            const { visibility, willChange } = getComputedStyle(board);
+            probe.styles.push([visibility, willChange]);
+          });
+          probe.observer.observe(board, { attributes: true, attributeFilter: ['style', 'data-live-visible'] });
+        })()`);
+        for (const zoom of [0.5, 0.58, 0.43]) await zoomTo(zoom);
+        assert.ok(await settled(1));
+        const motion = await page.evaluate(`(() => {
+          const { observer, styles, resizes } = window.zoomProbe;
+          observer.disconnect();
+          const board = ${board};
+          const box = board.getBoundingClientRect();
+          const viewport = ${surface}.getBoundingClientRect();
+          const camera = window.__openArtifactLive().camera;
+          return { optimized: styles.some(([, willChange]) => willChange === 'transform'),
+            hidden: styles.filter(([visibility]) => visibility === 'hidden').length, resizes,
+            willChange: getComputedStyle(board).willChange, width: box.width, height: box.height,
+            dx: box.left - viewport.left - camera.x, dy: box.top - viewport.top - camera.y };
+        })()`);
+        assert.ok(motion.optimized, 'observed composited transforms during the zoom');
+        assert.equal(motion.hidden, 0, 'the frame did not switch to its uploaded texture during zoom');
+        assert.equal(motion.resizes, 0, 'zoom did not resize the frame viewport');
+        assert.equal(motion.willChange, 'auto');
+        assert.ok(Math.abs(motion.width - 880 * 0.43) < 0.1 && Math.abs(motion.height - 560 * 0.43) < 0.1);
+        assert.ok(Math.abs(motion.dx) < 0.1 && Math.abs(motion.dy) < 0.1);
+
+        for (const [zoom, holes] of [[0.305, 1], [0.292, 0], [0.31, 0], [0.295, 0], [0.33, 1]]) {
+          await zoomTo(zoom);
+          assert.ok(await settled(holes), `the overview state at ${zoom} has ${holes} live holes`);
+          assert.equal(await page.evaluate(`getComputedStyle(${board}).visibility`), holes ? 'visible' : 'hidden');
+        }
+        assert.ok(await page.evaluate(`(() => {
+          const frame = ${board}.querySelector('iframe');
+          return frame === window.zoomProbe.frame && frame.contentWindow.performance.timeOrigin === window.zoomProbe.timeOrigin;
+        })()`), 'the overview reused the same booted frame');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
     it('zoomed out, an artboard shows a sharp snapshot in its web font, and keeps its frame for zooming back in', T, async () => {
       const { url } = await ctx.openNew('web-font-snapshot', (_ctx, root) => webFontBoard(root));
       // The DOM canvas shows a snapshot as an image the test can read (the engine draws it into its own canvas).

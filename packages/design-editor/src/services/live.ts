@@ -7,7 +7,7 @@
  * few artboards are live at a time:
  *
  * - the ones on screen (plus a margin) once the camera has been still for a
- *   moment, at a zoom where their content can be read, at most `MAX_LIVE`,
+ *   moment, at a zoom where their content can be read, at most 16,
  *   nearest the middle of the view first;
  * - the ones the person is working with: selected, edited in place, or
  *   under the pointer in comment mode (so a comment reaches an element at
@@ -22,9 +22,9 @@
  *
  * An artboard that stops being live keeps its frame for a while, hidden
  * behind its snapshot ("resting", at most `MAX_RESTING`, the most recently
- * shown first). Zooming out past `LIVE_MIN_ZOOM` and back in, or panning
- * between two groups of artboards, then shows the frames at once instead of
- * loading every page and its fonts again.
+ * shown first). After settling below `LIVE_MIN_ZOOM`, zooming back to
+ * `LIVE_RESUME_ZOOM` shows the same frames. The gap keeps the overview
+ * stable near the cutoff. Panning back reuses the frames as well.
  *
  * `?open_artifact_live=all` turns this off: every artboard is live, as before (for
  * comparing in benchmarks, and as a way out).
@@ -35,7 +35,7 @@
 import { create } from 'zustand';
 import { fontEmbedStats } from '@open-artifact/export-kit';
 import { boardsOnPage } from '@open-artifact/design-core';
-import { snapshotScale } from '../lib/scene.ts';
+import { liveViewportEnabled, nearbyLiveBoards, snapshotScale, LIVE_RESUME_ZOOM } from '../lib/scene.ts';
 import { useDocument } from '../state/document.ts';
 import { useView } from '../state/view.ts';
 import { frameOf } from './frames.ts';
@@ -43,10 +43,6 @@ import { pageImage } from './capture.ts';
 import { viewportSize, visibleRect } from './viewport.ts';
 import { boardTakesPart, elementGroupsOf, selectedBoardsOf } from '../lib/selection.ts';
 
-/** Below this zoom, artboards on screen stay snapshots (their text is too small to read). */
-export const LIVE_MIN_ZOOM = 0.3;
-/** At most this many artboards are live for being on screen. */
-export const MAX_LIVE = 16;
 /** The camera counts as still after this long without moving. */
 const IDLE_MS = 150;
 /** A booted artboard is captured once it has been quiet this long (images, first effects). */
@@ -69,7 +65,7 @@ const SNAPSHOT_LIMIT_SIDE = 2048;
  * big CJK font costs a few megabytes; CFF (OpenType-CFF) fonts, variable
  * fonts with `gvar`, WOFF and WOFF2 files, TrueType collections and AAT
  * (`morx`) fonts are still inlined whole. Families that do not fit are left
- * out: their text shows in a fallback font and the snapshot is marked `rough`.
+ * out and their text shows in a fallback font.
  */
 const SNAPSHOT_FONT_BYTES = 8 * 1024 * 1024;
 /** Frames kept, hidden, after their artboards stopped being live. */
@@ -89,8 +85,6 @@ export interface Snapshot {
   url: string | null;
   /** What it was taken from (see {@link snapshotKey}). */
   key: string;
-  /** Some web fonts were too large to carry: its text is in fallback fonts, so it never stands in for a frame that could show. */
-  rough?: boolean;
 }
 
 interface LiveState {
@@ -139,6 +133,7 @@ export type MotionSource = (listener: (moving: boolean) => void) => () => void;
 export function startLive(motion?: MotionSource): () => void {
   if (liveAll) return () => {};
   let moving = false;
+  let viewportLive = true;
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
   let pumpTimer: ReturnType<typeof setTimeout> | undefined;
   let pointerDown = false;
@@ -170,20 +165,11 @@ export function startLive(motion?: MotionSource): () => void {
     if (view.hover && exists(view.hover.board)) out.add(view.hover.board);
     if (view.playing && exists(view.playing)) out.add(view.playing);
     if (view.peek && exists(view.peek)) out.add(view.peek);
-    const camera = view.camera;
-    if (camera.zoom >= LIVE_MIN_ZOOM && viewportSize.width > 0) {
-      const rect = visibleRect(camera);
-      const mx = rect.w / 2;
-      const my = rect.h / 2;
-      const cx = rect.x + rect.w / 2;
-      const cy = rect.y + rect.h / 2;
-      const near = boardsOnPage(canvas, view.page)
-        .map((path) => ({ path, e: canvas.boards[path]! }))
-        .filter(({ e }) => e.x < rect.x + rect.w + mx && e.x + e.w > rect.x - mx && e.y < rect.y + rect.h + my && e.y + e.h > rect.y - my)
-        .map(({ path, e }) => ({ path, d: Math.hypot(e.x + e.w / 2 - cx, e.y + e.h / 2 - cy) }))
-        .sort((a, b) => a.d - b.d)
-        .slice(0, MAX_LIVE);
-      for (const { path } of near) out.add(path);
+    if (!moving) {
+      viewportLive = liveViewportEnabled(view.camera.zoom, viewportLive);
+      if (viewportLive && viewportSize.width > 0) {
+        for (const path of nearbyLiveBoards(canvas, view.page, visibleRect(view.camera))) out.add(path);
+      }
     }
     return out;
   };
@@ -317,12 +303,11 @@ export function startLive(motion?: MotionSource): () => void {
       const doc = frameOf(path)?.contentDocument;
       const entry = useDocument.getState().canvas.boards[path];
       if (!doc || !entry) return;
-      const scale = snapshotScale(entry, { side: SNAPSHOT_MAX_SIDE, limit: SNAPSHOT_LIMIT_SIDE, sharpZoom: LIVE_MIN_ZOOM, dpr: window.devicePixelRatio || 1 });
+      const scale = snapshotScale(entry, { side: SNAPSHOT_MAX_SIDE, limit: SNAPSHOT_LIMIT_SIDE, sharpZoom: LIVE_RESUME_ZOOM, dpr: window.devicePixelRatio || 1 });
       let url: string | null = null;
-      let rough = false;
       const started = performance.now();
       try {
-        url = URL.createObjectURL(await pageImage(doc, entry.w, entry.h, { scale, type: 'image/jpeg', fontBytes: SNAPSHOT_FONT_BYTES, onSkippedFonts: () => (rough = true) }));
+        url = URL.createObjectURL(await pageImage(doc, entry.w, entry.h, { scale, type: 'image/jpeg', fontBytes: SNAPSHOT_FONT_BYTES }));
       } catch {
         failed.set(path, key);
       }
@@ -338,7 +323,7 @@ export function startLive(motion?: MotionSource): () => void {
       const old = useLive.getState().snapshots[path];
       if (url || !old) {
         if (old?.url) URL.revokeObjectURL(old.url);
-        useLive.setState({ snapshots: { ...useLive.getState().snapshots, [path]: { url, key, ...(rough ? { rough } : {}) } } });
+        useLive.setState({ snapshots: { ...useLive.getState().snapshots, [path]: { url, key } } });
       }
     } finally {
       capturing = false;

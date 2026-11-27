@@ -18,6 +18,8 @@ Open Artifact 内置了 **9 种 Artifact 类型**。每种类型都包含一套�
 | `motion` | [Motion 短动画](types/motion.zh-CN.md) | 产品宣传片、原理科普动画、发布短片、功能演示、片头片尾、动图 GIF | 实时文档库（`db/film/meta.json`） | 图片、字体、视频/音频素材 | MP4、GIF、独立 HTML 播放器、源码 ZIP | 支持 |
 | `page` | [Page 自由页面](types/page.zh-CN.md) | 其他类型都不合适的小型交互页面：小部件、小工具、计算器、小游戏、解释页、投票和清单 | 文件夹本身（`index.html`，能力声明在 `.artifact.json`） | 页面要加载的任意文件 | —（可发布到 Node 或 Cloudflare 站点） | 否 |
 
+Design 画布在缩放过程中继续显示实时画板，并在低倍率概览中使用缩略图。
+
 ### 不经 Agent 新建
 
 主页的「新建作品」列出全部内置类型，分两组。「直接开始」（Docs、Sheets、Whiteboard、Slides、Design System）建好时就带着该类型的初始文件，直接进入编辑器，由你自己动手写；Design System 的欢迎页上，「Start by hand」会带你到各个分区去添加颜色、字体和间距。「和 Agent 一起做」（Design、Data、Motion、Page）建好后交给 Agent 来搭，因为这几类目前还不能完全手工搭建：Design、Data、Motion 打开时是空作品，并给出交给 Agent 的提示。「直接开始」这组类型的空作品，在 Shell 里也会多一个「从空白开始」按钮，点它不改变作品的归属。在这台电脑上做的类型照旧列在后面。在主页新建的作品不属于任何 Agent 会话，直到有会话接手。

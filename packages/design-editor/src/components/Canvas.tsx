@@ -1565,7 +1565,7 @@ function LiveBoard({ path, entry, interactive, playing }: { path: string; entry:
       data-board={path}
       data-live-board=""
       className="absolute left-0 top-0 origin-top-left overflow-hidden bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.08),0_2px_8px_rgba(0,0,0,0.06)]"
-      style={{ width: entry.w, height: entry.h, borderRadius: entry.radius, visibility: 'hidden', ...(interactive ? { zIndex: 2, pointerEvents: 'auto' } : {}) }}
+      style={{ width: entry.w, height: entry.h, borderRadius: entry.radius, ...(interactive ? { zIndex: 2, pointerEvents: 'auto' } : {}) }}
     >
       <BoardFrame path={path} mode={playing ? 'play' : 'edit'} onNavigate={playTarget} width={entry.w} height={entry.h} interactive={interactive} />
     </div>
