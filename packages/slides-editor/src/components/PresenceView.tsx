@@ -9,6 +9,7 @@ import type { ReactNode } from 'react';
 import { Eye, MousePointer2, Radio, Sparkles, X } from 'lucide-react';
 import { cn } from '@open-artifact/ui';
 import { Card, ChromeButton, ChromeMenu, ChromeMenuItem, ChromeMenuLabel, ChromeMenuSeparator } from '@open-artifact/editor-kit/react';
+import { landAfterDismissPress } from '../lib/focus-landing.ts';
 
 /** A peer as these components draw it. */
 export interface PresencePeer {
@@ -126,7 +127,13 @@ export function FollowingBanner({ name, leading, followers, onStop }: { name: st
       <div role="status" className="pointer-events-auto flex items-center gap-2 rounded-full bg-chrome-accent py-1 pl-3 pr-1 text-xs font-medium text-white shadow-chrome">
         <span>{name ? `Following ${name}` : `Others follow you · ${followers} following`}</span>
         <span className="text-white/70">{name ? 'Esc to stop' : ''}</span>
-        <button type="button" aria-label={name ? 'Stop following' : 'Stop leading'} className="flex size-5 items-center justify-center rounded-full hover:bg-white/20" onClick={onStop}>
+        <button
+          type="button"
+          aria-label={name ? 'Stop following' : 'Stop leading'}
+          className="flex size-5 items-center justify-center rounded-full hover:bg-white/20"
+          onClickCapture={(event) => landAfterDismissPress(event.nativeEvent, event.currentTarget)}
+          onClick={onStop}
+        >
           <X className="size-3.5" />
         </button>
       </div>

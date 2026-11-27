@@ -563,6 +563,39 @@ describe('slides', { skip: skipFor('slides') }, () => {
     } finally { await shell.close(); }
   });
 
+  /**
+   * Opens the deck at `base` (on `slide`) in the global frame, turns comment mode on and comments `text` with a click
+   * on the middle of what `selector` finds on the stage; returns the thread as stored.
+   */
+  async function commentOn(base, slide, selector, text) {
+    const shell = await browser.load(`${base}#slide-~${slide}`, { ready: "document.querySelector('[data-comments-button]')" });
+    try {
+      const target = `document.querySelector('iframe[name="open-artifact-shell"]').contentDocument.querySelector('[data-open-artifact-mode="edit"][data-open-artifact-slide="${slide}"] ${selector}')`;
+      assert.ok(await shell.waitFor(target), `no ${selector} on ${slide}`);
+      await shell.evaluate(`document.querySelector('[data-comments-button] button[aria-pressed]').click()`);
+      assert.ok(await shell.waitFor(`document.querySelector('iframe[name="open-artifact-shell"]').contentDocument.querySelector('[data-comment-capture]')`, 4000), 'comment mode did not start');
+      const point = await shell.evaluate(`(() => {
+        const outer = document.querySelector('iframe[name="open-artifact-shell"]').getBoundingClientRect(), box = (${target}).getBoundingClientRect();
+        return [outer.left + box.left + box.width / 2, outer.top + box.top + box.height / 2];
+      })()`);
+      await shell.click(...point);
+      assert.ok(await shell.waitFor("document.activeElement?.shadowRoot?.activeElement?.matches('textarea')", 4000), 'no comment field after the click');
+      await shell.type(text);
+      await shell.press('Enter');
+      const read = async () => (await (await fetch(new URL('_api/comments', base))).json()).threads.find(t => t.messages.some(m => m.text === text));
+      assert.ok(await until(read), 'the comment was not stored');
+      return await read();
+    } finally { await shell.close(); }
+  }
+
+  it('names the list item a comment is dropped on, with its words', { skip: browserSkip }, async () => {
+    const thread = await commentOn(publicUrl, 'end', '[data-open-artifact-item="1"]', 'Check this step');
+    assert.match(thread.label, /List item 2/, thread.label);
+    assert.match(thread.label, /Second step/, thread.label);
+    assert.equal(thread.location?.listItem, 2, JSON.stringify(thread.location));
+    assert.equal(JSON.parse(thread.anchor).item, 1, thread.anchor);
+  });
+
   it('opens a guest invite in the global frame with the guest’s original role', { skip: browserSkip }, async () => {
     const { createTypeServer } = await import('../packages/type-server/src/index.ts');
     const server = createTypeServer({
@@ -881,7 +914,7 @@ describe('slides', { skip: skipFor('slides') }, () => {
     const GRID = '<section id="grid" style="background:#ffffff"><table style="position:absolute;left:200px;top:200px;width:800px;font-size:32px">' +
       '<tr><td>A1</td><td>B1</td></tr><tr><td>A2</td><td>B2</td></tr></table></section>';
     const LOCKED = SHAPES.replace('<div id="back"', '<div id="back" data-locked');
-    let deck, deckUrl, mac;
+    let deck, deckPublic, deckUrl, mac;
     const shapesFile = () => path.join(deck, 'project/slides/shapes.html');
     const shapes = () => fs.readFileSync(shapesFile(), 'utf8');
     const order = () => shapes().match(/ id="[a-z0-9-]+"/g).slice(1).join('');
@@ -896,12 +929,13 @@ describe('slides', { skip: skipFor('slides') }, () => {
       }));
       fs.writeFileSync(path.join(deck, 'project/slides/grid.html'), GRID);
       fs.writeFileSync(shapesFile(), SHAPES);
-      deckUrl = new URL('index.html', (await run.json(['open', deck, '--json'])).url).href;
+      deckPublic = (await run.json(['open', deck, '--json'])).url;
+      deckUrl = new URL('index.html', deckPublic).href;
     });
 
-    /** The deck in a tab of its own, on `slide`, with the shapes slide as written above. */
-    async function openDeck(slide = 'shapes') {
-      fs.writeFileSync(shapesFile(), SHAPES);
+    /** The deck in a tab of its own, on `slide`, with the shapes slide as written above (or as `written`). */
+    async function openDeck(slide = 'shapes', written = SHAPES) {
+      fs.writeFileSync(shapesFile(), written);
       const tab = await browser.load(`${deckUrl}#slide-~${slide}`, { ready: `document.querySelector('[data-open-artifact-mode="edit"][data-open-artifact-slide="${slide}"] [data-open-artifact-path]')` });
       mac = await tab.evaluate("navigator.platform.includes('Mac')");
       return tab;
@@ -924,6 +958,7 @@ describe('slides', { skip: skipFor('slides') }, () => {
       : { type: 'keyUp', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 });
     /** Alt (Option) pressed down or let go. */
     const alt = (tab, down) => tab.cdp('Input.dispatchKeyEvent', { type: down ? 'rawKeyDown' : 'keyUp', key: 'Alt', code: 'AltLeft', windowsVirtualKeyCode: 18, modifiers: down ? 1 : 0 });
+    const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
     /** ⌘= a step at a time until the slide is 300px wider than the stage; false (with the scale it got to) if it never is. */
     const zoomIn = async tab => {
       const wide = `${stage}.scrollWidth > ${stage}.clientWidth + 300`;
@@ -1299,5 +1334,110 @@ describe('slides', { skip: skipFor('slides') }, () => {
       }
     });
 
+    it('links the words selected while typing with ⌘K, and gives the text the focus back', async () => {
+      const tab = await openDeck();
+      try {
+        assert.ok(await tab.waitFor(`document.querySelector('[data-open-artifact-properties]')`));
+        await tab.clickTimes(...(await middle(tab, caption)), 2);
+        assert.ok(await tab.waitFor('document.activeElement?.isContentEditable'));
+        const pick = (word, collapse = false) => tab.evaluate(`(() => {
+          const walker = document.createTreeWalker(document.activeElement, NodeFilter.SHOW_TEXT);
+          for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+            const at = text.data.indexOf(${JSON.stringify(word)});
+            if (at < 0) continue;
+            const range = document.createRange();
+            range.setStart(text, at);
+            range.setEnd(text, ${collapse} ? at : at + ${word.length});
+            getSelection().removeAllRanges();
+            getSelection().addRange(range);
+            return true;
+          }
+          return false;
+        })()`);
+        const linkKey = () => chord(tab, 'k', 'KeyK', 75, { mod: true, mac });
+        const field = `document.activeElement?.getAttribute('aria-label') === 'Link address'`;
+        assert.ok(await pick('Caption'));
+        await linkKey();
+        assert.ok(await tab.waitFor(field), '⌘K did not open the link field');
+        await tab.type('https://example.com/caption');
+        await tab.press('Enter');
+        assert.ok(await tab.waitFor(`document.activeElement?.isContentEditable && !document.querySelector('input[aria-label="Link address"]')`), 'the text did not get the focus back');
+        // Escape closes the field and returns to the text as well.
+        assert.ok(await pick('text'));
+        await linkKey();
+        assert.ok(await tab.waitFor(field));
+        await tab.press('Escape');
+        assert.ok(await tab.waitFor(`document.activeElement?.isContentEditable && !document.querySelector('input[aria-label="Link address"]')`), 'Escape did not give the text the focus back');
+        // With only a caret there is nothing to link.
+        assert.ok(await pick('text', true));
+        await linkKey();
+        await pause(500);
+        assert.equal(await tab.evaluate(`Boolean(document.querySelector('input[aria-label="Link address"]'))`), false, '⌘K opened the link field for a caret');
+        assert.ok(await tab.evaluate('document.activeElement?.isContentEditable'));
+        await tab.press('Escape');
+        assert.ok(await until(() => shapes().includes('<a href="https://example.com/caption">Caption</a> text<')), shapes());
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await tab.close();
+      }
+    });
+
+    it('names the table cell a comment is dropped on, with its words', async () => {
+      const thread = await commentOn(deckPublic, 'grid', '[data-open-artifact-cell="1:0"]', 'Check this cell');
+      assert.match(thread.label, /Row 2, column 1/, thread.label);
+      assert.match(thread.label, /A2/, thread.label);
+      assert.deepEqual(thread.location?.cell, { row: 2, column: 1 }, JSON.stringify(thread.location));
+      assert.deepEqual(JSON.parse(thread.anchor).cell, [1, 0], thread.anchor);
+    });
+
+    it('keeps the focus on the page when a banner goes or the find bar closes', async () => {
+      const first = await openDeck();
+      // Unsaved changes from an earlier visit: the next one offers them back.
+      await first.evaluate(`localStorage.setItem('open-artifact-slides:recovery:' + location.pathname, ${JSON.stringify(JSON.stringify({ at: Date.now(), slides: { shapes: SHAPES.replace('Caption text', 'Unsaved caption') } }))})`);
+      await first.close();
+      const tab = await openDeck();
+      const forgetRecovery = () => tab.evaluate(`localStorage.removeItem('open-artifact-slides:recovery:' + location.pathname)`).catch(() => {});
+      try {
+        const discard = `[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Discard')`;
+        assert.ok(await tab.waitFor(discard), 'no banner offering the unsaved changes');
+        await tab.click(...(await middle(tab, discard)));
+        assert.ok(await tab.waitFor(`!(${discard})`));
+        const onPage = `document.activeElement && document.activeElement !== document.body && document.activeElement !== document.documentElement`;
+        assert.ok(await tab.waitFor(onPage, 2000), 'the focus fell to the page after Discard');
+        for (const close of ['key', 'button']) {
+          await chord(tab, 'f', 'KeyF', 70, { mod: true, mac });
+          assert.ok(await tab.waitFor(`document.activeElement?.getAttribute('aria-label') === 'Find in presentation'`));
+          if (close === 'key') await tab.press('Escape');
+          else await tab.evaluate(`document.querySelector('[role="search"] button[aria-label="Close"]').click()`);
+          assert.ok(await tab.waitFor(`!document.querySelector('[role="search"]')`));
+          assert.ok(await tab.waitFor(onPage, 2000), `the focus fell to the page after the find bar closed by ${close}`);
+        }
+        assert.equal(shapes(), SHAPES);
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await forgetRecovery();
+        await tab.close();
+      }
+    });
+
+    it('holds each collapsible properties heading around its button, and keeps the focus in the panel when a removed shadow takes its row', async () => {
+      const shadowed = SHAPES.replace('background:#cc3333"', 'background:#cc3333;box-shadow:0px 4px 12px rgba(0,0,0,0.25)"');
+      const tab = await openDeck('shapes', shadowed);
+      try {
+        await selectBack(tab);
+        assert.ok(await tab.waitFor(`document.querySelector('[data-open-artifact-properties] h3 > button[aria-expanded]')`), 'no heading holds a section button');
+        const remove = `document.querySelector('[data-open-artifact-properties] button[aria-label^="Remove"][aria-label$="shadow"]')`;
+        assert.ok(await tab.waitFor(remove), 'no button removes the shadow');
+        await tab.evaluate(`${remove}.focus()`);
+        await tab.press('Enter');
+        assert.ok(await until(() => !shapes().includes('box-shadow')), shapes());
+        assert.ok(await tab.waitFor(`!${remove}`));
+        assert.ok(await tab.waitFor(`document.activeElement !== document.body && document.activeElement?.closest('[data-open-artifact-properties]')`, 2000),
+          `the focus went to ${await tab.evaluate('document.activeElement?.outerHTML.slice(0, 120)')}`);
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await tab.close();
+      }
+    });
   });
 });

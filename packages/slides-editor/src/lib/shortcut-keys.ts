@@ -1,6 +1,6 @@
 /**
  * What a modified key press means to the editor, whatever the keyboard
- * layout: undo / redo and the stacking-order keys.
+ * layout: undo / redo, linking text and the stacking-order keys.
  */
 
 import type { ZMove } from '@open-artifact/slides-core';
@@ -26,6 +26,17 @@ export function undoRedoKey(event: ModifiedKey): 'undo' | 'redo' | null {
 /** The letter of a ⌘ (Ctrl) shortcut pressed without Option, or null: ⌥⌘D is not ⌘D. */
 export function commandLetter(event: ModifiedKey): string | null {
   return (event.metaKey || event.ctrlKey) && !event.altKey ? shortcutLetter(event) : null;
+}
+
+/**
+ * ⌘K (Ctrl+K off Apple platforms), without Shift or Option: link the text
+ * selected while typing. On a Mac, Ctrl+K in text deletes to the end of the
+ * line, so it is not taken there.
+ */
+export function isLinkKey(event: ModifiedKey, apple: boolean): boolean {
+  if (event.shiftKey || event.altKey) return false;
+  const held = apple ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+  return held && shortcutLetter(event) === 'k';
 }
 
 /** Typed characters a Ctrl+Shift bracket key may produce that are shortcuts of their own (zoom, help). */

@@ -18,6 +18,7 @@
  * | ⇧⌘L             | Lock / unlock (held: once)                    |
  * | ⌥A H D / ⌥W V S | Align left, centers, right / top, middles, bottom |
  * | K               | Scale…                                        |
+ * | ⌘K              | While typing: link the selected text          |
  * | T R ⇧R O D L ⇧L | Text, rectangle, rounded, ellipse, diamond, line, connector tools |
  * | Arrows          | Move 8px (Shift: 1px); no selection: previous / next slide |
  * | Enter / ⇧Enter  | Into a group or text / back out               |
@@ -119,7 +120,8 @@ function spaceIsElsewhere(event: KeyboardEvent): boolean {
   if (typing(event) || pressesControl(event) || view.textEdit || useComments.getState().on) return true;
   if (!(view.mode === 'edit' || view.canvasEdit)) return true;
   const el = event.target instanceof Element ? event.target : null;
-  return !(el === null || el === document.body || el === document.documentElement || el.closest('[data-open-artifact-stage]'));
+  // `main` holds the stage: the focus lands there when a banner it was on is dismissed.
+  return !(el === null || el === document.body || el === document.documentElement || el.tagName === 'MAIN' || el.closest('[data-open-artifact-stage]'));
 }
 
 /** Zoom steps of ⌘= / ⌘-. */

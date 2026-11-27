@@ -23,6 +23,7 @@ import { announce } from '@open-artifact/editor-kit';
 import { Tip } from '@open-artifact/editor-kit/react';
 import { CornerIcon, CornersIcon, SideIcon, SidesIcon, type CornerName, type SideName } from './icons.tsx';
 import { captureNumberScrubPointer, SCRUBBED, useNumberScrubGesture } from '../../lib/number-scrub.ts';
+import { NO_LANDING_MARK, ROW_MARK } from '../../lib/focus-landing.ts';
 import {
   entryAnnouncement,
   isMinusKey,
@@ -52,10 +53,13 @@ export function Section({ title, children, actions, collapsible = false, default
   if (collapsible) {
     return (
       <Collapsible.Root defaultOpen={defaultOpen} className="border-t border-chrome-sep first:border-t-0">
-        <Collapsible.Trigger className="group flex min-h-10 w-full items-center gap-1 py-2 pl-4 pr-3 text-left outline-none focus-visible:bg-chrome-hover">
-          <h3 className="min-w-0 flex-1 truncate text-[13px] font-[520] text-chrome-fg">{title}</h3>
-          <ChevronRight className="size-4 text-chrome-muted transition-transform group-data-[panel-open]:rotate-90" strokeWidth={1.5} />
-        </Collapsible.Trigger>
+        {/* The heading holds the button: inside a button, a heading is no longer one to screen readers. */}
+        <h3 className="text-[13px] font-[520] text-chrome-fg">
+          <Collapsible.Trigger className="group flex min-h-10 w-full items-center gap-1 py-2 pl-4 pr-3 text-left outline-none focus-visible:bg-chrome-hover">
+            <span className="min-w-0 flex-1 truncate">{title}</span>
+            <ChevronRight className="size-4 text-chrome-muted transition-transform group-data-[panel-open]:rotate-90" strokeWidth={1.5} />
+          </Collapsible.Trigger>
+        </h3>
         <Collapsible.Panel className="flex min-w-0 flex-col pb-2">{children}</Collapsible.Panel>
       </Collapsible.Root>
     );
@@ -86,14 +90,21 @@ export interface RowProps {
 
 /** One labelled row: 72px label, then the controls. Rows without a label span both columns. */
 export function Row({ label, children, className, tip, onReset, resetLabel }: RowProps): ReactNode {
-  if (label === undefined) return <div className={cn('flex min-h-8 min-w-0 flex-wrap items-center gap-1.5 px-4 py-px', className)}>{children}</div>;
+  if (label === undefined)
+    return (
+      <div {...ROW_MARK} className={cn('flex min-h-8 min-w-0 flex-wrap items-center gap-1.5 px-4 py-px', className)}>
+        {children}
+      </div>
+    );
   return (
-    <div className={cn('group/row grid min-h-8 min-w-0 grid-cols-[72px_minmax(0,1fr)] items-center gap-x-2 py-px pl-4 pr-3', className)}>
+    <div {...ROW_MARK} className={cn('group/row grid min-h-8 min-w-0 grid-cols-[72px_minmax(0,1fr)] items-center gap-x-2 py-px pl-4 pr-3', className)}>
       <span className="flex min-w-0 items-center gap-0.5" title={tip}>
-        <span className="truncate text-[12px] text-chrome-muted">{label}</span>
+        {/* A long label takes a second line rather than being cut off. */}
+        <span className="line-clamp-2 min-w-0 break-words text-[12px] leading-[15px] text-chrome-muted">{label}</span>
         {onReset ? (
           <button
             type="button"
+            {...NO_LANDING_MARK}
             aria-label={resetLabel ?? `Reset ${typeof label === 'string' ? label : ''}`.trim()}
             title={resetLabel ?? `Reset ${typeof label === 'string' ? label : ''}`.trim()}
             onClick={onReset}
@@ -410,7 +421,7 @@ export function SelectInput<T extends string>({ value, options, onChange, placeh
       </BaseSelect.Trigger>
       <BaseSelect.Portal>
         <BaseSelect.Positioner sideOffset={4} alignItemWithTrigger={false} className="z-[1000]">
-          <BaseSelect.Popup className="max-h-[min(420px,var(--available-height))] min-w-[var(--anchor-width)] overflow-auto rounded-[14px] bg-chrome p-1.5 text-[13px] text-chrome-fg shadow-chrome-popup outline-none">
+          <BaseSelect.Popup className="max-h-[min(420px,var(--available-height))] min-w-[var(--anchor-width)] max-w-[min(360px,var(--available-width))] overflow-auto rounded-[14px] bg-chrome p-1.5 text-[13px] text-chrome-fg shadow-chrome-popup outline-none">
             <BaseSelect.List>
               {options.map((option, i) => {
                 const header = option.group && option.group !== options[i - 1]?.group ? option.group : null;
@@ -422,18 +433,19 @@ export function SelectInput<T extends string>({ value, options, onChange, placeh
                       value={option.value}
                       disabled={option.disabled}
                       title={option.disabled ? option.reason : option.title}
-                      className="flex min-h-7 cursor-default select-none items-center gap-2 rounded-[8px] py-0.5 pl-2 pr-2.5 outline-none data-[disabled]:opacity-40 data-[highlighted]:bg-chrome-hover"
+                      className="flex min-h-7 cursor-default select-none items-start gap-2 rounded-[8px] py-1 pl-2 pr-2.5 outline-none data-[disabled]:opacity-40 data-[highlighted]:bg-chrome-hover"
                     >
-                      <span className="flex size-4 shrink-0 items-center justify-center">
+                      {/* A long name takes a second line; the check and icon stay level with its first. */}
+                      <span className="flex h-5 w-4 shrink-0 items-center justify-center">
                         <BaseSelect.ItemIndicator>
                           <Check className="size-4 text-chrome-accent" strokeWidth={2.25} />
                         </BaseSelect.ItemIndicator>
                       </span>
-                      {option.icon ? <span className="flex shrink-0 text-chrome-muted [&>svg]:size-4">{option.icon}</span> : null}
-                      <BaseSelect.ItemText className="min-w-0 flex-1 truncate" style={option.style}>
+                      {option.icon ? <span className="flex h-5 shrink-0 items-center text-chrome-muted [&>svg]:size-4">{option.icon}</span> : null}
+                      <BaseSelect.ItemText className="line-clamp-2 min-w-0 flex-1 break-words leading-5" style={option.style}>
                         {option.label}
                       </BaseSelect.ItemText>
-                      {option.hint ? <span className="shrink-0 pl-3 text-[12px] tabular-nums text-chrome-muted">{option.hint}</span> : null}
+                      {option.hint ? <span className="shrink-0 pl-3 text-[12px] leading-5 tabular-nums text-chrome-muted">{option.hint}</span> : null}
                     </BaseSelect.Item>
                   </Fragment>
                 );

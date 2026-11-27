@@ -10,17 +10,24 @@ export type DialogId = 'newSlide' | 'scale' | 'videoLink' | 'shortcuts' | 'table
 
 interface UiState {
   dialog: DialogId | null;
+  /** Counts link requests (⌘K while typing); the format bar's link button opens on a change it sees while shown. */
+  linkRequests: number;
   open(dialog: DialogId): void;
   close(): void;
+  requestLink(): void;
 }
 
 /** The UI store. */
 export const useUi = create<UiState>()((set) => ({
   dialog: null,
+  linkRequests: 0,
   open(dialog) {
     set({ dialog });
   },
   close() {
     set({ dialog: null });
+  },
+  requestLink() {
+    set((state) => ({ linkRequests: state.linkRequests + 1 }));
   },
 }));

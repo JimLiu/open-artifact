@@ -8,13 +8,15 @@
  * - a point on an element or the slide (`{slide, el?, x, y}` in slide px),
  * - an area drawn on the slide (`{slide, x, y, w, h}`),
  * - or the whole artifact (`{}`).
+ * A point dropped on a list item or a table cell also records which one
+ * (`item`, `cell`); anchors written without them read as before.
  *
  * Comment mode (C, or the Shell's Comment button) turns clicks on the stage
  * into new threads; the list shows every thread. Unresolved counts appear on
  * slide thumbnails.
  */
 
-import { contextId, nodeAt, nodeLabel, resolveContextId, type NodePath, type Slide } from '@open-artifact/slides-core';
+import type { NodePath, Slide } from '@open-artifact/slides-core';
 import type { CommentThread, JsonRecord } from '@open-artifact/runtime';
 import { createComments } from '@open-artifact/editor-kit';
 import { toast } from '@open-artifact/ui';
@@ -22,16 +24,9 @@ import { deckOrder, useDeck } from '../state/deck.ts';
 import { useView } from '../state/view.ts';
 import { useAgent } from './agent.ts';
 import { maybeSession } from './session.ts';
+import { anchoredPath, anchorLocation, describeAnchor, makeAnchor, readAnchor, type AnchorPart, type SlideAnchor } from '../lib/comment-anchor.ts';
 
-/** Where a thread sits. */
-export interface SlideAnchor {
-  slide?: string;
-  el?: string;
-  x?: number;
-  y?: number;
-  w?: number;
-  h?: number;
-}
+export type { AnchorPart, SlideAnchor } from '../lib/comment-anchor.ts';
 
 /** True when this viewer is a commenter or more. */
 const commenter = (): boolean => {
@@ -78,12 +73,7 @@ export async function startComments(): Promise<void> {
 
 /** Reads a stored anchor; anything unreadable is the whole deck. */
 export function parseAnchor(text: string): SlideAnchor {
-  try {
-    const value = JSON.parse(text) as SlideAnchor;
-    return value && typeof value === 'object' ? value : {};
-  } catch {
-    return {};
-  }
+  return readAnchor(text);
 }
 
 /** Reads a thread's anchor. */
@@ -102,53 +92,26 @@ export function openCounts(threads: readonly CommentThread[]): Map<string, numbe
 
 /** The element path an anchor names on its slide, if it still resolves. */
 export function anchorPath(slide: Slide, anchor: SlideAnchor): NodePath | null {
-  if (!anchor.el) return null;
-  return resolveContextId(slide, anchor.el)?.path ?? null;
+  return anchoredPath(slide, anchor);
 }
 
 /** A short label of an anchor: `Slide 3 › Text "Q3 revenue"`. */
 export function anchorLabel(anchor: SlideAnchor): string {
-  if (!anchor.slide) return 'Whole deck';
+  if (!anchor.slide) return describeAnchor(anchor, undefined, 0);
   const deck = useDeck.getState();
-  const n = deckOrder(deck).indexOf(anchor.slide) + 1;
-  const slide = deck.slides[anchor.slide]?.slide;
-  const head = n > 0 ? `Slide ${n}` : 'Deleted slide';
-  if (!slide) return head;
-  const path = anchorPath(slide, anchor);
-  const node = path ? nodeAt(slide, path) : undefined;
-  if (node) return `${head} › ${nodeLabel(node, 40)}`;
-  if (anchor.w !== undefined) return `${head} › Area`;
-  return head;
+  return describeAnchor(anchor, deck.slides[anchor.slide]?.slide, deckOrder(deck).indexOf(anchor.slide) + 1);
 }
 
-/** The anchor of an element (and an optional point on it). */
-export function elementAnchor(slide: Slide, path: NodePath | null, point?: { x: number; y: number }, area?: { w: number; h: number }): SlideAnchor {
-  const anchor: SlideAnchor = { slide: slide.id };
-  const el = path ? contextId(slide, path) : null;
-  if (el) anchor.el = el;
-  if (point) {
-    anchor.x = Math.round(point.x);
-    anchor.y = Math.round(point.y);
-  }
-  if (area) {
-    anchor.w = Math.round(area.w);
-    anchor.h = Math.round(area.h);
-  }
-  return anchor;
+/** The anchor of an element (and an optional point on it, and the list item or table cell there). */
+export function elementAnchor(slide: Slide, path: NodePath | null, point?: { x: number; y: number }, area?: { w: number; h: number }, part?: AnchorPart): SlideAnchor {
+  return makeAnchor(slide, path, point, area, part);
 }
 
 /** Location details the agent reads alongside the label. */
 function locationOf(anchor: SlideAnchor): JsonRecord {
   const deck = useDeck.getState();
-  const location: JsonRecord = {};
-  if (anchor.slide) {
-    location.slideId = anchor.slide;
-    location.slideIndex = deckOrder(deck).indexOf(anchor.slide) + 1;
-  }
-  if (anchor.el) location.element = anchor.el;
-  if (anchor.x !== undefined && anchor.y !== undefined) location.point = { x: anchor.x, y: anchor.y };
-  if (anchor.w !== undefined && anchor.h !== undefined) location.size = { w: anchor.w, h: anchor.h };
-  return location;
+  const slide = anchor.slide ? deck.slides[anchor.slide]?.slide : undefined;
+  return anchorLocation(anchor, slide, anchor.slide ? deckOrder(deck).indexOf(anchor.slide) + 1 : 0);
 }
 
 /** Brings an anchor's slide on stage (the card opens after it). */

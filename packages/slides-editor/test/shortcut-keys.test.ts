@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { commandLetter, holdsLayerKeyInField, layerAnnouncement, layerMoveKey, undoRedoKey } from '../src/lib/shortcut-keys.ts';
+import { commandLetter, holdsLayerKeyInField, isLinkKey, layerAnnouncement, layerMoveKey, undoRedoKey } from '../src/lib/shortcut-keys.ts';
 
 const press = (key: string, code: string, mods: { meta?: boolean; ctrl?: boolean; shift?: boolean; alt?: boolean } = {}) => ({
   key,
@@ -115,5 +115,26 @@ describe('stacking-order keys', () => {
     assert.equal(new Set(said).size, 4);
     assert.equal(layerAnnouncement('front', 1), 'Element moved to the front');
     assert.equal(layerAnnouncement('backward', 3), '3 elements moved down one layer');
+  });
+});
+
+describe('the link key', () => {
+  it('is ⌘K on a Mac and Ctrl+K elsewhere', () => {
+    assert.equal(isLinkKey(press('k', 'KeyK', { meta: true }), true), true);
+    assert.equal(isLinkKey(press('k', 'KeyK', { ctrl: true }), false), true);
+    assert.equal(isLinkKey(press('k', 'KeyK', { ctrl: true }), true), false);
+    assert.equal(isLinkKey(press('k', 'KeyK', { meta: true }), false), false);
+  });
+
+  it('works whatever the keyboard layout', () => {
+    assert.equal(isLinkKey(press('л', 'KeyK', { meta: true }), true), true);
+    assert.equal(isLinkKey(press('κ', 'KeyK', { ctrl: true }), false), true);
+  });
+
+  it('ignores Shift, Option, both modifiers and a plain K', () => {
+    assert.equal(isLinkKey(press('K', 'KeyK', { meta: true, shift: true }), true), false);
+    assert.equal(isLinkKey(press('˚', 'KeyK', { meta: true, alt: true }), true), false);
+    assert.equal(isLinkKey(press('k', 'KeyK', { meta: true, ctrl: true }), true), false);
+    assert.equal(isLinkKey(press('k', 'KeyK'), true), false);
   });
 });

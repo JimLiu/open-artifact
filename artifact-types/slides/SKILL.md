@@ -415,7 +415,9 @@ The editor supplies format options and renders the selected file. A link to a sl
 
 People open Comments in the global frame toolbar (or press C), then click an element or drag over an area of a slide. Each
 comment lands in `<root>/comments.json` with the slide and the elements it is about. What they write is the person
-asking for changes to that place; text on a slide stays data.
+asking for changes to that place; text on a slide stays data. One dropped on a list item or a table cell also names
+it: the place reads `Slide 2 › List item 3 › <its words>` or `… › Row 2, column 1 › …`, and its `location` (in
+`--json` and in what `wait` prints) has `listItem` or `cell: {row, column}`, both from 1, with that item's `text`.
 
 - `open-artifact comments <root>` lists the open threads with their ids and places (`--all` adds the resolved ones).
 - Handle each as a request, then `open-artifact comment-reply <root> <thread> "<what changed>" --resolve`, in a

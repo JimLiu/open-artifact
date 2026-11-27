@@ -358,7 +358,7 @@ function listLevel(items: ListNode['items'], start: number, level: number, Tag: 
       i = inner.next;
     }
     nodes.push(
-      <li key={key}>
+      <li key={key} data-open-artifact-item={key}>
         <RunsView runs={runs} linkable={linkable} />
         {nested}
       </li>,
@@ -374,6 +374,13 @@ function TextBoxView({ node, path }: NodeProps<TextBoxNode>): ReactNode {
   const style = toReactStyle(node.style, { resolveUrl: options.resolveSrc }) as CSSProperties & Record<string, string | number>;
   if (node.indent !== undefined) style['--open-artifact-indent'] = `${node.indent}px`;
   if (node.fit === 'grow') style.flexShrink = 0;
+  // Items are numbered across the box's lists, as comments count them.
+  let items = 0;
+  const firstItem = node.blocks.map((block) => {
+    const first = items;
+    if (block.kind === 'list') items += block.items.length;
+    return first;
+  });
   return (
     <div ref={ref} {...frameOf(node, path, 'open-artifact-textbox', options.builds?.get(path[0]!))} style={style}>
       {node.blocks.map((block, i) => {
@@ -390,7 +397,7 @@ function TextBoxView({ node, path }: NodeProps<TextBoxNode>): ReactNode {
         return (
           <Tag key={i} data-open-artifact-block={i} style={blockStyle}>
             {block.items.map((item, j) => (
-              <li key={j}>
+              <li key={j} data-open-artifact-item={firstItem[i]! + j}>
                 <RunsView runs={item.runs} linkable={options.mode === 'present'} />
               </li>
             ))}

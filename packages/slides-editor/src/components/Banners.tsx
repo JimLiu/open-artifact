@@ -19,6 +19,7 @@ import { askAgentToFix, useAgent } from '../services/agent.ts';
 import { clearRecovery, restoreRecovery, type Recovery } from '../services/recovery.ts';
 import { schedule } from '../services/sync.ts';
 import { SlideThumb } from './SlideThumb.tsx';
+import { landAfterDismissPress } from '../lib/focus-landing.ts';
 
 /** "Compare": this tab's overwritten version beside the slide as it is now. */
 function CompareDialog({ position, onClose }: { position: number; onClose: () => void }): ReactNode {
@@ -87,7 +88,12 @@ function Banner({ tone, icon, children, actions }: { tone: 'info' | 'warning' | 
     >
       <span className={cn('shrink-0', tone === 'warning' && 'text-warning', tone === 'danger' && 'text-danger', tone === 'info' && 'text-fg-muted')}>{icon}</span>
       <span className="min-w-0 flex-1">{children}</span>
-      {actions ? <span className="flex shrink-0 items-center gap-1">{actions}</span> : null}
+      {actions ? (
+        // Most actions close the banner: the focus then goes to the page below, not back to the top.
+        <span className="flex shrink-0 items-center gap-1" onClickCapture={(event) => landAfterDismissPress(event.nativeEvent, event.currentTarget)}>
+          {actions}
+        </span>
+      ) : null}
     </div>
   );
 }

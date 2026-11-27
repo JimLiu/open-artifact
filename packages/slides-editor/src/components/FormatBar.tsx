@@ -16,9 +16,14 @@
  * under it does not pull it away. It hides while the selection is moved,
  * resized or drawn over, and fades while distances show. F6 moves the focus
  * into it.
+ *
+ * ⌘K while typing opens the strip's link field; while the strip is hidden
+ * (the properties panel is open) the same field opens on its own, over the
+ * selected text.
  */
 
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from 'react';
+import { Popover as BasePopover } from '@base-ui/react/popover';
 import {
   AlignCenter,
   AlignCenterHorizontal,
@@ -41,18 +46,22 @@ import {
   Unlink,
 } from 'lucide-react';
 import { LIMITS, isSafeHref, isTextual, nodeHasMark, nodeUniformLink, resizeTable, setListKind, setNodeMark, tableColumns, toggleNodeMark, type NodePath, type SlideNode, type TableNode } from '@open-artifact/slides-core';
-import { Popover, isComposingKey } from '@open-artifact/ui';
+import { Popover, cn, isComposingKey } from '@open-artifact/ui';
 import { useSelectedNodes } from '../state/selection.ts';
+import { useUi } from '../state/ui.ts';
 import { useView } from '../state/view.ts';
 import { ALIGN_KEYS, alignRefusal, alignSelection, canChange, patchSelectionStyle, selectionLockRefusal, updateSelection, type AlignEdge } from '../services/commands.ts';
 import { placeFloatingAcross, placeFloatingToolbar, stripMiddle, type StripSpot } from '../lib/floating.ts';
-import { activeEditor, editorHasMark, editorSelectionCollapsed, editorSelectionInLink, focusEditor, formatEditor, linkEditorSelection } from './TextEditor.tsx';
+import { isLinkKey } from '../lib/shortcut-keys.ts';
+import { linkPromptBox } from '../lib/link-prompt.ts';
+import { activeEditor, editorHasMark, editorSelectionCollapsed, editorSelectionHref, editorSelectionInLink, editorSelectionRange, focusEditor, formatEditor, linkEditorSelection } from './TextEditor.tsx';
 import { useStageGesture } from './stage/store.ts';
 import { ColorPanel, useColorGroups } from './properties/ColorField.tsx';
 import { Button, NumberInput, TextInput } from './properties/kit.tsx';
 import { updateTable } from './properties/ContentSections.tsx';
 import { useTextStyleMenu } from './properties/shared.tsx';
 import { CHROME_CARD, CHROME_INSET } from './StageChrome.tsx';
+import { isApplePlatform } from '@open-artifact/editor-kit';
 import { ALT, Card, ChromeButton, ChromeDivider, ChromeMenu, ChromeMenuItem, ChromeMenuSeparator, MOD, Tip } from '@open-artifact/editor-kit/react';
 
 /** Height of the strip, px. */
@@ -250,8 +259,18 @@ function caretBox(): { top: number; bottom: number } | null {
 /* The strip                                                                   */
 /* -------------------------------------------------------------------------- */
 
-/** The floating strip (renders nothing unless text is selected on the stage). */
+/** The floating strip, and the link field ⌘K opens while the strip is hidden. */
 export function FormatBar(): ReactNode {
+  return (
+    <>
+      <FormatStrip />
+      <LinkPrompt />
+    </>
+  );
+}
+
+/** The floating strip (renders nothing unless text is selected on the stage). */
+function FormatStrip(): ReactNode {
   const { slide, paths, nodes, readOnly } = useSelectedNodes();
   const textEdit = useView((s) => s.textEdit);
   const tool = useView((s) => s.tool);
@@ -566,10 +585,16 @@ function TextColor({ value }: { value: string | null }): ReactNode {
   );
 }
 
-/** Adds or removes a link (http and https only). */
-function LinkButton({ node }: { node: SlideNode | null }): ReactNode {
-  const [open, setOpen] = useState(false);
-  const current = node ? nodeUniformLink(node) : undefined;
+/** Link buttons on screen: while one is, ⌘K opens its field rather than the one of {@link LinkPrompt}. */
+let linkButtonsShown = 0;
+
+/**
+ * The link field: the address, then Remove (when there is a link) and Apply.
+ * It links the text selected while typing, or else the whole selected
+ * elements, and calls `onDone` once it has.
+ */
+function LinkFields({ node, onDone }: { node: SlideNode | null; onDone: () => void }): ReactNode {
+  const [current] = useState(() => editorSelectionHref() ?? (node ? nodeUniformLink(node) : undefined));
   const [url, setUrl] = useState(current ?? '');
   const valid = isSafeHref(url.trim());
   const apply = (): void => {
@@ -577,13 +602,63 @@ function LinkButton({ node }: { node: SlideNode | null }): ReactNode {
     if (!isSafeHref(href)) return;
     if (onSelectedText() || editorSelectionInLink()) linkEditorSelection(href);
     else updateSelection('Link', (n) => setNodeMark(n, 'href', href));
-    setOpen(false);
+    onDone();
   };
   const remove = (): void => {
     if (activeEditor()) formatEditor('unlink');
     else updateSelection('Remove link', (n) => setNodeMark(n, 'href', undefined));
-    setOpen(false);
+    onDone();
   };
+  return (
+    <div data-open-artifact-format-bar className="flex w-72 flex-col gap-2">
+      <TextInput
+        autoFocus
+        aria-label="Link address"
+        placeholder="https://"
+        value={url}
+        onChange={(event) => setUrl(event.target.value)}
+        onKeyDown={(event) => {
+          if (isLinkKey(event, isApplePlatform())) event.preventDefault();
+          if (isComposingKey(event.nativeEvent)) return;
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            apply();
+          }
+        }}
+      />
+      {url.trim() && !valid ? <p className="text-[12px] text-danger">Links must start with http:// or https://</p> : null}
+      <div className="flex justify-end gap-1">
+        {current ? (
+          <Button size="sm" variant="ghost" icon={<Unlink className="size-3.5" />} onClick={remove}>
+            Remove
+          </Button>
+        ) : null}
+        <Button size="sm" variant="primary" disabled={!valid} onClick={apply}>
+          Apply
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** The strip's link button and its field. */
+function LinkButton({ node }: { node: SlideNode | null }): ReactNode {
+  const [open, setOpen] = useState(false);
+  const current = editorSelectionHref() ?? (node ? nodeUniformLink(node) : undefined);
+  const requests = useUi((s) => s.linkRequests);
+  // Only a request made while the button is shown opens it: one made while the strip was hidden is not kept for later.
+  const seen = useRef(requests);
+  useEffect(() => {
+    linkButtonsShown++;
+    return () => {
+      linkButtonsShown--;
+    };
+  }, []);
+  useEffect(() => {
+    if (requests === seen.current) return;
+    seen.current = requests;
+    setOpen(true);
+  }, [requests]);
   return (
     <Popover
       open={open}
@@ -591,8 +666,7 @@ function LinkButton({ node }: { node: SlideNode | null }): ReactNode {
       align="start"
       onOpenChange={(next) => {
         setOpen(next);
-        if (next) setUrl(current ?? '');
-        else refocusEditor();
+        if (!next) refocusEditor();
       }}
       trigger={
         <ChromeButton square aria-label="Link" title={`Link (${MOD}K)`} pressed={Boolean(current)}>
@@ -600,33 +674,63 @@ function LinkButton({ node }: { node: SlideNode | null }): ReactNode {
         </ChromeButton>
       }
     >
-      <div data-open-artifact-format-bar className="flex w-72 flex-col gap-2">
-        <TextInput
-          autoFocus
-          aria-label="Link address"
-          placeholder="https://"
-          value={url}
-          onChange={(event) => setUrl(event.target.value)}
-          onKeyDown={(event) => {
-            if (isComposingKey(event.nativeEvent)) return;
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              apply();
-            }
-          }}
-        />
-        {url.trim() && !valid ? <p className="text-[12px] text-danger">Links must start with http:// or https://</p> : null}
-        <div className="flex justify-end gap-1">
-          {current ? (
-            <Button size="sm" variant="ghost" icon={<Unlink className="size-3.5" />} onClick={remove}>
-              Remove
-            </Button>
-          ) : null}
-          <Button size="sm" variant="primary" disabled={!valid} onClick={apply}>
-            Apply
-          </Button>
-        </div>
-      </div>
+      <LinkFields node={node} onDone={() => setOpen(false)} />
     </Popover>
   );
 }
+
+/**
+ * The link field on its own, over the text being typed into: what ⌘K opens
+ * while the strip (and its link button) is hidden. Escape or a press outside
+ * closes it and gives the focus back to the text.
+ */
+function LinkPrompt(): ReactNode {
+  const requests = useUi((s) => s.linkRequests);
+  const editing = useView((s) => Boolean(s.textEdit));
+  const { nodes } = useSelectedNodes();
+  const seen = useRef(requests);
+  const [range, setRange] = useState<Range | null>(null);
+  useEffect(() => {
+    if (requests === seen.current) return;
+    seen.current = requests;
+    if (linkButtonsShown > 0 || !activeEditor()) return;
+    setRange(editorSelectionRange());
+  }, [requests]);
+  useEffect(() => {
+    if (!editing) setRange(null);
+  }, [editing]);
+  if (!range || !editing) return null;
+  const editor = activeEditor();
+  // Measured on every placement, so the field follows the text when the stage scrolls.
+  const anchor = {
+    contextElement: editor ?? undefined,
+    getBoundingClientRect: (): DOMRect => {
+      const r = range.getBoundingClientRect();
+      const box = linkPromptBox({ x: r.x, y: r.y, width: r.width, height: r.height }, { width: window.innerWidth, height: window.innerHeight });
+      return DOMRect.fromRect(box);
+    },
+  };
+  const close = (): void => setRange(null);
+  return (
+    <BasePopover.Root
+      open
+      onOpenChange={(next) => {
+        if (next) return;
+        close();
+        refocusEditor();
+      }}
+    >
+      <BasePopover.Portal>
+        <BasePopover.Positioner anchor={anchor} side="top" align="start" sideOffset={8} collisionPadding={8} className="z-[1000]">
+          <BasePopover.Popup aria-label="Link" finalFocus={false} className={cn(POPUP_LOOK, 'p-3')}>
+            <LinkFields node={nodes.length === 1 ? nodes[0]! : null} onDone={close} />
+          </BasePopover.Popup>
+        </BasePopover.Positioner>
+      </BasePopover.Portal>
+    </BasePopover.Root>
+  );
+}
+
+/** The look of the UI kit's popovers. */
+const POPUP_LOOK =
+  'rounded-lg bg-surface text-[13px] text-fg shadow-popup outline-none origin-[var(--transform-origin)] transition-[opacity,transform] duration-100 data-[starting-style]:opacity-0 data-[starting-style]:scale-95 data-[ending-style]:opacity-0';

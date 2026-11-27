@@ -40,6 +40,7 @@ import { fillKindOf, fillKindOptions, fillPreview, startGradient, type FillKind 
 import { GradientEditor } from './GradientEditor.tsx';
 import { StrokeDashedIcon, StrokeDottedIcon, StrokeSolidIcon } from './icons.tsx';
 import { IconButton, NumberInput, PanelField, QuadRow, Row, Section, Segmented, SliderInput, type Quad } from './kit.tsx';
+import { NO_LANDING_MARK } from '../../lib/focus-landing.ts';
 import { commitCss, patchTarget, sharedStyle, type Target } from './shared.tsx';
 
 /** Why a control is unavailable. */
@@ -133,6 +134,7 @@ export function FillRow({ target, label = 'Fill', gradients = false, removable =
       />
       {removable && set ? (
         <IconButton
+          {...NO_LANDING_MARK}
           label={label === 'Background' ? 'Remove background' : `Remove ${label.toLowerCase()}`}
           icon={<Minus />}
           disabled={needsFill}
@@ -524,7 +526,7 @@ function Effects({ target, support }: { target: Target; support: EffectSupport }
             onOpenChange={(open) => setOpened(open ? key : null)}
             onChange={(next) => commitShadows(property, replace(next), label)}
           />
-          <IconButton label={`Remove ${label.toLowerCase()}`} icon={<Minus />} onClick={() => commitShadows(property, replace(null), `Remove ${label.toLowerCase()}`)} />
+          <IconButton {...NO_LANDING_MARK} label={`Remove ${label.toLowerCase()}`} icon={<Minus />} onClick={() => commitShadows(property, replace(null), `Remove ${label.toLowerCase()}`)} />
         </Row>
       );
     });
@@ -544,7 +546,7 @@ function BlurRow({ label, value, onCommit }: { label: string; value: number; onC
   return (
     <Row label={label}>
       <NumberInput aria-label={label} value={value} placeholder="0" unit="px" min={0} max={20} step={0.5} onCommit={(v) => v !== null && onCommit(v)} />
-      <IconButton label={`Remove ${label.toLowerCase()}`} icon={<Minus />} onClick={() => onCommit(null)} />
+      <IconButton {...NO_LANDING_MARK} label={`Remove ${label.toLowerCase()}`} icon={<Minus />} onClick={() => onCommit(null)} />
     </Row>
   );
 }

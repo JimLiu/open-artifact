@@ -298,6 +298,7 @@ const SHORTCUTS: ReadonlyArray<{ group: string; rows: ReadonlyArray<[string, str
       ['⌥W ⌥V ⌥S', 'Align top, vertical centers, bottom'],
       [`⌥${MOD}C / ⌥${MOD}V`, 'Copy / paste style'],
       ['K', 'Scale…'],
+      [`${MOD}K`, 'Link the selected text (while typing)'],
       ['T R ⇧R O D L ⇧L', 'Text, rectangle, rounded, ellipse, diamond, line, connector'],
       ['Esc', 'Cancel tool, end editing, clear selection'],
     ],

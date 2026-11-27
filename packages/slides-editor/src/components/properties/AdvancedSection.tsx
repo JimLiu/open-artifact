@@ -31,6 +31,7 @@ import {
   type Transform,
 } from '@open-artifact/slides-core';
 import { CommitInput, IconButton, NumberInput, PanelField, Row, Section, SelectInput } from './kit.tsx';
+import { NO_LANDING_MARK, ROW_MARK } from '../../lib/focus-landing.ts';
 import { CssField, commitCss, patchTarget, sharedStyle, targetLocked, type Target } from './shared.tsx';
 
 /** A subsection title inside Advanced. */
@@ -313,12 +314,12 @@ function CssRows({ target }: { target: Target }): ReactNode {
       {declared.length === 0 ? <p className="px-4 text-[12px] text-chrome-muted">No declarations.</p> : null}
       <div className="flex flex-col gap-1 px-4">
         {declared.map((property) => (
-          <div key={property} className="flex min-w-0 items-center gap-1">
+          <div key={property} {...ROW_MARK} className="flex min-w-0 items-center gap-1">
             <span className="w-28 shrink-0 truncate font-mono text-[11px] text-chrome-muted" title={property}>
               {property}
             </span>
             <CssField target={target} property={property} />
-            <IconButton label={`Remove ${property}`} icon={<X className="size-3" />} onClick={() => commitCss(target, property, '', `Remove ${property}`)} />
+            <IconButton {...NO_LANDING_MARK} label={`Remove ${property}`} icon={<X className="size-3" />} onClick={() => commitCss(target, property, '', `Remove ${property}`)} />
           </div>
         ))}
       </div>

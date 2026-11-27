@@ -26,7 +26,10 @@ import { useTextFit } from '../render/fit.ts';
 import { RunsView, useRenderOptions } from '../render/SlideView.tsx';
 import { blocksToHtml, indentItems, itemsToHtml, readBlocks, readItems, readRuns, runsToHtml } from '../lib/richtext.ts';
 import { isComposingKey } from '@open-artifact/ui';
+import { isApplePlatform } from '@open-artifact/editor-kit';
 import { linkAround, linkMissed } from '../lib/editor-link.ts';
+import { isLinkKey } from '../lib/shortcut-keys.ts';
+import { useUi } from '../state/ui.ts';
 import { useView } from '../state/view.ts';
 import { changeSlide } from '../services/commands.ts';
 
@@ -91,6 +94,28 @@ export function editorSelectionInLink(): boolean {
   const el = activeEditor();
   const range = savedRange ?? (window.getSelection()?.rangeCount ? window.getSelection()!.getRangeAt(0) : null);
   return Boolean(el && selectionLink(el, range));
+}
+
+/** The selection inside the editor: the live one while it has the focus, else the one kept when it lost it. */
+function editorRange(el: HTMLElement): Range | null {
+  const selection = window.getSelection();
+  if (document.activeElement === el && selection?.rangeCount) {
+    const range = selection.getRangeAt(0);
+    if (el.contains(range.commonAncestorContainer)) return range;
+  }
+  return savedRange;
+}
+
+/** The address of the link the editor's selection sits in, if any. */
+export function editorSelectionHref(): string | null {
+  const el = activeEditor();
+  return el ? (selectionLink(el, editorRange(el))?.getAttribute('href') ?? null) : null;
+}
+
+/** A copy of the editor's selection (live or kept), to measure it after the focus has left the text. */
+export function editorSelectionRange(): Range | null {
+  const el = activeEditor();
+  return el ? (editorRange(el)?.cloneRange() ?? null) : null;
 }
 
 /** Links the editor's selection to `href` (see {@link relinkSelection}). */
@@ -279,6 +304,13 @@ function useEditable(
         event.stopPropagation();
         flush();
         useView.getState().endTextEdit();
+        return;
+      }
+      // ⌘K with text selected opens the format bar's link field; with only a caret it does nothing.
+      if (isLinkKey(event, isApplePlatform())) {
+        event.preventDefault();
+        const range = editorRange(el);
+        if (!isComposingKey(event) && !event.repeat && range && !range.collapsed) useUi.getState().requestLink();
         return;
       }
       if (event.key === 'Enter' && (options.lineBreakOnEnter || event.shiftKey) && !isComposingKey(event)) {

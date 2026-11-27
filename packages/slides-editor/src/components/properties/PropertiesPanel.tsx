@@ -25,6 +25,7 @@ import { LayoutSection, SizeSection } from './LayoutSections.tsx';
 import { AppearanceSection, EffectsSection } from './StyleSections.tsx';
 import { TextSection } from './TextSection.tsx';
 import type { Target } from './shared.tsx';
+import { landAfterRowPress } from '../../lib/focus-landing.ts';
 import { holdHandle, isHandlePress, moveHandle, PANEL_PRESS_DELAY, pressedWidth, type HandlePointer } from '../../lib/panel-width.ts';
 
 /* -------------------------------------------------------------------------- */
@@ -235,6 +236,7 @@ export function PropertiesPanel(): ReactNode {
       aria-label="Properties"
       style={{ width }}
       className="relative flex h-full shrink-0 flex-col border-l border-chrome-sep bg-chrome text-chrome-fg"
+      onClickCapture={(event) => landAfterRowPress(event.nativeEvent, event.currentTarget)}
     >
       {handle}
       <div className="shrink-0 border-b border-chrome-sep px-3 py-2">
