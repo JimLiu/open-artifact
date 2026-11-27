@@ -151,6 +151,12 @@ export interface FilesChangedEvent {
   changes: Record<string, string | null>;
   /** Who made the change, when the host knows (`agent`, `owner`, `guest:<name>`). */
   author?: string;
+  /**
+   * The change stream started again after it was down, with empty `changes`:
+   * changes made meanwhile were not heard, so a page that keeps files open
+   * compares the listing with what it holds.
+   */
+  resync?: boolean;
 }
 
 /** The `artifact` capability. */

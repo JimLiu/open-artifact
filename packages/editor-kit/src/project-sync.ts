@@ -10,6 +10,9 @@
  *   editor merge, then retries (a bounded number of times). Offline: backoff.
  * - Remote changes: pushed by the host, read and handed to the editor. A file
  *   held by a text edit waits until the edit ends.
+ * - Catching up: when the host's change stream starts again (`resync`), the
+ *   changes it carried while it was down are lost; the listing is compared with
+ *   what this tab holds and the difference is merged like a pushed change.
  *
  * What a batch holds, what a save marks saved and how a change is merged
  * are the editor's ({@link ProjectSyncOptions}).
@@ -33,7 +36,7 @@ export interface RemoteFile {
 /** What {@link createProjectSync} drives. `Sent` is what one batch sent; `Run` is one pass of remote changes. */
 export interface ProjectSyncOptions<Sent, Run> {
   /** The artifact capability (read when used, so it may come from a session set up later). */
-  artifact(): Pick<ArtifactCapability, 'readText' | 'publish' | 'onChange'>;
+  artifact(): Pick<ArtifactCapability, 'readText' | 'publish' | 'onChange'> & Partial<Pick<ArtifactCapability, 'list'>>;
   /** Delay between the last change and the save, ms. */
   saveDelay: number;
   /** Conflict retries per save (default 4). */
@@ -62,6 +65,11 @@ export interface ProjectSyncOptions<Sent, Run> {
     file(path: string, hash: string | null, run: Run): RemoteFile | undefined;
     end(run: Run): void;
   };
+  /**
+   * The artifact paths this tab holds files for. Catching up treats one the
+   * listing no longer has as deleted (without it, deletions wait for the next push).
+   */
+  known?(): Iterable<string>;
 
   /** Calls `changed` after each local change (the store's revision moved). */
   watchChanges(changed: () => void): void;
@@ -92,7 +100,23 @@ export interface ProjectSync {
   /** Retries a failed save now, resetting the backoff. */
   retryNow(): void;
   /** Applies changes made elsewhere (path → new hash, `null`: deleted). `force` re-reads even known hashes and ignores text edits. */
-  applyRemote(changes: Record<string, string | null>, options?: { force?: boolean }): Promise<void>;
+  applyRemote(changes: Record<string, string | null>, options?: RemoteOptions): Promise<void>;
+  /**
+   * Merges what changed while this tab heard nothing: compares the listing with
+   * the hashes it holds, reads every changed file, then merges them as pushed
+   * changes. Saves wait meanwhile, so a save that has written but not returned
+   * is never taken for someone else's change. A failed listing or read leaves
+   * the project as it is. Runs by itself when the change stream starts again.
+   */
+  catchUp(): Promise<void>;
+}
+
+/** How {@link ProjectSync.applyRemote} reads. */
+export interface RemoteOptions {
+  /** Re-read even known hashes and ignore text edits. */
+  force?: boolean;
+  /** Texts already read, by path (read again otherwise). */
+  contents?: ReadonlyMap<string, string>;
 }
 
 /** First offline retry delay, ms (doubles up to {@link OFFLINE_MAX_MS}). */
@@ -112,6 +136,9 @@ export function createProjectSync<Sent, Run>(options: ProjectSyncOptions<Sent, R
   let offlineDelay = OFFLINE_FIRST_MS;
   /** Paths whose remote change waits for a text edit to end. */
   const deferred = new Map<string, string | null>();
+  /** A catch-up is running (saves wait for it); `catchUpAgain`: another was asked for meanwhile. */
+  let catching: Promise<void> | null = null;
+  let catchUpAgain = false;
 
   function schedule(delay = options.saveDelay): void {
     if (options.readOnly()) return;
@@ -124,7 +151,7 @@ export function createProjectSync<Sent, Run>(options: ProjectSyncOptions<Sent, R
   }
 
   function flush(): Promise<void> {
-    if (running) {
+    if (running || catching) {
       again = true;
       return Promise.resolve();
     }
@@ -139,6 +166,10 @@ export function createProjectSync<Sent, Run>(options: ProjectSyncOptions<Sent, R
 
   async function settle(): Promise<void> {
     for (let round = 0; round <= maxRetries; round++) {
+      if (catching) {
+        await catching;
+        continue;
+      }
       if (current) {
         await current.catch(() => undefined);
         continue;
@@ -200,7 +231,7 @@ export function createProjectSync<Sent, Run>(options: ProjectSyncOptions<Sent, R
     await applyRemote(changes, { force: true });
   }
 
-  async function applyRemote(changes: Record<string, string | null>, { force = false }: { force?: boolean } = {}): Promise<void> {
+  async function applyRemote(changes: Record<string, string | null>, { force = false, contents }: RemoteOptions = {}): Promise<void> {
     const artifact = options.artifact();
     const run = options.remote.begin();
     for (const [path, hash] of Object.entries(changes)) {
@@ -211,14 +242,81 @@ export function createProjectSync<Sent, Run>(options: ProjectSyncOptions<Sent, R
         deferred.set(path, hash);
         continue;
       }
-      const text = hash === null ? null : await artifact.readText(path).catch(() => null);
+      const text = hash === null ? null : contents?.get(path) ?? await artifact.readText(path).catch(() => null);
       file.apply(text, hash);
     }
     options.remote.end(run);
   }
 
+  function catchUp(): Promise<void> {
+    if (catching) {
+      catchUpAgain = true;
+      return catching;
+    }
+    const run = (async () => {
+      try {
+        do {
+          catchUpAgain = false;
+          await catchUpOnce();
+        } while (catchUpAgain);
+      } finally {
+        catching = null;
+        // Saves asked for meanwhile waited for this.
+        if (again || options.isDirty()) {
+          again = false;
+          schedule(0);
+        }
+      }
+    })();
+    catching = run;
+    return run;
+  }
+
+  async function catchUpOnce(): Promise<void> {
+    // A save that has written but not returned still holds the old hashes here: wait it out.
+    while (current) await current.catch(() => undefined);
+    const artifact = options.artifact();
+    if (!artifact.list) return;
+    const probe = options.remote.begin();
+    /** The hash this tab holds for a path (`undefined`: unknown), or `false` when the editor ignores the path. */
+    const held = (path: string, hash: string | null): string | null | undefined | false => {
+      const file = options.remote.file(path, hash, probe);
+      return file ? file.hash : false;
+    };
+    let listing: Awaited<ReturnType<NonNullable<typeof artifact.list>>>;
+    try {
+      listing = await artifact.list();
+    } catch {
+      return; // Still unreachable: the next start of the stream tries again.
+    }
+    const changes: Record<string, string | null> = {};
+    const before = new Map<string, string | null | undefined>();
+    for (const path of new Set([...Object.keys(listing), ...(options.known?.() ?? [])])) {
+      const hash = listing[path]?.sha256 ?? null;
+      const ours = held(path, hash);
+      // Ignored paths, files held at this hash, and absent files never had.
+      if (ours === false || ours === hash || (hash === null && (ours === null || ours === undefined))) continue;
+      changes[path] = hash;
+      before.set(path, ours);
+    }
+    if (!Object.keys(changes).length) return;
+    // Read everything first: a failed read must leave the project as it is.
+    const contents = new Map<string, string>();
+    try {
+      for (const [path, hash] of Object.entries(changes)) if (hash !== null) contents.set(path, await artifact.readText(path));
+    } catch {
+      return;
+    }
+    // A pushed change that landed while reading is newer than what was read.
+    for (const path of Object.keys(changes)) if (held(path, changes[path]!) !== before.get(path)) delete changes[path];
+    await applyRemote(changes, { contents });
+  }
+
   function start(): void {
-    options.artifact().onChange((event) => void applyRemote(event.changes));
+    options.artifact().onChange((event) => {
+      if (event.resync) void catchUp();
+      else void applyRemote(event.changes);
+    });
     options.watchChanges(() => schedule());
     // Merge deferred remote changes once a text edit ends.
     options.watchTextEdit(() => {
@@ -247,6 +345,7 @@ export function createProjectSync<Sent, Run>(options: ProjectSyncOptions<Sent, R
       schedule(0);
     },
     applyRemote,
+    catchUp,
   };
 }
 
