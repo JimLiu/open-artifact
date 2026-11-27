@@ -75,7 +75,7 @@ export function boardDrop(board: string): { x: number; y: number } | null {
 }
 
 /** Ids for arrow heads that no element of the artboard uses yet. */
-function idMaker(source: string): () => string {
+export function idMaker(source: string): () => string {
   let n = 0;
   return () => {
     let id: string;

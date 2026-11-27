@@ -46,7 +46,8 @@ import {
   type StylePatch,
   type TemplateModel,
 } from '@open-artifact/dc';
-import { NOTE_RECT_RADIUS, rememberedRadius, withRectRadius } from '../lib/note-look.ts';
+import { withRectRadius } from '../lib/note-look.ts';
+import { recalledRadius } from './radius-memory.ts';
 import { toast } from '@open-artifact/ui';
 import { detachMarkup, detachRefusal, instanceProps } from '../lib/detach.ts';
 import { freeBoardName, newBoardSource } from '../lib/frame.ts';
@@ -1153,14 +1154,6 @@ export function addBoardFromKeyboard(): string | null {
   return path;
 }
 
-/** The corner radius last set on a rectangle note in this session: a new rectangle takes it. */
-let lastRectRadius = NOTE_RECT_RADIUS;
-
-/** Remembers a rectangle's radius for the next one drawn. */
-export function rememberRectRadius(radius: number): void {
-  lastRectRadius = rememberedRadius(radius) ?? lastRectRadius;
-}
-
 /** Adds a note at a world point and selects it. */
 export function addNote(kind: CanvasNote['kind'] | undefined, at: { x: number; y: number }, extra: Partial<CanvasNote> = {}): string | null {
   const doc = useDocument.getState();
@@ -1171,7 +1164,7 @@ export function addNote(kind: CanvasNote['kind'] | undefined, at: { x: number; y
   if (kind && kind !== 'sticky') note.kind = kind;
   if (kind === 'title1') Object.assign(note, { maxW: 1200, size: 24, bold: false }, extra);
   if (!kind || kind === 'sticky') note.w = 240;
-  note = withRectRadius(note, lastRectRadius);
+  note = withRectRadius(note, recalledRadius());
   if (view.page && doc.canvas.pages.length > 1 && view.page !== doc.canvas.pages[0]?.id) note.page = view.page;
   doc.updateCanvas((canvas) => ({ ...canvas, notes: { ...canvas.notes, [id]: note } }));
   view.select({ kind: 'objects', boards: [], notes: [id] });

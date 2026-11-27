@@ -87,6 +87,9 @@ Keyed by id (`[A-Za-z0-9_-]{1,40}`), as many as you need while the whole index s
   from `gray red orange green teal blue purple pink`.
 - `rect`, `oval`, `pen`, `line`, `arrow` and `image` are what people draw on the canvas: leave them.
   Their look can sit in `css` (below).
+- Drawn inside an artboard, the same tools write into its page instead: an absolutely positioned `div`
+  or `svg` with a grey placeholder fill (`#b6b0a7`) or stroke (`#8a8378`, the Pencil `#2b2b2b`), and text
+  starting as *Your text here*. They are the person's too: keep where they sit; restyle them when asked.
 - `locked: true` on any note is the person's lock from the editor: it can't be moved, resized or deleted
   there until they unlock it, which removes the key. Leave it; copies made in the editor come unlocked.
 - `groups` lists the groups a note belongs to, innermost first (ids like `g1`, at most 8 levels): people

@@ -68,7 +68,8 @@ import { useDocument } from '../state/document.ts';
 import { useView } from '../state/view.ts';
 import { boardApi } from '../services/frames.ts';
 import { templateOf } from '../services/agent.ts';
-import { alignMode, anyElementLocked, edit, mixedComputed, rememberRectRadius, runAlign, styleMixed, styleSelection, updateBoard } from '../services/commands.ts';
+import { alignMode, anyElementLocked, edit, mixedComputed, runAlign, styleMixed, styleSelection, updateBoard } from '../services/commands.ts';
+import { rememberRadius } from '../services/radius-memory.ts';
 import { hasCssBorder, NOTE_RECT_RADIUS, shapeFill } from '../lib/note-look.ts';
 import { ALIGN_ACTIONS, alignShortcut, alignTip, type AlignAction } from '../lib/align.ts';
 import { mixedElementKinds, mixedPaintValues, noteFillValues, paintMixed } from '../services/paint.ts';
@@ -1010,7 +1011,10 @@ function AppearanceSection({ ctx }: { ctx: ElementContext }) {
       {textFill ? <PNote className="pt-0">{FILL_IS_TEXT}</PNote> : <LayersRow ctx={ctx} />}
       <OpacityRow ctx={ctx} opacity={opacity} />
       <PRow label="Radius">
-        <PInput aria-label="Corner radius" prefix="◜" min={0} value={withoutUnit(ctx.inline['border-radius'])} placeholder={roundPx(ctx.computed['border-top-left-radius'])} unit="px" disabled={ctx.locked} onCommit={(next) => ctx.set({ 'border-radius': next || null })} />
+        <PInput aria-label="Corner radius" prefix="◜" min={0} value={withoutUnit(ctx.inline['border-radius'])} placeholder={roundPx(ctx.computed['border-top-left-radius'])} unit="px" disabled={ctx.locked} onCommit={(next) => {
+          ctx.set({ 'border-radius': next || null });
+          if (next) rememberRadius(next);
+        }} />
       </PRow>
       <BorderRows ctx={ctx} />
       <PRow label="Clip">
@@ -1663,7 +1667,7 @@ function NoteStyleSection({ id, note, readOnly }: { id: string; note: CanvasNote
           <PInput aria-label="Object radius" name="Radius" min={0} max={400} unit="px" value={withoutUnit(css['border-radius'])} placeholder={image ? '0' : String(NOTE_RECT_RADIUS)} disabled={readOnly}
             onCommit={(next) => {
               set({ 'border-radius': next || null });
-              if (note.kind === 'rect') rememberRectRadius(next ? num(next) : NOTE_RECT_RADIUS);
+              if (note.kind === 'rect') rememberRadius(next || `${NOTE_RECT_RADIUS}px`);
             }} />
         )}
       </PRow>

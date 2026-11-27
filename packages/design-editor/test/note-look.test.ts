@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { IMAGE_PLACEHOLDER, imageLook, rememberedRadius, shapeLook, withRectRadius } from '../src/lib/note-look.ts';
+import { IMAGE_PLACEHOLDER, imageLook, shapeLook, withRectRadius } from '../src/lib/note-look.ts';
 import { noteItem } from '../src/lib/scene.ts';
 import { noteSwap, noteUnfill } from '../src/lib/paint.ts';
 
@@ -53,19 +53,20 @@ describe('fill and stroke of a shape note with css', () => {
 });
 
 describe('the radius a new rectangle takes', () => {
-  it('remembers a finite, non-negative radius rounded to 0.01, and nothing else', () => {
-    assert.equal(rememberedRadius(12.345), 12.35);
-    assert.equal(rememberedRadius(0), 0);
-    assert.equal(rememberedRadius(-1), null);
-    assert.equal(rememberedRadius(Number.NaN), null);
-  });
-
   it('writes the remembered radius on a new rectangle only, the default as no css, and keeps a radius already set', () => {
-    assert.deepEqual(withRectRadius({ x: 0, y: 0, kind: 'rect', text: '' }, 20).css, { 'border-radius': '20px' });
-    assert.equal(withRectRadius({ x: 0, y: 0, kind: 'rect', text: '' }, 6).css, undefined);
-    assert.equal(withRectRadius({ x: 0, y: 0, kind: 'oval', text: '' }, 20).css, undefined);
-    assert.deepEqual(withRectRadius({ x: 0, y: 0, kind: 'rect', text: '', css: { 'border-radius': '3px', opacity: '0.5' } }, 20).css, { 'border-radius': '3px', opacity: '0.5' });
-    assert.deepEqual(withRectRadius({ x: 0, y: 0, kind: 'rect', text: '', css: { opacity: '0.5' } }, 0).css, { opacity: '0.5', 'border-radius': '0px' });
+    const all = (r: number) => [r, r, r, r] as const;
+    assert.deepEqual(withRectRadius({ x: 0, y: 0, kind: 'rect', text: '' }, all(20)).css, { 'border-radius': '20px' });
+    assert.equal(withRectRadius({ x: 0, y: 0, kind: 'rect', text: '' }, all(6)).css, undefined);
+    assert.equal(withRectRadius({ x: 0, y: 0, kind: 'rect', text: '' }, null).css, undefined);
+    assert.equal(withRectRadius({ x: 0, y: 0, kind: 'oval', text: '' }, all(20)).css, undefined);
+    assert.deepEqual(withRectRadius({ x: 0, y: 0, kind: 'rect', text: '', css: { 'border-radius': '3px', opacity: '0.5' } }, all(20)).css, { 'border-radius': '3px', opacity: '0.5' });
+    assert.deepEqual(withRectRadius({ x: 0, y: 0, kind: 'rect', text: '', css: { opacity: '0.5' } }, all(0)).css, { opacity: '0.5', 'border-radius': '0px' });
+    assert.deepEqual(withRectRadius({ x: 0, y: 0, kind: 'rect', text: '' }, [1, 2, 3, 4]).css, {
+      'border-top-left-radius': '1px',
+      'border-top-right-radius': '2px',
+      'border-bottom-right-radius': '3px',
+      'border-bottom-left-radius': '4px',
+    });
   });
 });
 

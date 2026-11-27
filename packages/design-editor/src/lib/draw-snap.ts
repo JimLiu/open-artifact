@@ -1,6 +1,7 @@
 /**
  * Snapping while drawing on the canvas. The press point snaps to the edges
- * and centre lines of the artboards and notes around it; the dragged-out
+ * and centre lines of the artboards and notes around it (inside an
+ * artboard, of its top-level boxes and its own); the dragged-out
  * end snaps on the axes the press point snapped on (an axis it did not
  * snap on keeps the raw pointer). Shift draws a square, or keeps a line on
  * a multiple of 45°, and the end then slides along that direction onto a
@@ -44,6 +45,19 @@ export function snapTargets(rects: readonly Rect[]): SnapTargets {
     for (const at of [r.y, r.y + r.h / 2, r.y + r.h]) ys.push({ at, from: r.x, to: r.x + r.w });
   }
   return { xs, ys };
+}
+
+/**
+ * Lines to snap to while drawing inside an artboard: the edges and centre
+ * lines of its top-level boxes that fall within it, and its own six.
+ */
+export function boardSnapTargets(board: Rect, boxes: readonly Rect[]): SnapTargets {
+  const inner = snapTargets(boxes);
+  const own = snapTargets([board]);
+  return {
+    xs: [...inner.xs.filter((line) => line.at >= board.x - EPS && line.at <= board.x + board.w + EPS), ...own.xs],
+    ys: [...inner.ys.filter((line) => line.at >= board.y - EPS && line.at <= board.y + board.h + EPS), ...own.ys],
+  };
 }
 
 /** The nearest line to `v` within `threshold`, leaving out those within `SAME_LINE` of `skip`. */

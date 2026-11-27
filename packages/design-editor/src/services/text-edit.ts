@@ -12,6 +12,7 @@ import { useDocument } from '../state/document.ts';
 import { useView } from '../state/view.ts';
 import { attributeSelection, edit } from './commands.ts';
 import { boardApi } from './frames.ts';
+import { endPlacedText } from './board-draw.ts';
 import { elementsIn } from '../lib/selection.ts';
 
 /** Marks chrome that may take focus without ending the text edit (the format bar and its popups). */
@@ -82,14 +83,18 @@ export function textEditEvent(board: string, event: BoardEvent): boolean {
         if (event.text !== value) edit(board, { kind: 'scriptText', start, end, quote, value, text: event.text });
         return true;
       }
+      const empty = event.text.trim() === '' && !/<(img|svg|video|picture)\b/i.test(event.html);
+      // New text emptied in its first edit goes away.
+      if (endPlacedText(board, event.tid, empty)) return true;
       // Every word deleted: keep the text as it was (an empty element is lost on the canvas).
-      if (event.text.trim() === '' && !/<(img|svg|video|picture)\b/i.test(event.html)) return true;
+      if (empty) return true;
       // A link just set is selected next.
       if (item) edit(board, { kind: 'richText', target: { tid: item.tid, path: item.path }, html: event.html, ...(event.link != null ? { link: event.link } : {}) }, { selectCreated: event.link != null });
       return true;
     }
     case 'text-cancel':
       view.setTextEdit(null);
+      endPlacedText(board, event.tid, false);
       return true;
     default:
       return false;

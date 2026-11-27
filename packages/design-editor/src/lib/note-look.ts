@@ -9,6 +9,7 @@
 
 import { noteBorderDeclarations, type CanvasNote, type NoteCss } from '@open-artifact/design-core';
 import { noteColor } from './notes.ts';
+import { radiusDeclarations, type Corners } from './board-draw.ts';
 
 /** The default shape note: a 3px border in the stroke colour, and a 6px corner on a rectangle. */
 export const NOTE_BORDER_WIDTH = 3;
@@ -53,15 +54,14 @@ export function shapeRadius(note: CanvasNote): string {
   return note.css?.['border-radius'] ?? `${NOTE_RECT_RADIUS}px`;
 }
 
-/** A radius worth remembering for the next rectangle, rounded to 0.01, or null. */
-export function rememberedRadius(radius: number): number | null {
-  return Number.isFinite(radius) && radius >= 0 ? Math.round(radius * 100) / 100 : null;
-}
-
-/** A new rectangle with the remembered radius; the default radius is written as no css at all. */
-export function withRectRadius(note: CanvasNote, remembered: number): CanvasNote {
-  if (note.kind !== 'rect' || remembered === NOTE_RECT_RADIUS || note.css?.['border-radius']) return note;
-  return { ...note, css: { ...note.css, 'border-radius': `${remembered}px` } };
+/**
+ * A new rectangle with the remembered corners (none remembered: as it is).
+ * The default radius is written as no css at all, and a radius already set stays.
+ */
+export function withRectRadius(note: CanvasNote, remembered: Corners | null): CanvasNote {
+  if (note.kind !== 'rect' || !remembered || note.css?.['border-radius']) return note;
+  if (remembered.every((corner) => corner === NOTE_RECT_RADIUS)) return note;
+  return { ...note, css: { ...note.css, ...Object.fromEntries(radiusDeclarations(remembered)) } };
 }
 
 /** A CSS length in px as a number, or null. */

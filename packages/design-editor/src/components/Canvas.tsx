@@ -54,6 +54,8 @@ import { isElementLocked, lockedTids } from '../lib/locks.ts';
 import { boardPassesThrough, refuseLocked, selectionHasLock } from '../services/locks.ts';
 import type { Address } from '../lib/ops.ts';
 import { placeImages } from '../services/images.ts';
+import { boardDrawTargets, drawInBoard, drawPenInBoard, drawsInside, editingInside } from '../services/board-draw.ts';
+import type { PlaceTool } from '../lib/board-draw.ts';
 import { session } from '../services/session.ts';
 import { templateOf, useAgent } from '../services/agent.ts';
 import { pendingFit, viewportSize, visibleRect, zoomAt, zoomToBoards, zoomToFit } from '../services/viewport.ts';
@@ -97,8 +99,12 @@ type Drag =
    */
   | { kind: 'move'; startX: number; startY: number; base: CanvasModel; boards: string[]; notes: string[]; all: { boards: string[]; notes: string[] }; ghostBase: Rect[]; moved: boolean; copy: boolean; offset: Offset }
   | { kind: 'marquee'; startX: number; startY: number; additive: boolean; initial: { boards: string[]; notes: string[] }; base: Selection }
-  /** Drawing with a tool: the press point snapped (`start`) to the lines in `targets` (the Pen draws freehand). */
-  | { kind: 'create'; tool: DrawTool | 'pen'; startX: number; startY: number; points?: [number, number][]; start: DrawStart; targets: SnapTargets }
+  /**
+   * Drawing with a tool: the press point snapped (`start`) to the lines in
+   * `targets` (the Pen draws freehand). Over an artboard (`board`) it
+   * places `place` in its page.
+   */
+  | { kind: 'create'; tool: DrawTool | 'pen' | 'title'; startX: number; startY: number; points?: [number, number][]; start: DrawStart; targets: SnapTargets; board?: string; place?: PlaceTool | 'pen' }
   | { kind: 'resize'; handle: Handle; target: ResizeTarget; startX: number; startY: number; base: CanvasModel; rect: Rect }
   /** A box dragged inside an artboard selects elements. `click` runs when it stays a click. */
   | { kind: 'elementMarquee'; board: string; startX: number; startY: number; deep: boolean; toggle: boolean; candidates: MarqueeCandidate[] | null; container: Address | null; initial: ElementSelection[]; base: Selection; click: () => void; moved: boolean }
@@ -133,6 +139,19 @@ const BOARD_PAGE = 'bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.08),0_2px_8px_rgba(0
 /** Tools that draw by dragging and snap while they do. */
 const DRAW_TOOLS: ReadonlySet<string> = new Set<DrawTool>(['board', 'rect', 'oval', 'line', 'arrow']);
 const isDrawTool = (tool: string): tool is DrawTool => DRAW_TOOLS.has(tool);
+
+/** Tools that draw into an artboard pressed on (the Artboard tool only in the artboard being edited). */
+const BOARD_DRAW_TOOLS: ReadonlySet<string> = new Set(['title', 'rect', 'oval', 'line', 'arrow', 'pen']);
+
+/** The artboard a press with `tool` draws into, or null when it draws on the canvas. */
+function drawBoardOf(hit: Hit, tool: string): string | null {
+  if (hit.kind !== 'board' || !drawsInside(hit.board)) return null;
+  if (BOARD_DRAW_TOOLS.has(tool)) return hit.board;
+  return tool === 'board' && editingInside(hit.board) ? hit.board : null;
+}
+
+/** What a tool places inside an artboard. */
+const placeOf = (tool: string): PlaceTool | 'pen' => (tool === 'title' ? 'text' : tool === 'board' ? 'frame' : (tool as PlaceTool | 'pen'));
 
 /** World distance within which a drawing snaps: the touch drag slop on screen. */
 const snapReach = (keys: DragKeys): number | null => (keys.meta ? null : TOUCH_TAP_SLOP / liveCamera().zoom);
@@ -197,6 +216,45 @@ function commitPath(draft: PathDraft | null, closed = false): void {
   const { stroke, dash } = useView.getState().pen;
   addNote('pen', origin, { points: sampleBezier(nodes, closed), nodes, ...(closed ? { closed: true } : {}), ...(stroke !== 3 ? { stroke } : {}), ...(dash !== 'solid' ? { dash } : {}) });
   announce(`Path with ${nodes.length} points added`);
+}
+
+/**
+ * Ends a drawing over an artboard: the element goes into its page (a
+ * click places the tool's own size at the snapped press point). The tool
+ * goes back to Select; the Pencil stays armed for the next stroke.
+ */
+function finishBoardDraw(current: Extract<Drag, { kind: 'create' }>, world: Offset, keys: DragKeys, zoom: number): void {
+  const board = current.board!;
+  const entry = useDocument.getState().canvas.boards[board];
+  const view = useView.getState();
+  if (!entry || !current.place) return;
+  const inBoard = (p: Offset): Offset => ({ x: p.x - entry.x, y: p.y - entry.y });
+  if (current.place === 'pen') {
+    if (current.points && current.points.length > 1) {
+      const { stroke, dash } = view.pen;
+      drawPenInBoard(board, { start: { x: current.startX, y: current.startY }, points: current.points }, { width: stroke, dash });
+    }
+    return;
+  }
+  if (current.place === 'text') {
+    drawInBoard(board, { tool: 'text', press: inBoard({ x: current.startX, y: current.startY }), box: null });
+    view.setTool('select');
+    return;
+  }
+  const tool = current.tool as DrawTool;
+  const span = drawSpan(current.targets, current.start, world, { tool, shift: keys.shift, threshold: snapReach(keys) });
+  const press = inBoard(current.start.at);
+  let box: { x: number; y: number; w: number; h: number } | null = null;
+  if (drewShape(span, { tool, shift: keys.shift, zoom })) {
+    // Rounded edges, so a snapped edge stays on its line.
+    const drawn = spanBox(span);
+    const x = Math.round(drawn.x - entry.x);
+    const y = Math.round(drawn.y - entry.y);
+    box = { x, y, w: Math.round(drawn.x + drawn.w - entry.x) - x, h: Math.round(drawn.y + drawn.h - entry.y) - y };
+  }
+  const dir = { x: span.to.x >= span.from.x ? 1 : -1, y: span.to.y >= span.from.y ? 1 : -1 } as const;
+  drawInBoard(board, { tool: current.place, press, box, ...(box ? { dir } : {}) });
+  view.setTool('select');
 }
 
 /** Opens the file picker; the chosen images are placed at `at`. */
@@ -791,6 +849,20 @@ export function Canvas() {
 
     // Creation tools.
     if (view.tool !== 'select' && !doc.readOnly) {
+      // Over an artboard, the drawing goes into its page.
+      const into = drawBoardOf(hit, view.tool);
+      if (into) {
+        const place = placeOf(view.tool);
+        // Snapping to its boxes, except for text, the Pencil, and inside the artboard being edited.
+        const snaps = place !== 'text' && place !== 'pen' && !editingInside(into);
+        const targets = snaps ? boardDrawTargets(into) : { xs: [], ys: [] };
+        const start = drawStart(targets, world, snaps ? snapReach(keysOf(event)) : null);
+        const tool = place === 'frame' ? 'rect' : (view.tool as DrawTool | 'pen' | 'title');
+        lastWorld.current = world;
+        drag.current = { kind: 'create', tool, startX: world.x, startY: world.y, ...(place === 'pen' ? { points: [[0, 0]] as [number, number][] } : {}), start, targets, board: into, place };
+        showGuides(snaps ? hoverGuides(targets, world, snapReach(keysOf(event))) : []);
+        return;
+      }
       if (view.tool === 'sticky' || view.tool === 'title') {
         addNote(view.tool === 'title' ? 'title1' : 'sticky', world);
         view.setTool('select');
@@ -1090,7 +1162,7 @@ export function Canvas() {
           setDraft({ tool: current.tool, rect: spanRect(from, world), from, to: world, points: [...current.points] });
           break;
         }
-        if (current.tool === 'pen') break;
+        if (current.tool === 'pen' || current.tool === 'title') break;
         const span = drawSpan(current.targets, current.start, world, { tool: current.tool, shift: keys.shift, threshold: snapReach(keys) });
         setDraft({ tool: current.tool, rect: current.tool === 'board' && drewShape(span, { tool: 'board', shift: keys.shift, zoom: camera.zoom }) ? drawnBoard(span.from, span.to) : spanBox(span), from: span.from, to: span.to });
         showGuides(span.guides);
@@ -1182,8 +1254,12 @@ export function Canvas() {
       // The pointer carries Alt too: keys pressed while an artboard frame has focus don't reach this window.
       view.setAltHeld(event.altKey);
       // A drawing tool shows the lines a press here would snap to (not over an artboard's page or the editor's controls).
-      if (isDrawTool(view.tool) && !event.buttons && !useDocument.getState().readOnly && overCanvas(event.target)) showGuides(hoverGuides(drawTargets(), worldOf(event), snapReach(keysOf(event))));
-      else showGuides([]);
+      if (isDrawTool(view.tool) && !event.buttons && !useDocument.getState().readOnly && overCanvas(event.target)) {
+        // Over an artboard, its own lines (none inside the artboard being edited).
+        const into = drawBoardOf(hitOf(event.target, event), view.tool);
+        const targets = !into ? drawTargets() : editingInside(into) ? null : boardDrawTargets(into);
+        showGuides(targets ? hoverGuides(targets, worldOf(event), snapReach(keysOf(event))) : []);
+      } else showGuides([]);
       // Hover highlight inside artboards (throttled to one pick per frame); none while the engine drags.
       if (view.tool !== 'select' || view.textEdit || event.buttons) {
         view.setHoverObject(null);
@@ -1342,6 +1418,11 @@ export function Canvas() {
     if (current.kind !== 'create') return;
     const world = worldOf(event);
     const { zoom } = liveCamera();
+    if (current.board && current.place) {
+      finishBoardDraw(current, world, keysOf(event), zoom);
+      return;
+    }
+    if (current.tool === 'title') return;
     if (current.tool === 'pen') {
       if (current.points && current.points.length > 1) {
         const { stroke, dash } = useView.getState().pen;

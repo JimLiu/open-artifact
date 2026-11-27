@@ -3164,7 +3164,9 @@ editorSuite({
 
         await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
         await page.press('l');
-        const from = { x: box.x + box.w + 300, y: box.y - 220 };
+        // Left of the artboard (a line pressed on it would go into its page).
+        const board = await page.evaluate(`(() => { const r = document.querySelector('iframe[data-board="Main.dc.html"]').getBoundingClientRect(); return { x: r.left, y: r.top }; })()`);
+        const from = { x: board.x - 150, y: board.y + 40 };
         await mouse.drag(from, { x: from.x + 100, y: from.y + 80 }, { modifiers: 8 });
         assert.ok(await until(() => added('line').length === 1, 10000), `a line was drawn: ${JSON.stringify(canvasOf(root).notes)}`);
         const line = added('line')[0];
@@ -3188,6 +3190,133 @@ editorSuite({
         assert.ok(await dom.waitFor(`window === top && !document.querySelector('[data-snap-guide]')`, 5000), 'away from every line the guide goes');
         assert.deepEqual(dom.problems, []);
       } finally { await dom.close(); }
+    });
+
+    it('drawing on an artboard writes into its page: R places a selected box that one ⌘Z takes back, a drag snaps to its centre line unless ⌘ is held, T edits new text and emptied text goes away', T, async () => {
+      const { root, url } = await ctx.openNew('board-draw', paintBoard);
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#box')`, settle: 800 });
+      const mouse = pointer(page);
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const boardText = () => fs.readFileSync(path.join(root, BOARD), 'utf8');
+      const frame = `document.querySelector('iframe[data-board="Main.dc.html"]')`;
+      // Where a point of the artboard (in its pixels) is on the page.
+      const onBoard = (x, y) => page.evaluate(`(() => { const rect = ${frame}.getBoundingClientRect(); const zoom = rect.width / ${frame}.offsetWidth; return { x: rect.left + ${x} * zoom, y: rect.top + ${y} * zoom }; })()`);
+      const placed = () => [...boardText().matchAll(/position: absolute; left: (-?\d+)px; top: (-?\d+)px/g)].map(m => [Number(m[1]), Number(m[2])]);
+      const status = phrase => `[...document.querySelectorAll('[role=status][aria-live]')].some(el => el.textContent.includes(${JSON.stringify(phrase)}))`;
+      const tool = async key => {
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press(key);
+      };
+      // A click on the canvas left of the artboard leaves it.
+      const leave = async () => {
+        const away = await onBoard(-80, 280);
+        assert.ok(await page.evaluate(`(() => { const hit = document.elementFromPoint(${away.x}, ${away.y}); return !!hit?.closest('[data-canvas-surface]') && hit.tagName !== 'IFRAME'; })()`), 'the canvas is left of the artboard');
+        await page.click(away.x, away.y);
+        assert.ok(await page.waitFor(status('Selection cleared'), 5000), 'the selection is cleared');
+      };
+      const before = boardText();
+      try {
+        await tool('r');
+        const at = await onBoard(620, 200);
+        await page.click(at.x, at.y);
+        assert.ok(await until(() => placed().length === 1, 10000), `a box was written: ${boardText()}`);
+        const [[x, y]] = placed();
+        assert.ok(Math.abs(x - 620) <= 1 && Math.abs(y - 200) <= 1, `it sits at the click: ${x}, ${y}`);
+        assert.match(boardText(), /background-color: #b6b0a7; border-radius: 8px; position: absolute; left: -?\d+px; top: -?\d+px; width: 120px; height: 120px"><\/div>\s*<\/x-dc>/, 'a 120px grey box at the end of the page');
+        assert.ok(await page.waitFor(buttonNamed('Lock'), 5000), 'the box is selected');
+        await page.press('z', mod);
+        assert.ok(await until(() => boardText() === before, 10000), `one ⌘Z takes it back: ${boardText()}`);
+        await leave();
+
+        // 3 screen pixels right of the centre line: the press snaps onto it.
+        await tool('r');
+        const centre = await onBoard(440, 300);
+        await mouse.drag({ x: centre.x + 3, y: centre.y }, { x: centre.x + 103, y: centre.y + 60 });
+        assert.ok(await until(() => placed().length === 1, 10000), `a box was drawn: ${boardText()}`);
+        assert.equal(placed()[0][0], 440, 'it starts on the centre line');
+        await page.press('z', mod);
+        assert.ok(await until(() => boardText() === before, 10000), 'undone');
+        await leave();
+
+        await tool('r');
+        await mouse.drag({ x: centre.x + 3, y: centre.y }, { x: centre.x + 103, y: centre.y + 60 }, { modifiers: mod.meta ? 4 : 2 });
+        assert.ok(await until(() => placed().length === 1, 10000), `a box was drawn with ⌘: ${boardText()}`);
+        assert.notEqual(placed()[0][0], 440, 'with ⌘ held it does not snap');
+        await page.press('z', mod);
+        assert.ok(await until(() => boardText() === before, 10000), 'undone');
+        await leave();
+
+        // Escape during the drag: nothing is drawn.
+        await tool('r');
+        await mouse.drag({ x: centre.x, y: centre.y }, { x: centre.x + 100, y: centre.y + 60 }, { before: () => page.press('Escape') });
+        await pause(500);
+        assert.equal(boardText(), before, 'Escape dropped the drawing');
+
+        // Text: edited at once with its words selected; Escape keeps them.
+        await tool('t');
+        const word = await onBoard(600, 420);
+        await page.click(word.x, word.y);
+        assert.ok(await page.waitFor(`${frame}.contentDocument.activeElement?.isContentEditable && ${frame}.contentDocument.getSelection().toString() === 'Your text here'`, 5000), 'the new text is edited, all of it selected');
+        await page.press('Escape');
+        assert.ok(await until(() => (boardText().match(/>Your text here</g) ?? []).length === 1, 10000), `Escape keeps the text: ${boardText()}`);
+
+        // The artboard is being edited now: new text goes into the block under the press, which becomes relative.
+        await tool('t');
+        const more = await onBoard(600, 480);
+        await page.click(more.x, more.y);
+        assert.ok(await page.waitFor(`${frame}.contentDocument.activeElement?.isContentEditable && ${frame}.contentDocument.getSelection().toString() === 'Your text here'`, 5000), 'the second text is edited');
+        assert.ok(await until(() => /gap: 24px; position: relative"/.test(boardText()) && (boardText().match(/>Your text here</g) ?? []).length === 2, 10000), `the column became relative and holds the text: ${boardText()}`);
+        await page.press('Backspace');
+        await page.press('Escape');
+        assert.ok(await until(() => (boardText().match(/>Your text here</g) ?? []).length === 1, 10000), `emptied text goes away: ${boardText()}`);
+        assert.ok(await page.waitFor(status('Empty text box removed'), 5000), 'it says so');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('an arrow, a Pencil stroke and a frame drawn on an artboard are written into its page', T, async () => {
+      const { root, url } = await ctx.openNew('board-draw-more', paintBoard);
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#box')`, settle: 800 });
+      const mouse = pointer(page);
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const boardText = () => fs.readFileSync(path.join(root, BOARD), 'utf8');
+      const frame = `document.querySelector('iframe[data-board="Main.dc.html"]')`;
+      const onBoard = (x, y) => page.evaluate(`(() => { const rect = ${frame}.getBoundingClientRect(); const zoom = rect.width / ${frame}.offsetWidth; return { x: rect.left + ${x} * zoom, y: rect.top + ${y} * zoom }; })()`);
+      const focusCanvas = () => page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+      const count = pattern => (boardText().match(pattern) ?? []).length;
+      try {
+        await focusCanvas();
+        await page.press('l', { shift: true });
+        const from = await onBoard(500, 120);
+        await mouse.drag(from, { x: from.x + 160, y: from.y + 40 });
+        assert.ok(await until(() => /marker-end="url\(#arrow-head-\d+\)"/.test(boardText()), 10000), `an arrow with its head was written: ${boardText()}`);
+        assert.match(boardText(), /<marker id="arrow-head-\d+"[^>]*><path d="M0 0 L4 2 L0 4 Z" fill="#8a8378"/);
+
+        // The Pencil stays picked after a stroke.
+        await focusCanvas();
+        await page.press('p');
+        const pen = await onBoard(520, 300);
+        await mouse.drag(pen, { x: pen.x + 80, y: pen.y + 30 });
+        // The arrow is selected, so the stroke went into the column, which became relative: one ⌘Z takes back both.
+        assert.ok(await until(() => count(/stroke: #2b2b2b/g) === 1 && /gap: 24px; position: relative"/.test(boardText()), 10000), `the stroke was written into the column: ${boardText()}`);
+        await page.press('z', mod);
+        assert.ok(await until(() => count(/stroke: #2b2b2b/g) === 0 && !/position: relative/.test(boardText()), 10000), `one ⌘Z took back the stroke and the relative position: ${boardText()}`);
+        await mouse.drag(pen, { x: pen.x + 80, y: pen.y + 30 });
+        assert.ok(await until(() => count(/stroke: #2b2b2b/g) === 1, 10000), `the Pencil still draws: ${boardText()}`);
+        await mouse.drag({ x: pen.x, y: pen.y + 60 }, { x: pen.x + 80, y: pen.y + 90 });
+        assert.ok(await until(() => count(/stroke: #2b2b2b/g) === 2, 10000), 'a second stroke with the Pencil still picked');
+        await focusCanvas();
+        await page.press('Escape');
+
+        // The artboard holds the selection, so the frame goes into the column under the press, which becomes relative.
+        await focusCanvas();
+        await page.press('b');
+        const corner = await onBoard(560, 380);
+        await mouse.drag(corner, { x: corner.x + 120, y: corner.y + 80 });
+        assert.ok(await until(() => /gap: 12px; padding: 16px; background-color: #ffffff;[^"]*position: absolute; left: 560px; top: 380px; width: \d+px; height: \d+px/.test(boardText()), 10000), `a frame was written inside the column: ${boardText()}`);
+        assert.match(boardText(), /gap: 24px; position: relative"/);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
     });
 
     it('⌘G on elements in a flex column makes a group laid out like it', T, async () => {

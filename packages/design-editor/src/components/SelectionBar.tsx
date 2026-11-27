@@ -47,6 +47,7 @@ import { boardApi } from '../services/frames.ts';
 import { templateOf } from '../services/agent.ts';
 import { useCoarsePointer } from '../services/pointer.ts';
 import { attributeSelection, deleteSelection, detachSelection, duplicateSelection, edit, detachSelectionRefusal, editSelectedComponent, selectedComponentPath, startTextEdit, styleSelection } from '../services/commands.ts';
+import { rememberRadius } from '../services/radius-memory.ts';
 import { crossFileActionLabel, paintRoles, selectionCounts, type MixedSelection, type PaintRole } from '../lib/selection.ts';
 import { KEEP_TEXT_EDIT, applyEditedTextLink, cancelEditedTextLink, commitTextEdit, formatEditedText } from '../services/text-edit.ts';
 import { cancelScale, commitScale, setScaleFactor, useScale } from '../services/scale.ts';
@@ -429,12 +430,18 @@ function RadiusPopup({ ctx }: { ctx: StripContext }) {
   const uniform = values.every((v) => v === values[0]) && (values[0] !== '' || CORNERS.every((c) => rendered[c] === rendered['top-left']));
   const [split, setSplit] = useState(!uniform);
 
-  const writeAll = (radius: string | null) => ctx.set({ 'border-radius': radius, ...Object.fromEntries(CORNERS.map((c) => [`border-${c}-radius`, null])) });
-  const writeCorner = (corner: Corner, value: string) =>
-    ctx.set({
-      'border-radius': null,
-      ...Object.fromEntries(CORNERS.map((c) => [`border-${c}-radius`, c === corner ? value || null : written[c] || (rendered[c] ? `${rendered[c]}px` : null)])),
-    });
+  const writeAll = (radius: string | null) => {
+    ctx.set({ 'border-radius': radius, ...Object.fromEntries(CORNERS.map((c) => [`border-${c}-radius`, null])) });
+    if (radius) rememberRadius(radius);
+  };
+  const writeCorner = (corner: Corner, value: string) => {
+    const corners = CORNERS.map((c) => (c === corner ? value || null : written[c] || (rendered[c] ? `${rendered[c]}px` : null)));
+    ctx.set({ 'border-radius': null, ...Object.fromEntries(CORNERS.map((c, i) => [`border-${c}-radius`, corners[i]!])) });
+    // Remembered clockwise from the top left, as `border-radius` lists them.
+    const at = (c: Corner) => corners[CORNERS.indexOf(c)];
+    const clockwise = [at('top-left'), at('top-right'), at('bottom-right'), at('bottom-left')];
+    if (clockwise.every((c) => c != null)) rememberRadius(clockwise as string[]);
+  };
 
   return (
     <StripPopup tip="Corner radius" trigger={<Glyph name="cornerCurve" />} disabled={ctx.locked}>
