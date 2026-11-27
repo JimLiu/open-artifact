@@ -328,6 +328,15 @@ describe(TYPE, { skip: skip() }, () => {
       await clickOn(page, buttonNamed('Rename'));
       assert.ok(await page.waitFor("document.activeElement.getAttribute('aria-label') === 'Document name'"));
       await page.type('Renamed review');
+      // Safari's Enter that picks an input method candidate (key code 229, isComposing false) keeps the field open.
+      // The name fields are in the docs frame, so focus is looked for in every frame.
+      const imeEnter = async () => {
+        for (const type of ['rawKeyDown', 'keyUp']) await page.cdp('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 229 });
+      };
+      await imeEnter();
+      await new Promise(resolve => setTimeout(resolve, 400));
+      assert.equal(daemon.store.require(id).title, 'Library review', 'the input method Enter renamed the document');
+      assert.ok((await page.evaluateAll("document.activeElement.getAttribute('aria-label') === 'Document name'")).includes(true), 'the input method Enter closed the name field');
       await page.press('Enter');
       assert.ok(await until(() => daemon.store.require(id).title === 'Renamed review'));
       await clickOn(page, buttonNamed('Version history'));
@@ -336,6 +345,9 @@ describe(TYPE, { skip: skip() }, () => {
       await clickOn(page, buttonNamed('Duplicate'));
       assert.ok(await page.waitFor("document.activeElement.getAttribute('aria-label') === 'Name of the copy'"));
       await page.type('Library copy');
+      await imeEnter();
+      await new Promise(resolve => setTimeout(resolve, 400));
+      assert.ok((await page.evaluateAll("document.activeElement.getAttribute('aria-label') === 'Name of the copy'")).includes(true), 'the input method Enter made the copy');
       await page.press('Enter');
       assert.ok(await page.waitFor("document.querySelector('header')?.innerText.includes('Library copy')"));
       const copyId = new URL(await page.evaluate('location.href')).pathname.split('/').at(-1);

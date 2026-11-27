@@ -1,6 +1,6 @@
 import { useState, type ReactElement } from 'react';
 import { Pencil, RotateCcw, Timer } from 'lucide-react';
-import { Button, Dialog, MenuItem, ScrubNumberField, TextInput } from '@open-artifact/ui';
+import { Button, Dialog, MenuItem, ScrubNumberField, TextInput, isComposingKey } from '@open-artifact/ui';
 import { EMPTY_RECUT_RECORD, MAX_SCENE_NAME_CHARS, SCENE_DURATION_STEP, partRecut, type ClockPart } from '@open-artifact/motion-core';
 import { pause } from '../engine/actions.ts';
 import { setSceneLength, setSceneName } from '../recut/actions.ts';
@@ -52,7 +52,7 @@ function RenameDialog({ index, label, close }: { index: number; label: string; c
         maxLength={MAX_SCENE_NAME_CHARS}
         onChange={(event) => setName(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key !== 'Enter') return;
+          if (event.key !== 'Enter' || isComposingKey(event.nativeEvent)) return;
           event.preventDefault();
           save();
         }}

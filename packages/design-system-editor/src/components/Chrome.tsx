@@ -5,7 +5,7 @@
 
 import { Bot, GitCompare, Loader2, Lock, Redo2, RefreshCw, Send, Undo2, Wrench, Workflow, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { Button, Dialog, IconButton, ScrollBody, cn, diffLines } from '@open-artifact/ui';
+import { Button, Dialog, IconButton, ScrollBody, cn, diffLines, isComposingKey } from '@open-artifact/ui';
 import { useFiles, type Conflict } from '../state/files.ts';
 import { useModel } from '../state/model.ts';
 import { useView } from '../state/view.ts';
@@ -353,6 +353,7 @@ export function Composer() {
           placeholder={status.available ? 'Describe the change you want…' : 'No agent is connected. Your request will wait until one checks this design system.'}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
+            if (isComposingKey(event.nativeEvent)) return;
             if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
               event.preventDefault();
               void submit();

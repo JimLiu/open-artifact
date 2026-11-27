@@ -4,6 +4,8 @@
  * A popup (a menu, a color picker) that handled the key itself, or one portaled out of the group, keeps it.
  */
 
+import { isComposingKey } from '@open-artifact/ui/keys';
+
 /** The picked layer's row in the layer tree. */
 export const PICKED_ROW = '[data-layers-tree] [role="treeitem"][aria-selected="true"]';
 
@@ -26,7 +28,7 @@ interface GroupKeyEvent {
   defaultPrevented: boolean;
   target: unknown;
   currentTarget: { contains(other: Node | null): boolean; ownerDocument: Document };
-  nativeEvent: { isComposing: boolean };
+  nativeEvent: { isComposing: boolean; keyCode: number };
   preventDefault(): void;
 }
 
@@ -36,7 +38,7 @@ interface GroupKeyEvent {
  */
 export function escapeToPickedRow(event: GroupKeyEvent): boolean {
   const target = event.target instanceof Node ? event.target : null;
-  const press = { key: event.key, defaultPrevented: event.defaultPrevented, composing: event.nativeEvent.isComposing, inside: target !== null && event.currentTarget.contains(target) };
+  const press = { key: event.key, defaultPrevented: event.defaultPrevented, composing: isComposingKey(event.nativeEvent), inside: target !== null && event.currentTarget.contains(target) };
   if (!escapeGoesToRow(press)) return false;
   const row = event.currentTarget.ownerDocument.querySelector<HTMLElement>(PICKED_ROW);
   if (row === null) return false;

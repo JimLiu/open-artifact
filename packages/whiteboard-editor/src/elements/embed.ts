@@ -151,7 +151,7 @@ port.onmessage=function(event){var data=event.data;if(!data)return;if(typeof dat
 parent.postMessage({boardEmbed:'port'},'*',[channel.port2]);
 function keep(event){if(!event.isTrusted||entered)return;apply(hold,event,[]);apply(halt,event,[]);}
 addEventListener('pointerdown',function(event){if(event.isTrusted){entered=true;tell({kind:'press',age:now()-event.timeStamp});}},true);
-addEventListener('keydown',function(event){if(!event.isTrusted)return;if(event.key==='Escape'){entered=false;if(!event.repeat&&!event.isComposing)tell({kind:'key',key:'Escape'});return;}keep(event);},true);
+addEventListener('keydown',function(event){if(!event.isTrusted)return;if(event.key==='Escape'){entered=false;if(!event.repeat&&!event.isComposing&&event.keyCode!==229)tell({kind:'key',key:'Escape'});return;}keep(event);},true);
 ['keypress','keyup','beforeinput','paste','drop'].forEach(function(type){addEventListener(type,keep,true);});
 addEventListener('dragover',function(event){if(event.isTrusted&&!entered){apply(hold,event,[]);apply(halt,event,[]);if(event.dataTransfer)event.dataTransfer.dropEffect='none';}},true);
 var path=Event.prototype.composedPath,matches=Element.prototype.matches,attr=Element.prototype.getAttribute,byId=Document.prototype.getElementById,show=Element.prototype.scrollIntoView,fire=EventTarget.prototype.dispatchEvent,connected=Object.getOwnPropertyDescriptor(Node.prototype,'isConnected').get,Ui=UIEvent,Form=HTMLFormElement;

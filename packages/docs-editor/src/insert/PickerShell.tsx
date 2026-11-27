@@ -1,5 +1,5 @@
 /** The frame of a chip's picker: placed under the chip, closed by Escape or a press outside it. */
-import { cn } from '@open-artifact/ui';
+import { cn, isComposingKey } from '@open-artifact/ui';
 import type { EditorView } from 'prosemirror-view';
 import { type ReactNode, useEffect, useRef } from 'react';
 import { PLACED, usePlaceAt } from './placement.ts';
@@ -42,7 +42,7 @@ export function PickerShell({ view, pos, onChip, label, onEscape, className, chi
       aria-label={label}
       className={cn(PLACED, 'rounded-[12px] bg-chrome text-[14px] leading-5 text-chrome-fg shadow-chrome-popup', className)}
       onKeyDown={event => {
-        if (event.key !== 'Escape' || event.nativeEvent.isComposing) return;
+        if (event.key !== 'Escape' || isComposingKey(event.nativeEvent)) return;
         event.preventDefault();
         event.stopPropagation();
         onEscape();

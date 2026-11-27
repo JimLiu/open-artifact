@@ -7,7 +7,7 @@
 import { Blocks, BookOpen, Circle, Files, Image, Layers, Palette, Ruler, Search, Square, Type, X } from 'lucide-react';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { familyTitle } from '@open-artifact/design-system-core';
-import { cn } from '@open-artifact/ui';
+import { cn, isComposingKey } from '@open-artifact/ui';
 import { useModel, type SystemModel } from '../state/model.ts';
 import { anchorId, useView, type Focus, type SectionId } from '../state/view.ts';
 import { MOD } from '@open-artifact/editor-kit';
@@ -123,6 +123,7 @@ export function Nav() {
           value={query}
           onChange={(event) => { setSearch(event.target.value); setExpanded(true); }}
           onKeyDown={(event) => {
+            if (isComposingKey(event.nativeEvent)) return;
             if (event.key === 'Escape') { setSearch(''); close(); }
             if (query && hits.length && (event.key === 'ArrowDown' || event.key === 'Enter')) {
               event.preventDefault();

@@ -39,7 +39,7 @@
  * commit (`data-wb-committed`) lets it reach the board.
  */
 
-import { shortcutLetter } from '@open-artifact/ui/keys';
+import { shortcutLetter, isComposingKey } from '@open-artifact/ui/keys';
 import { isElementLocked, orderElementsForReading, tableColumnIds, tableRowIds, type BoardElement, type ElementId } from '@open-artifact/whiteboard-core';
 import { panBy, type Point } from '../lib/camera.ts';
 import { alignShortcutOf, layerOrderShortcutOf, toolShortcutOf, zoomShortcutOf } from '../lib/tools.ts';
@@ -543,7 +543,7 @@ export function installKeyboard(): () => void {
 
   const onKeyDown = (event: KeyboardEvent): void => {
     if (!useBoard.getState().revealed) return;
-    if (event.defaultPrevented || event.isComposing) return;
+    if (event.defaultPrevented || isComposingKey(event)) return;
     const target = event.target;
     const selection = useSelection.getState();
     const history = undoKeyCommand(event);

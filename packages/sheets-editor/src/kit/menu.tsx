@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { isComposingKey } from '@open-artifact/ui/keys';
 import * as ReactDOM from 'react-dom';
 import { Menu as BaseMenu } from '@base-ui/react/menu';
 import { ContextMenu as BaseContextMenu } from '@base-ui/react/context-menu';
@@ -388,7 +389,7 @@ const MenuPopup = React.forwardRef<HTMLDivElement, MenuPopupProps>(function Menu
     const trigger = level.trigger.current;
     if (!declined || !atRoot || trigger === null) return undefined;
     const onTriggerKeyDown = (event: Event): void => {
-      if (!(event instanceof KeyboardEvent) || event.isComposing || !ENGAGING_KEYS.has(event.key)) return;
+      if (!(event instanceof KeyboardEvent) || isComposingKey(event) || !ENGAGING_KEYS.has(event.key)) return;
       engage();
       const rows = Array.from(popupRef.current?.querySelectorAll<HTMLElement>(ENABLED_MENU_ITEM_SELECTOR) ?? []);
       const row = event.key === 'ArrowUp' || event.key === 'End' ? rows[rows.length - 1] : rows[0];
@@ -892,7 +893,7 @@ const MenuSearchablePopup = React.forwardRef<HTMLDivElement, MenuSearchablePopup
       onKeyDown={(event) => {
         const input = inputRef.current;
         const target = event.target instanceof Element ? event.target : null;
-        if (input === null || target?.closest('input, textarea, [contenteditable]') || event.nativeEvent.isComposing || !isMenuTypingKey(event)) {
+        if (input === null || target?.closest('input, textarea, [contenteditable]') || isComposingKey(event.nativeEvent) || !isMenuTypingKey(event)) {
           onKeyDown?.(event);
           return;
         }

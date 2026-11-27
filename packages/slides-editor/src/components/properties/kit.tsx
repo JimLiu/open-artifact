@@ -18,7 +18,7 @@ import { Toggle } from '@base-ui/react/toggle';
 import { ToggleGroup } from '@base-ui/react/toggle-group';
 import { Check, ChevronDown, ChevronRight, ChevronUp, RotateCcw, X } from 'lucide-react';
 import { Fragment, forwardRef, useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type PointerEvent, type ReactNode } from 'react';
-import { cn } from '@open-artifact/ui';
+import { cn, isComposingKey } from '@open-artifact/ui';
 import { announce } from '@open-artifact/editor-kit';
 import { Tip } from '@open-artifact/editor-kit/react';
 import { CornerIcon, CornersIcon, SideIcon, SidesIcon, type CornerName, type SideName } from './icons.tsx';
@@ -147,6 +147,7 @@ export function CommitInput({ value, onCommit, className, ...rest }: CommitInput
       onChange={(event) => setDraft(event.target.value)}
       onBlur={commit}
       onKeyDown={(event) => {
+        if (isComposingKey(event.nativeEvent)) return;
         if (event.key === 'Enter') {
           commit();
           event.currentTarget.blur();

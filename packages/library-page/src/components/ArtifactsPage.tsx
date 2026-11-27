@@ -880,6 +880,8 @@ export function ArtifactsPage({ canCreate, theme, platform, searchButton = true,
                       if (!query) setSearching(false);
                     }}
                     onKeyDown={(e) => {
+                      // An input method's Escape drops its candidate, not the search.
+                      if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                       if (e.key === 'Escape') {
                         setQuery('');
                         setSearching(false);

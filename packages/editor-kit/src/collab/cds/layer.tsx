@@ -14,6 +14,7 @@
  */
 
 import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip';
+import { isComposingKey } from '@open-artifact/ui';
 import { createContext, useContext, useEffect, useLayoutEffect, useState, type CSSProperties, type ReactNode, type SyntheticEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { COMMENTS_CSS } from './comments-css.ts';
@@ -161,7 +162,7 @@ export function CommentsLayer({ className, style, inline = false, onEscape, chil
           event.preventDefault();
           return;
         }
-        if (!event.defaultPrevented && !event.nativeEvent.isComposing && onEscape?.()) event.preventDefault();
+        if (!event.defaultPrevented && !isComposingKey(event.nativeEvent) && onEscape?.()) event.preventDefault();
       }}
     >
       <CdsRootContext.Provider value={{ container: portal, dark }}>

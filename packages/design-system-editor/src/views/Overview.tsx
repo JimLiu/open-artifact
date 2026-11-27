@@ -7,7 +7,7 @@
 import { Bot, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { MAX_SECTIONS, parseCardMarker } from '@open-artifact/design-system-core';
-import { Button, Dialog, TextInput, toast } from '@open-artifact/ui';
+import { Button, Dialog, TextInput, toast, isComposingKey } from '@open-artifact/ui';
 import { useFiles } from '../state/files.ts';
 import { COVER, useModel } from '../state/model.ts';
 import { anchorId, useView } from '../state/view.ts';
@@ -87,7 +87,7 @@ function AddSection() {
           </>
         }
       >
-        <TextInput autoFocus placeholder="Title" value={title} onChange={(event) => setTitle(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && create()} />
+        <TextInput autoFocus placeholder="Title" value={title} onChange={(event) => setTitle(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && !isComposingKey(event.nativeEvent) && create()} />
       </Dialog>
     </>
   );

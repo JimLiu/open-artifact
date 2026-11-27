@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { isComposingKey } from '@open-artifact/ui/keys';
 import { Form as BaseForm } from '@base-ui/react/form';
 import { cn } from './cn.ts';
 
@@ -37,7 +38,7 @@ export const Form = React.forwardRef<HTMLFormElement, FormProps>(function Form(
           event.defaultPrevented ||
           event.key !== 'Enter' ||
           !(event.metaKey || event.ctrlKey) ||
-          event.nativeEvent.isComposing ||
+          isComposingKey(event.nativeEvent) ||
           !isWithin(event)
         )
           return;

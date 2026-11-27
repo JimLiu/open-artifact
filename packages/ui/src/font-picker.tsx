@@ -22,7 +22,7 @@ import {
   type FontCategory,
   type GoogleFont,
 } from './fonts.ts';
-import { preventRepeatedActivation } from './keys.ts';
+import { isComposingKey, preventRepeatedActivation } from './keys.ts';
 import { POPUP_CLASS } from './menu.tsx';
 
 /** A font the design system provides. */
@@ -325,6 +325,7 @@ function FontList({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (isComposingKey(event.nativeEvent)) return;
     const moves: Record<string, number> = { ArrowDown: 1, ArrowUp: -1, PageDown: 8, PageUp: -8 };
     const by = moves[event.key];
     if (by !== undefined) {

@@ -8,7 +8,7 @@
 
 import { useMemo, useState, type ReactNode } from 'react';
 import { LAYOUT_IDS, LAYOUT_NAMES, LIMITS, makeLayout, parseVideoUrl, pinnedRectOf, VIDEO_PROVIDER_LABELS, type LayoutId, type VideoProvider } from '@open-artifact/slides-core';
-import { Button, Dialog, NumberInput, Segmented, SwitchInput, cn } from '@open-artifact/ui';
+import { Button, Dialog, NumberInput, Segmented, SwitchInput, cn, isComposingKey } from '@open-artifact/ui';
 import { useSelectedNodes } from '../state/selection.ts';
 import { useUi } from '../state/ui.ts';
 import { insertVideoLink } from '../services/assets.ts';
@@ -140,7 +140,7 @@ function ScaleDialog({ onClose }: { onClose: () => void }): ReactNode {
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter') apply();
+            if (event.key === 'Enter' && !isComposingKey(event.nativeEvent)) apply();
           }}
           placeholder={width ? `150%, 2x or ${Math.round(width)}px` : '150% or 2x'}
           className={cn('h-8 rounded-control border bg-canvas px-2 text-[13px] text-fg outline-none focus:border-accent', valid || !text ? 'border-line' : 'border-danger')}
@@ -191,7 +191,7 @@ function VideoLinkDialog({ onClose }: { onClose: () => void }): ReactNode {
         placeholder="https://"
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === 'Enter') apply();
+          if (event.key === 'Enter' && !isComposingKey(event.nativeEvent)) apply();
         }}
         className={cn('h-8 w-full rounded-control border bg-canvas px-2 text-[13px] text-fg outline-none focus:border-accent', !text.trim() || link ? 'border-line' : 'border-danger')}
       />

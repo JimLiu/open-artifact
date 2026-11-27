@@ -14,6 +14,7 @@
  */
 
 import { toast } from '@open-artifact/ui';
+import { isComposingKey } from '@open-artifact/ui/keys';
 import { createComments, openMessageCount } from '@open-artifact/editor-kit';
 import { maybeSession } from '../services/session.ts';
 import { onShellCommand, setShellReport } from '../services/shell.ts';
@@ -127,7 +128,7 @@ function watchPage(): () => void {
     frame = requestAnimationFrame(() => hover(pickElement(target, window, { x: clientX, y: clientY })));
   };
   const key = (event: KeyboardEvent): void => {
-    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.isComposing || inField(event.target)) return;
+    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || isComposingKey(event) || inField(event.target)) return;
     const { on, draft, active } = useComments.getState();
     if (event.key === 'Escape') {
       if (!on || draft !== null || active !== null) return;

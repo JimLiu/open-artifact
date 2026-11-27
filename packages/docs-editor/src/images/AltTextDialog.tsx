@@ -1,5 +1,5 @@
 /** The dialog that sets a picture's alt text. */
-import { Button, Dialog, cn } from '@open-artifact/ui';
+import { Button, Dialog, cn, isComposingKey } from '@open-artifact/ui';
 import { type KeyboardEvent, type ReactNode, useEffect, useState } from 'react';
 import { findTarget, saveAltText } from './actions.ts';
 import { ALT_MAX, cleanAlt } from './geometry.ts';
@@ -23,7 +23,7 @@ export function AltTextDialog(): ReactNode {
     if (saveAltText(open, text)) setImages({ alt: null });
   };
   const key = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
+    if (event.key !== 'Enter' || event.shiftKey || isComposingKey(event.nativeEvent)) return;
     event.preventDefault();
     save();
   };

@@ -1,4 +1,5 @@
 import { Popover } from '../../kit/popover.tsx';
+import { isComposingKey } from '@open-artifact/ui/keys';
 import { AgentMark } from '../../kit/agent-mark.tsx';
 import { Button } from '../../kit/button.tsx';
 import * as React from 'react';
@@ -223,11 +224,11 @@ export const didFocusLeaveByTab = (
 export const hasShortcutModifier = (event: KeyWithModifiers, isApple = IS_APPLE_PLATFORM): boolean =>
   (event.altKey && !isApple) || event.ctrlKey || event.metaKey;
 export const isTrustedPlainTab = (
-  event: KeyWithModifiers & Pick<KeyboardEvent, 'key' | 'isTrusted' | 'isComposing'>,
+  event: KeyWithModifiers & Pick<KeyboardEvent, 'key' | 'isTrusted' | 'isComposing' | 'keyCode'>,
   hasWindowCaretReturned: boolean,
   isApple = IS_APPLE_PLATFORM,
 ): boolean =>
-  event.key === 'Tab' && hasWindowCaretReturned && event.isTrusted && !event.isComposing && !hasShortcutModifier(event, isApple);
+  event.key === 'Tab' && hasWindowCaretReturned && event.isTrusted && !isComposingKey(event) && !hasShortcutModifier(event, isApple);
 export const doesKeyStepBackIntoCellsButF6 = (key: string): boolean => doesKeyStepBackIntoCells(key) && key !== 'F6';
 export const isPlainTabWhileNavigating = (
   event: KeyWithModifiers & Pick<KeyboardEvent, 'key'>,

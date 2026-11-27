@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Dialog, TextInput } from '@open-artifact/ui';
+import { Button, Dialog, TextInput, isComposingKey } from '@open-artifact/ui';
 import { t } from '../../lib/i18n.ts';
 import { api } from '../../lib/api.ts';
 import { useBoot } from '../store.ts';
@@ -33,7 +33,7 @@ export function DocCopyDialog({ title, close }: { title: string; close(): void }
       <Button variant="primary" disabled={busy || !name.trim()} onClick={() => void copy()}>{t('duplicate')}</Button>
     </>}>
     <TextInput autoFocus aria-label={t('copyName')} value={name} maxLength={256} onFocus={event => event.target.select()}
-      onChange={event => setName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) void copy(); }} />
+      onChange={event => setName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !isComposingKey(event.nativeEvent)) void copy(); }} />
     {error && <p role="alert" className="mt-2 text-sm text-danger">{error}</p>}
   </Dialog>;
 }

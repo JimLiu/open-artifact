@@ -3,7 +3,7 @@
  * new one, or one from a template).
  */
 import type { DocEnum } from '@open-artifact/runtime/doc-api';
-import { cn } from '@open-artifact/ui';
+import { cn, isComposingKey } from '@open-artifact/ui';
 import { Check, Pencil, Plus, Search } from 'lucide-react';
 import type { EditorView } from 'prosemirror-view';
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react';
@@ -137,7 +137,7 @@ function OptionList({ view, pos, list, current, enums, onEdit, onNew, onSwitch }
   };
 
   const onKey = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.nativeEvent.isComposing) return;
+    if (isComposingKey(event.nativeEvent)) return;
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
       if (!rows.length) return;

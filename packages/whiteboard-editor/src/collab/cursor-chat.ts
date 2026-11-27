@@ -9,6 +9,7 @@
  */
 
 import { create } from 'zustand';
+import { isComposingKey } from '@open-artifact/ui/keys';
 import { useAgent } from '../services/agent.ts';
 import { useAsk } from '../state/ask.ts';
 import { useSelection } from '../state/selection.ts';
@@ -133,7 +134,7 @@ export function isTypingTarget(target: EventTarget | null): boolean {
 export function startCursorChat(): () => void {
   if (!hasRoom()) return () => {};
   const onKey = (event: KeyboardEvent): void => {
-    if (event.key !== '/' || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.isComposing) return;
+    if (event.key !== '/' || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || isComposingKey(event)) return;
     if (isTypingTarget(event.target) || useSelection.getState().editing !== null || useTool.getState().commentMode) return;
     if (useCursorChat.getState().open) return;
     if (openCursorChat()) event.preventDefault();

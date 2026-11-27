@@ -9,7 +9,7 @@ import { ArrowUpRight, Bold, EllipsisVertical, Italic, Link, MessagesSquare, Tra
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { announce, isApplePlatform, MOD } from '@open-artifact/editor-kit';
 import { Card, ChromeButton, ChromeDivider, ChromeMenu, ChromeMenuItem, Tip } from '@open-artifact/editor-kit/react';
-import { cn } from '@open-artifact/ui';
+import { cn, isComposingKey } from '@open-artifact/ui';
 import { ASK_AGENT_LABEL } from '../drafts/words.ts';
 import { DASHBOARD_ROOT_ID } from '../page/runtime.ts';
 import { rectOf, type Box, type Edges } from './geometry.ts';
@@ -120,7 +120,7 @@ export function LinkInput({
       className="flex items-center gap-1"
       {...{ [LINK_MODE_ATTRIBUTE]: '' }}
       onKeyDown={(event) => {
-        if (event.key !== 'Escape' || event.defaultPrevented) return;
+        if (event.key !== 'Escape' || event.defaultPrevented || isComposingKey(event.nativeEvent)) return;
         event.preventDefault();
         event.stopPropagation();
         onCancel();
@@ -304,7 +304,7 @@ export function PieceToolbar({ piece, box, room, visit, onAsk, pressed, rows }: 
                 : undefined
             }
             onKeyDown={(event) => {
-              if ((event.key !== 'Enter' && event.key !== 'Escape') || event.nativeEvent.isComposing) return;
+              if ((event.key !== 'Enter' && event.key !== 'Escape') || isComposingKey(event.nativeEvent)) return;
               event.preventDefault();
               if (event.key === 'Escape') {
                 closeLink();

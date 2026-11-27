@@ -281,20 +281,20 @@ function useEditable(
         useView.getState().endTextEdit();
         return;
       }
-      if (event.key === 'Enter' && (options.lineBreakOnEnter || event.shiftKey) && !event.isComposing) {
+      if (event.key === 'Enter' && (options.lineBreakOnEnter || event.shiftKey) && !isComposingKey(event)) {
         event.preventDefault();
         document.execCommand('insertLineBreak');
         return;
       }
       // Tab goes to the card of the link the caret is in, where Tab does not already nest items or move between cells.
-      if (event.key === 'Tab' && !event.shiftKey && !event.isComposing && props.node.kind !== 'list' && props.node.kind !== 'table') {
+      if (event.key === 'Tab' && !event.shiftKey && !isComposingKey(event) && props.node.kind !== 'list' && props.node.kind !== 'table') {
         const list = window.getSelection()?.anchorNode?.parentElement?.closest('ul,ol');
         if (!(list && el.contains(list)) && focusLinkCard()) {
           event.preventDefault();
           return;
         }
       }
-      if (event.key === 'Tab' && !event.isComposing && (props.node.kind === 'list' || props.node.kind === 'textbox')) {
+      if (event.key === 'Tab' && !isComposingKey(event) && (props.node.kind === 'list' || props.node.kind === 'textbox')) {
         // Tab / Shift+Tab nest list items (up to nine levels).
         const list = props.node.kind === 'list' ? el : (window.getSelection()?.anchorNode?.parentElement?.closest('ul,ol') as HTMLElement | null);
         if (list && el.contains(list) && indentItems(list, event.shiftKey ? -1 : 1)) {

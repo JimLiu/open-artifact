@@ -16,6 +16,7 @@
  */
 
 import { Minus, Play, Plus, RotateCcw, Timer as TimerIcon } from 'lucide-react';
+import { isComposingKey } from '@open-artifact/ui/keys';
 import { useEffect, useReducer, useRef, useState, type ChangeEvent, type CSSProperties, type KeyboardEvent } from 'react';
 import {
   DEFAULT_TIMER,
@@ -380,7 +381,7 @@ function TimerLengthInput({
     } else typeInto(half, data ?? '');
   };
   const onKeyDown = (half: 0 | 1, event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.nativeEvent.isComposing) return;
+    if (isComposingKey(event.nativeEvent)) return;
     if (event.key === 'Enter') {
       event.preventDefault();
       commit();

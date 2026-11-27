@@ -3,6 +3,7 @@
  * Mod-F6, Alt-F10) goes to the bar of what the cursor is in, or the page's bar, and from any bar F6 comes back.
  */
 import type { EditorView } from 'prosemirror-view';
+import { isComposingKey } from '@open-artifact/ui/keys';
 
 const PAGE_BAR = '[role="toolbar"][aria-label="Page"]';
 const CURSOR_BARS = ['[data-selbar]', '[data-image-bar]', '[role="toolbar"][aria-label="Cell actions"]'];
@@ -46,7 +47,7 @@ export function leaveText(view: EditorView): boolean {
 export function focusKeys(view: EditorView): () => void {
   const doc = view.dom.ownerDocument;
   const onKey = (event: KeyboardEvent) => {
-    if (event.isComposing) return;
+    if (isComposingKey(event)) return;
     const target = event.target instanceof Node ? event.target : null;
     const inText = !!target && view.dom.contains(target);
     if (!isBarKey(event)) return;

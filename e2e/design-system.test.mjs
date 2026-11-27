@@ -584,6 +584,30 @@ editorSuite({
       }
     });
 
+    it('the Enter that picks an input method candidate does not add the color group', T, async () => {
+      const { root, url } = await ctx.openNew('ime-enter');
+      const tokens = path.join(root, 'project', 'tokens.json');
+      const field = `document.querySelector('input[placeholder="Name, e.g. brand"]')`;
+      const page = await (await ctx.browser()).load(url, { ready: `[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Add color group')` });
+      try {
+        await clickOn(page, `[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Add color group')`, 'Add color group');
+        assert.ok(await page.waitFor(`document.activeElement === ${field}`, 5000), 'the name field did not take focus');
+        const before = fs.readFileSync(tokens, 'utf8');
+        await page.type('brand');
+        // Safari's confirming Enter: key Enter, key code 229, isComposing already false.
+        await page.cdp('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 229 });
+        await page.cdp('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 229 });
+        await new Promise(resolve => setTimeout(resolve, 600));
+        assert.equal(fs.readFileSync(tokens, 'utf8'), before, 'the input method Enter added the group');
+        assert.ok(await page.evaluate(`${field} !== null`), 'the input method Enter closed the dialog');
+        await page.press('Enter');
+        assert.ok(await until(() => fs.readFileSync(tokens, 'utf8') !== before, 8000), 'a plain Enter did not add the group');
+        assert.deepEqual(page.problems, []);
+      } finally {
+        await page.close();
+      }
+    });
+
     it('an asset tile gets a dark or light backdrop when its mark needs one', T, async () => {
       const svg = fill => `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40"><rect x="10" y="10" width="20" height="20" fill="${fill}"/></svg>`;
       const { url } = await ctx.openNew('asset-tone', (c, dir) => {

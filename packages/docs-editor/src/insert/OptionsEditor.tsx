@@ -1,6 +1,6 @@
 /** Editing a dropdown list: its name, and its options' names, colours and order; saved options retire, new ones go. */
 import { ChromeButton, SwatchRow } from '@open-artifact/editor-kit/react';
-import { Button, cn } from '@open-artifact/ui';
+import { Button, cn, isComposingKey } from '@open-artifact/ui';
 import { ArrowLeft, Eye, EyeOff, GripVertical, Plus, X } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { COLOR_VALUES, DROPDOWN_COLORS, type Draft, type DraftOption, addDraftOption, moveDraftOption, shownPlace } from './dropdown-model.ts';
@@ -75,7 +75,7 @@ export function OptionsEditor({ initial, submitLabel, busyLabel, failedLabel, on
           value={draft.name}
           onChange={event => setDraft(current => ({ ...current, name: event.target.value }))}
           onKeyDown={event => {
-            if (event.key !== 'Enter') return;
+            if (event.key !== 'Enter' || isComposingKey(event.nativeEvent)) return;
             event.preventDefault();
             list.current?.querySelector<HTMLInputElement>('input')?.focus();
           }}
@@ -129,6 +129,7 @@ export function OptionsEditor({ initial, submitLabel, busyLabel, failedLabel, on
                 value={option.name}
                 onChange={event => edit(index, { name: event.target.value })}
                 onKeyDown={event => {
+                  if (isComposingKey(event.nativeEvent)) return;
                   if (event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
                     event.preventDefault();
                     move(index, shownPlace(draft, index) + (event.key === 'ArrowUp' ? -1 : 1));

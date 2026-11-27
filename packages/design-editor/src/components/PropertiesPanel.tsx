@@ -62,7 +62,7 @@ import {
 import { isLockedObject, NOTE_COLORS, type BoardEntry, type CanvasNote, type NoteSize } from '@open-artifact/design-core';
 import { LOCK_ATTRIBUTE, LOCKED_REASON } from '../lib/locks.ts';
 import { useLockedWhy } from '../services/locks.ts';
-import { SliderInput, SwitchInput, cn } from '@open-artifact/ui';
+import { SliderInput, SwitchInput, cn, isComposingKey } from '@open-artifact/ui';
 import { useDocument } from '../state/document.ts';
 import { useView } from '../state/view.ts';
 import { boardApi } from '../services/frames.ts';
@@ -1202,6 +1202,7 @@ function CodeBody() {
         }}
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={(event) => {
+          if (isComposingKey(event.nativeEvent)) return;
           if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
             event.preventDefault();
             commit();

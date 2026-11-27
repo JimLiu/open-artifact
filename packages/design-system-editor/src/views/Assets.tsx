@@ -7,7 +7,7 @@
 import { Copy, Download, FileIcon, Info, Pencil, Plus, Trash2, Upload, X } from 'lucide-react';
 import { useEffect, useRef, useState, type DragEvent, type MouseEvent, type SyntheticEvent } from 'react';
 import { assetGroupKey, type AssetItem, type TileSize } from '@open-artifact/design-system-core';
-import { Button, ConfirmDialog, Dialog, IconButton, MenuItem, MenuSeparator, TextInput, cn, toast } from '@open-artifact/ui';
+import { Button, ConfirmDialog, Dialog, IconButton, MenuItem, MenuSeparator, TextInput, cn, toast, isComposingKey } from '@open-artifact/ui';
 import { create } from 'zustand';
 import { useFiles } from '../state/files.ts';
 import { useModel } from '../state/model.ts';
@@ -178,6 +178,7 @@ function Tile({ item, width, editable, dragging, selected, onSelect, onDragStart
                 void renameAsset(item, event.target.value);
               }}
               onKeyDown={(event) => {
+                if (isComposingKey(event.nativeEvent)) return;
                 if (event.key === 'Enter') event.currentTarget.blur();
                 if (event.key === 'Escape') setRenaming(false);
               }}
@@ -318,7 +319,7 @@ function Group({ name, tile, items, editable }: { name: string; tile: TileSize; 
       <Dialog open={action === 'rename'} onOpenChange={(open) => { if (!open) setAction(null); }} title="Rename asset group"
         footer={<Button variant="primary" disabled={working || !newName.trim() || newName === name} onClick={() => void move(newName)}>Rename</Button>}>
         <TextInput autoFocus aria-label="Group name" value={newName} onChange={(event) => setNewName(event.target.value)}
-          onKeyDown={(event) => { if (event.key === 'Enter' && !working) void move(newName); }} />
+          onKeyDown={(event) => { if (event.key === 'Enter' && !working && !isComposingKey(event.nativeEvent)) void move(newName); }} />
       </Dialog>
       <ConfirmDialog open={action === 'remove'} onOpenChange={(open) => { if (!open) setAction(null); }} title={`Remove group ${name}?`}
         description="The group's files move to archived/ and its upload records are removed." confirmLabel="Remove group" danger onConfirm={() => { if (!working) void move(null); }} />
@@ -398,7 +399,7 @@ function NewGroup() {
           </>
         }
       >
-        <TextInput autoFocus placeholder="Name" value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && create()} />
+        <TextInput autoFocus placeholder="Name" value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && !isComposingKey(event.nativeEvent) && create()} />
       </Dialog>
     </>
   );

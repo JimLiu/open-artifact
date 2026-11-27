@@ -36,7 +36,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { attributeValue, elementKind, hasDynamicStyle, isTextEditable, resolveElement, styleMap, type HtmlElement, type StylePatch, type TextFormat } from '@open-artifact/dc';
-import { cn } from '@open-artifact/ui';
+import { cn, isComposingKey } from '@open-artifact/ui';
 import { useDocument } from '../state/document.ts';
 import { useView, type ElementSelection } from '../state/view.ts';
 import { boardApi } from '../services/frames.ts';
@@ -981,6 +981,7 @@ function ScaleStrip() {
           onBlur={() => apply()}
           onKeyDown={(event) => {
             event.stopPropagation();
+            if (isComposingKey(event.nativeEvent)) return;
             if (event.key === 'Enter') {
               event.preventDefault();
               apply();

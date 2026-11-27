@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { isComposingKey } from '@open-artifact/ui/keys';
 import * as ReactDOM from 'react-dom';
 import { Field, type FieldProps } from './field.tsx';
 import { TextInput, type TextInputProps } from './text-input.tsx';
@@ -150,7 +151,7 @@ export const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(
         if (event.defaultPrevented || disabled || readOnly) return;
         const target = event.currentTarget;
         if (event.key === 'Enter') {
-          if (!reported.current.isUnreadable || event.nativeEvent.isComposing || event.metaKey || event.ctrlKey) return;
+          if (!reported.current.isUnreadable || isComposingKey(event.nativeEvent) || event.metaKey || event.ctrlKey) return;
           event.preventDefault();
           if (event.repeat) return;
           ReactDOM.flushSync(() => {

@@ -12,7 +12,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { History, Loader2, RotateCcw, X } from 'lucide-react';
-import { Button, ConfirmDialog, HistoryPanel } from '@open-artifact/ui';
+import { Button, ConfirmDialog, HistoryPanel, isComposingKey } from '@open-artifact/ui';
 import type { HistoryController } from './history.ts';
 import type { Box, Camera } from './pins.ts';
 
@@ -103,11 +103,11 @@ export function VersionPreview<P>({ history, readOnly, bounds, renderWorld, rend
     return () => element.removeEventListener('wheel', onWheel);
   }, [previewing]);
 
-  // Esc goes back to the current version.
+  // Esc goes back to the current version. An input method's Escape only drops its candidate.
   useEffect(() => {
     if (previewing === null) return;
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape' && !confirm) {
+      if (event.key === 'Escape' && !confirm && !isComposingKey(event)) {
         event.stopPropagation();
         void history.preview(null);
       }

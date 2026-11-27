@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import { ChromeButton, ChromePopover } from '@open-artifact/editor-kit/react';
-import { cn } from '@open-artifact/ui';
+import { cn, isComposingKey } from '@open-artifact/ui';
 import { FONT_PANEL_WORDS } from '@open-artifact/motion-core';
 import type { FontOption } from './font-rows.ts';
 import { loadBuiltinPreview, loadGooglePreviews, previewFontFamily, useFontPreviews } from './font-previews.ts';
@@ -98,6 +98,7 @@ export function FontMenu({ label, value, options, originalHint, disabled, mute, 
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
+    if (isComposingKey(event.nativeEvent)) return;
     switch (event.key) {
       case 'ArrowDown':
       case 'ArrowUp': {

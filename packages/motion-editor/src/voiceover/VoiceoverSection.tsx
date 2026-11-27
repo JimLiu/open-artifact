@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, type KeyboardEvent, type ReactElement } fro
 import { RotateCcw } from 'lucide-react';
 import type { VoiceoverLine } from '@open-artifact/motion-audio';
 import { VOICE_SETTINGS } from '@open-artifact/motion-core';
-import { Button, IconButton, Section, Tooltip, cn } from '@open-artifact/ui';
+import { Button, IconButton, Section, Tooltip, cn, isComposingKey } from '@open-artifact/ui';
 import { seekTo } from '../engine/actions.ts';
 import { useFilm } from '../stores/film.ts';
 import { useWorking } from '../stores/working.ts';
@@ -100,7 +100,7 @@ function LineField({ line, lineKey, number, typed, locked, going, onEnter }: Lin
   );
   const type = (value: string): void => useVoiceover.getState().type(lineKey, value === own ? undefined : value);
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (event.nativeEvent.isComposing || (event.key !== 'Enter' && event.key !== 'Escape')) return;
+    if (isComposingKey(event.nativeEvent) || (event.key !== 'Enter' && event.key !== 'Escape')) return;
     event.preventDefault();
     event.stopPropagation();
     if (event.key === 'Escape') event.currentTarget.blur();

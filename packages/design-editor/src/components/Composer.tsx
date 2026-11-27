@@ -6,7 +6,7 @@
 
 import { Bot, Send, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { Button, IconButton } from '@open-artifact/ui';
+import { Button, IconButton, isComposingKey } from '@open-artifact/ui';
 import { useView } from '../state/view.ts';
 import { selectedElements, sendToAgent, useAgent } from '../services/agent.ts';
 import { MOD } from '@open-artifact/editor-kit';
@@ -72,6 +72,7 @@ export function Composer() {
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {
           event.stopPropagation();
+          if (isComposingKey(event.nativeEvent)) return;
           if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
             event.preventDefault();
             void submit();

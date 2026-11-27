@@ -12,7 +12,7 @@ import {
 } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { announce } from '@open-artifact/editor-kit';
-import { IconButton, cn, toast } from '@open-artifact/ui';
+import { IconButton, cn, toast, isComposingKey } from '@open-artifact/ui';
 import { getHighlightedPieces, getPlaceholderName, isHighlightableLang, type CodeKind, type CodePiece, type CodeReading } from './sql.ts';
 import { COPIED_LABEL, COPY_FAILED_MESSAGE, SHOW_LESS_LABEL, SHOW_MORE_LABEL } from './words.ts';
 
@@ -43,7 +43,7 @@ export async function copyText(text: string): Promise<boolean> {
 
 /** Runs `run` on Cmd/Ctrl+Enter (not while composing); true when it did. */
 export function runOnModEnter(event: KeyboardEvent, run: () => void): boolean {
-  if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey) || event.nativeEvent.isComposing) return false;
+  if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey) || isComposingKey(event.nativeEvent)) return false;
   event.preventDefault();
   run();
   return true;

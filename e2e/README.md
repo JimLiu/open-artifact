@@ -110,7 +110,8 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - In Chrome:
   - the overview shows the README, and opening the page writes the generated files;
   - an empty system's Welcome page offers "From code", and its request reaches `wait`;
-  - an image dropped on an asset group is uploaded into `design-system.json`.
+  - an image dropped on an asset group is uploaded into `design-system.json`;
+  - in Add color group, the Enter that picks an input method candidate (key code 229, `isComposing` false, as Safari sends it) adds nothing and leaves the dialog open; a plain Enter then adds the group. Before, the name field read only `isComposing`, and on Chrome did not check at all.
 
 **Slides: asking about a selection** (`slides.test.mjs`, on the shared deck's third slide, with `wait` running)
 
@@ -145,6 +146,10 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 **Docs: writing in a second tab** (`docs.test.mjs`, one case, Chrome only)
 
 - A doc with two tabs is opened on the first. Three characters are typed there, one at a time, and each reaches the disk (`export --tab`). The second tab is chosen from the tab list in the page bar, and four characters are typed at the end of its line: each reaches the disk, and 400 ms later the editor still shows it. Before the fix for issue #25, every tab's sync counted its calls from 1 under the page's one session, so the second tab's first three writes went out under the first tab's opIds; the server answered them as replays, landed nothing, and the page read the tab back over the typing.
+
+**Docs: name fields and the input method's Enter** (`docs.test.mjs`, the "keeps the daemon library, editor title and tab links in sync" case, Chrome only)
+
+- In Rename (the doc's own Document name field, in the docs frame) and Duplicate (the Shell's Name of the copy), an Enter with key code 229 and `isComposing` false, the way Safari sends the Enter that picks a candidate, neither renames nor copies, and the field keeps the focus; a plain Enter then does. Before, these fields read only `isComposing`, so on Safari picking a Chinese or Japanese candidate also submitted the name.
 
 **Docs: a link the page may not open** (`docs.test.mjs`, one case, Chrome only)
 

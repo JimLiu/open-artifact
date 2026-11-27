@@ -4,6 +4,7 @@
  * editor's own.
  */
 import type { Node as PMNode } from 'prosemirror-model';
+import { isComposingKey } from '@open-artifact/ui/keys';
 import { type EditorState, NodeSelection, Plugin, PluginKey, type Transaction } from 'prosemirror-state';
 import type { EditorView } from 'prosemirror-view';
 import { getDocs } from '../app/store.ts';
@@ -169,7 +170,7 @@ export function pickOption(view: EditorView, option: MenuOption, trigger: Trigge
 function handleMenuKey(view: EditorView, event: KeyboardEvent): boolean {
   const plugin = insertState(view.state);
   const trigger = activeTrigger(view.state);
-  if (!plugin || !trigger || view.composing || !canWrite(view)) return false;
+  if (!plugin || !trigger || view.composing || isComposingKey(event) || !canWrite(view)) return false;
   if (event.key === 'Escape') {
     dismissMenu(view);
     return true;

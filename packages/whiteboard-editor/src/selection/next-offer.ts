@@ -19,6 +19,7 @@
  */
 
 import { create } from 'zustand';
+import { isComposingKey } from '@open-artifact/ui/keys';
 import {
   appendElement,
   arrowEndNextOffer,
@@ -234,7 +235,7 @@ export function watchNextOffer(offer: ArrowEndOffer): () => void {
 
   const onKeyDown = (event: KeyboardEvent): void => {
     if (MODIFIER_KEYS.has(event.key) || event.defaultPrevented || isChromePopupTarget(event.target)) return;
-    const plain = !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && !event.isComposing && !isTypingTarget(event.target);
+    const plain = !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && !isComposingKey(event) && !isTypingTarget(event.target);
     const ours = plain && (event.key === 'Enter' || event.key === 'Escape');
     if (ours && press !== null) cancelBoardGesture();
     if (plain && event.key === 'Enter') {

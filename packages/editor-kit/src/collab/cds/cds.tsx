@@ -1,4 +1,5 @@
 import { Checkbox as BaseCheckbox } from '@base-ui/react/checkbox';
+import { isComposingKey } from '@open-artifact/ui';
 import { Menu as BaseMenu } from '@base-ui/react/menu';
 import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip';
 import { clsx as cn } from 'clsx';
@@ -517,7 +518,7 @@ export function PlainEditor({ ref, value, onChange, onSubmit, onKeyDown, rows = 
     onKeyDown?.(event);
     if (event.defaultPrevented || event.currentTarget.readOnly || !onSubmit || event.key !== 'Enter') return;
     const native = event.nativeEvent;
-    if (event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey && !native.isComposing) {
+    if (event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey && !isComposingKey(native)) {
       event.preventDefault();
       const el = event.currentTarget;
       const doc = el.ownerDocument;

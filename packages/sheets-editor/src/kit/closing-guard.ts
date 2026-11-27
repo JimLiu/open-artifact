@@ -1,4 +1,5 @@
 import type * as React from 'react';
+import { isComposingKey } from '@open-artifact/ui/keys';
 
 type Handler<E> = ((event: E) => void) | undefined;
 
@@ -16,7 +17,7 @@ function isEditable(element: Element): boolean {
 
 /** Enter or Space that would press a button, or Enter that would submit a field's form. */
 export function isActivationKey(event: React.KeyboardEvent<Element>): boolean {
-  if (event.nativeEvent.isComposing || (event.key !== 'Enter' && event.key !== ' ')) return false;
+  if (isComposingKey(event.nativeEvent) || (event.key !== 'Enter' && event.key !== ' ')) return false;
   const target = event.target;
   if (!isElement(target) || !isEditable(target)) return true;
   if (event.key !== 'Enter') return false;

@@ -1,3 +1,5 @@
+import { isComposingKey } from '@open-artifact/ui/keys';
+
 interface InputState {
   observed: boolean;
   lastInputDismisses: boolean;
@@ -18,7 +20,7 @@ export function observeDocumentInput(doc: Document | null | undefined): void {
       if (!event.isTrusted) return;
       const key = event as KeyboardEvent;
       state.observed = true;
-      state.lastInputDismisses = !key.isComposing && DISMISSAL_KEYS.has(key.key);
+      state.lastInputDismisses = !isComposingKey(key) && DISMISSAL_KEYS.has(key.key);
     },
     true,
   );

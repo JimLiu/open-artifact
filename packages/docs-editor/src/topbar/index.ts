@@ -1,5 +1,6 @@
 /** The top bar's controls: Export and More, the keyboard shortcuts sheet, and ⌘/ or ? to open it. */
 import { isTextField } from '@open-artifact/editor-kit';
+import { isComposingKey } from '@open-artifact/ui/keys';
 import { provideAction } from '../app/actions.ts';
 import { fillSlot } from '../app/slots.ts';
 import { getDocs, setDocs } from '../app/store.ts';
@@ -16,7 +17,7 @@ const inPopup = (target: EventTarget | null) => target instanceof Element && tar
 
 // The editor answers ⌘/ while the text has the keyboard; this covers the rest of the page.
 window.addEventListener('keydown', event => {
-  if (event.defaultPrevented || event.isComposing || event.altKey) return;
+  if (event.defaultPrevented || isComposingKey(event) || event.altKey) return;
   const mod = event.metaKey || event.ctrlKey;
   if (mod && event.key === '/' && !event.shiftKey) {
     event.preventDefault();

@@ -1,4 +1,5 @@
 import { DEFAULT_TOAST_TIMEOUT_MS, useToasts } from '../kit/toast.tsx';
+import { isComposingKey } from '@open-artifact/ui/keys';
 import { Surface } from '../kit/surface.tsx';
 import { UiRoot } from '../kit/theme.tsx';
 import { useStore } from 'zustand';
@@ -2443,7 +2444,7 @@ export function SheetsPage({
     let ownerDocument = cellsRef.current?.ownerDocument;
     if (ownerDocument === undefined) return;
     let onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing) return;
+      if (event.defaultPrevented || isComposingKey(event)) return;
       let findStep = findStepShortcut(event);
       let isFromCells = [gridFocusRef, cellEditorRef, activeEditorRef, formulaBarRef].some(
         (ref) => ref.current === event.target,
@@ -2468,7 +2469,7 @@ export function SheetsPage({
     let ownerDocument = cellsRef.current?.ownerDocument;
     if (ownerDocument === undefined) return;
     let onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing || !isKeyboardShortcutsKey(event, IS_APPLE_PLATFORM)) return;
+      if (event.defaultPrevented || isComposingKey(event) || !isKeyboardShortcutsKey(event, IS_APPLE_PLATFORM)) return;
       event.preventDefault();
       event.stopPropagation();
       if (event.repeat) return;
@@ -2492,7 +2493,7 @@ export function SheetsPage({
     let ownerDocument = cellsRef.current?.ownerDocument;
     if (ownerDocument === undefined) return;
     let onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing || !isAllCommandsMenuKey(event, IS_APPLE_PLATFORM)) return;
+      if (event.defaultPrevented || isComposingKey(event) || !isAllCommandsMenuKey(event, IS_APPLE_PLATFORM)) return;
       let { menu: latestMenu, viewOnlyBecause } = store.getView();
       let action = allCommandsMenuKeyAction({
         isPointerCoarse: isCoarsePointerNow(),
@@ -5228,7 +5229,7 @@ export function SheetsPage({
   );
   let onTableMenuKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>, lit: ItemLitInMenu) => {
-      if (event.nativeEvent.isComposing || isAltShortcutKey(event)) return;
+      if (isComposingKey(event.nativeEvent) || isAltShortcutKey(event)) return;
       let key = normalizedKeyEvent(event);
       let keyTarget = keyTargetAtTableMenu(key, lit);
       if (keyTarget === 'menu') return;
@@ -5495,7 +5496,7 @@ export function SheetsPage({
   );
   let onCalendarKeyDown = React.useCallback<CalendarUnderCellProps['onKeyDown']>(
     (event) => {
-      if (event.nativeEvent.isComposing || isAltShortcutKey(event)) return;
+      if (isComposingKey(event.nativeEvent) || isAltShortcutKey(event)) return;
       let key = normalizedKeyEvent(event);
       let { mode: latestMode, viewOnlyBecause } = store.getView();
       let actWhileNavigating = keyActOf(NAVIGATING_MODE, key, null, 'leaves');

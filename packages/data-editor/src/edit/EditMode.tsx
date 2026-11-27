@@ -10,6 +10,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
+import { isComposingKey } from '@open-artifact/ui/keys';
 import { createPortal, flushSync } from 'react-dom';
 import { announce, isApplePlatform } from '@open-artifact/editor-kit';
 import { describeElementSelection, type ElementSelection } from '../page/selection.ts';
@@ -497,7 +498,7 @@ export function PageEditMode({ root, draft, off, onAsk, adopts = never, sourceOf
     const onKeyDown = (event: KeyboardEvent): void => {
       setTip(null);
       tabbing = event.key === 'Tab';
-      if (event.defaultPrevented || event.isComposing || event.altKey || draft.holding() || hasOpenOverlay() || !(event.target instanceof Element)) return;
+      if (event.defaultPrevented || isComposingKey(event) || event.altKey || draft.holding() || hasOpenOverlay() || !(event.target instanceof Element)) return;
       const current = pickedRef.current?.el.isConnected === true ? pickedRef.current : null;
       const typingIn = draft.visit()?.el;
       const inTyping = event.target === typingIn;

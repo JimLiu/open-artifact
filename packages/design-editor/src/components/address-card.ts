@@ -6,6 +6,7 @@
  */
 
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { isComposingKey } from '@open-artifact/ui/keys';
 import { ADDRESS_CLOSED, ADDRESS_CLOSED_UNSAVED } from '../lib/card-exit.ts';
 import { cardExit } from '../services/card-exit.ts';
 import { announce } from '../services/announce.ts';
@@ -34,13 +35,13 @@ export function addressCardKeys({ saved, close, guardDelete }: AddressCardOption
       stops[next]!.focus();
       return;
     }
-    if (event.key === 'Escape') {
+    if (event.key === 'Escape' && !isComposingKey(event.nativeEvent)) {
       // The field's own Escape has reset its draft, but the box still shows it.
       announce(field && field.value.trim() !== saved.trim() ? ADDRESS_CLOSED_UNSAVED : ADDRESS_CLOSED);
       if (guardDelete) cardExit.arm();
       return;
     }
-    if (event.key === 'Enter' && field && close && !event.nativeEvent.isComposing) {
+    if (event.key === 'Enter' && field && close && !isComposingKey(event.nativeEvent)) {
       close();
       announce(ADDRESS_CLOSED);
     }

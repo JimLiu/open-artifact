@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from 'react';
+import { isComposingKey } from '@open-artifact/ui/keys';
 import { ArrowDown, ArrowUp, X } from 'lucide-react';
 import { useIdea } from '../collab/ideas.ts';
 import { focusBoardHome } from '../elements/embed-control.ts';
@@ -88,7 +89,7 @@ export function FindBar() {
   useEffect(() => {
     const apple = isApplePlatform();
     const onKey = (event: KeyboardEvent): void => {
-      if (event.isComposing || event.defaultPrevented) return;
+      if (isComposingKey(event) || event.defaultPrevented) return;
       if (isFindShortcut(event, apple)) {
         if (findBlocked()) return;
         event.preventDefault();

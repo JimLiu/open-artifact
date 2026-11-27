@@ -24,7 +24,7 @@ import {
   stickerArtForEmoji,
   stickerLabel,
 } from '@open-artifact/whiteboard-core';
-import { cn } from '@open-artifact/ui';
+import { cn, isComposingKey } from '@open-artifact/ui';
 import { canEditBoard } from '../services/actions.ts';
 import { READ_ONLY_MESSAGE, refuse } from '../services/announce.ts';
 import { viewCenter } from '../services/navigation.ts';
@@ -190,6 +190,7 @@ export function StickerPicker({ onPick, onUpload, me }: StickerPickerProps) {
               if (gridRef.current) gridRef.current.scrollTop = 0;
             }}
             onKeyDown={(event) => {
+              if (isComposingKey(event.nativeEvent)) return;
               if (event.key === 'Escape' && query !== '') {
                 event.preventDefault();
                 event.stopPropagation();

@@ -8,7 +8,7 @@
 
 import { memo, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import type { CanvasNote } from '@open-artifact/design-core';
-import { cn } from '@open-artifact/ui';
+import { cn, isComposingKey } from '@open-artifact/ui';
 import { useDocument } from '../state/document.ts';
 import { useView } from '../state/view.ts';
 import { observeNoteSize } from '../services/engine.ts';
@@ -116,6 +116,7 @@ function NoteEditor({ id, note, style }: { id: string; note: CanvasNote; style: 
       onPointerDown={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
         event.stopPropagation();
+        if (isComposingKey(event.nativeEvent)) return;
         if (event.key === 'Escape' || (event.key === 'Enter' && (event.metaKey || event.ctrlKey))) {
           event.preventDefault();
           commitText(id, draft);

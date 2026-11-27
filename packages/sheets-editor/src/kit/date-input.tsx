@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { isComposingKey } from '@open-artifact/ui/keys';
 import * as ReactDOM from 'react-dom';
 import { Popover } from '@base-ui/react/popover';
 import { type CalendarDate, type DateValue, toCalendarDate } from '@internationalized/date';
@@ -177,7 +178,7 @@ function DateInputBody({
       isRequired: required,
       inputRef,
       onKeyDown: (event) => {
-        if (event.key !== 'Enter' || event.nativeEvent.isComposing || event.repeat) return;
+        if (event.key !== 'Enter' || isComposingKey(event.nativeEvent) || event.repeat) return;
         if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
         const target = event.target;
         if (!(target instanceof HTMLElement)) return;

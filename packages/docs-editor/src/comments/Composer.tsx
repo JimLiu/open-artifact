@@ -5,7 +5,7 @@
  */
 import { ChromeButton, Tip } from '@open-artifact/editor-kit/react';
 import { COMMENT_TEXT_MAX, MOD } from '@open-artifact/editor-kit';
-import { cn } from '@open-artifact/ui';
+import { cn, isComposingKey } from '@open-artifact/ui';
 import { ArrowUp, Bot } from 'lucide-react';
 import { type KeyboardEvent, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { type MentionCandidate, insertMention, matchCandidates, mentionQuery } from './mentions.ts';
@@ -122,7 +122,7 @@ export function Composer({ value, onChange, onSubmit, onCancel, label, placehold
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     event.stopPropagation();
-    if (event.nativeEvent.isComposing) return;
+    if (isComposingKey(event.nativeEvent)) return;
     if (listOpen) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault();

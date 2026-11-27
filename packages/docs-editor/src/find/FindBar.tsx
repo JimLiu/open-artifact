@@ -4,7 +4,7 @@
  * replacement; Escape closes and lands on the match shown.
  */
 import { Card, ChromeDivider, Tip, TipButton, TipGroup } from '@open-artifact/editor-kit/react';
-import { Button, SwitchInput } from '@open-artifact/ui';
+import { Button, SwitchInput, isComposingKey } from '@open-artifact/ui';
 import { ChevronDown, ChevronUp, X } from 'lucide-react';
 import { type FocusEvent, type KeyboardEvent, type MouseEvent, type ReactElement, type ReactNode, useLayoutEffect, useRef } from 'react';
 import { useDocs } from '../app/store.ts';
@@ -110,7 +110,7 @@ function FindCard(): ReactNode {
       }
       return;
     }
-    if (event.key === 'Escape' && !event.nativeEvent.isComposing) {
+    if (event.key === 'Escape' && !isComposingKey(event.nativeEvent)) {
       event.preventDefault();
       event.stopPropagation();
       closeFind(true);
@@ -159,7 +159,7 @@ function FindCard(): ReactNode {
               className={`${FIELD} ${status ? 'pr-16' : ''}`}
               onChange={event => setQuery(event.target.value)}
               onKeyDown={event => {
-                if (event.key !== 'Enter' || event.nativeEvent.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
+                if (event.key !== 'Enter' || isComposingKey(event.nativeEvent) || event.metaKey || event.ctrlKey || event.altKey) return;
                 event.preventDefault();
                 step(event.shiftKey ? -1 : 1);
               }}
@@ -185,7 +185,7 @@ function FindCard(): ReactNode {
               className={FIELD}
               onChange={event => setReplacement(event.target.value)}
               onKeyDown={event => {
-                if (event.key !== 'Enter' || event.nativeEvent.isComposing || event.repeat || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return;
+                if (event.key !== 'Enter' || isComposingKey(event.nativeEvent) || event.repeat || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return;
                 event.preventDefault();
                 if (!offOne) replaceFromBar(false);
               }}

@@ -132,7 +132,7 @@ export function NumberInput({ value, onChange, onCommit, label, unit, min, max, 
         placeholder={placeholder}
         aria-label={aria['aria-label']}
         onKeyDown={(event) => {
-          if (event.key === 'Enter') event.currentTarget.blur();
+          if (event.key === 'Enter' && !isComposingKey(event.nativeEvent)) event.currentTarget.blur();
         }}
         className={cn('h-full w-full min-w-0 bg-transparent text-[13px] text-fg outline-none', label === undefined && 'pl-2')}
       />

@@ -5,6 +5,7 @@
  */
 
 import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { isComposingKey } from '@open-artifact/ui/keys';
 import { boardToScreen } from '../lib/camera.ts';
 import { useCamera } from '../state/camera.ts';
 import { closeCursorChat, sendCursorChat, setCursorChatText, toggleCursorChatAsking, useCursorChat, MAX_CHAT_ASK_CHARS, MAX_CHAT_CHARS } from './cursor-chat.ts';
@@ -49,7 +50,7 @@ export function CursorChatBox() {
   }
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>): void => {
-    if (event.nativeEvent.isComposing) return;
+    if (isComposingKey(event.nativeEvent)) return;
     if (event.key === 'Enter') {
       event.preventDefault();
       sendCursorChat();

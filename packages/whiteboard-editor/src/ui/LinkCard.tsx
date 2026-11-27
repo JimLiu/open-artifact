@@ -7,7 +7,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { ArrowUpRight, Check, Copy, Pencil } from 'lucide-react';
-import { cn } from '@open-artifact/ui';
+import { cn, isComposingKey } from '@open-artifact/ui';
 import { LINK_COPIED_MS, linkAddressParts, linkCardPlace, type LinkCardPlace } from '../lib/link-card.ts';
 import { useLinkCard, type LinkCardView } from '../state/link-card.ts';
 import { copyLinkAddress, editCardLink, hideLinkCard, installLinkCards, openCardLink, returnToLinkText, tabOutOfLinkCard } from '../services/link-card.ts';
@@ -55,7 +55,7 @@ function LinkCardBody({ card }: { card: LinkCardView }) {
   }, [copied]);
 
   const keyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.nativeEvent.isComposing) return;
+    if (isComposingKey(event.nativeEvent)) return;
     if (event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation();

@@ -1,5 +1,5 @@
 /** The version history beside the page: the open tab's versions, newest first, by day. */
-import { Button } from '@open-artifact/ui';
+import { Button, isComposingKey } from '@open-artifact/ui';
 import { X } from 'lucide-react';
 import { type KeyboardEvent, type ReactNode, useEffect, useMemo } from 'react';
 import { docClient } from '../app/doc-client.ts';
@@ -133,7 +133,7 @@ let previewSoon: ReturnType<typeof setTimeout> | undefined;
  * shown, and Enter on the version being previewed asks to restore it.
  */
 function stepThroughVersions(event: KeyboardEvent<HTMLDivElement>): void {
-  if (event.altKey || event.ctrlKey || event.metaKey || event.nativeEvent.isComposing) return;
+  if (event.altKey || event.ctrlKey || event.metaKey || isComposingKey(event.nativeEvent)) return;
   const rows = [...event.currentTarget.querySelectorAll<HTMLElement>('[data-version-focus]')];
   const active = document.activeElement as HTMLElement;
   const at = rows.indexOf(active);

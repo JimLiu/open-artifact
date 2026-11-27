@@ -14,7 +14,7 @@
 import { ArrowUp, FileText, Frame, LayoutGrid, MousePointer2, X } from 'lucide-react';
 import { useEffect, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { ASK_TOO_LONG, askTooLong } from '@open-artifact/editor-kit';
-import { cn, toast } from '@open-artifact/ui';
+import { cn, toast, isComposingKey } from '@open-artifact/ui';
 import { isBoardMediaFile } from '../lib/media.ts';
 import { middleCut } from '../lib/middle-cut.ts';
 import { announce } from '../services/announce.ts';
@@ -154,7 +154,7 @@ function AttachedFileChips() {
 /** Listens for ⌘K / Ctrl+K; returns a function that stops. */
 export function startAskKeys(): () => void {
   const onKey = (event: KeyboardEvent): void => {
-    if (event.defaultPrevented || event.isComposing || event.altKey || event.shiftKey || !(event.metaKey || event.ctrlKey)) return;
+    if (event.defaultPrevented || isComposingKey(event) || event.altKey || event.shiftKey || !(event.metaKey || event.ctrlKey)) return;
     if (event.key.toLowerCase() !== 'k') return;
     // Text being edited on the board keeps ⌘K for itself (links).
     if (useSelection.getState().editing !== null) return;
@@ -228,7 +228,7 @@ export function AskPanel() {
     offerFilesToAsk(textFiles);
   };
   const onKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>): void => {
-    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+    if (event.key === 'Enter' && !event.shiftKey && !isComposingKey(event.nativeEvent)) {
       event.preventDefault();
       send();
     } else if (event.key === 'Escape') {

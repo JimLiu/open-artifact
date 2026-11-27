@@ -1,5 +1,6 @@
 /** A tab's name, being typed over in its row: Enter or leaving the field keeps it, Escape puts the old one back. */
 import { type ReactNode, useEffect, useRef } from 'react';
+import { isComposingKey } from '@open-artifact/ui/keys';
 import { renameTab } from './actions.ts';
 import { getTabsUi, setTabsUi, useTabsUi } from './state.ts';
 
@@ -40,7 +41,7 @@ export function TabRenameInput({ id }: { id: string }): ReactNode {
           event.preventDefault();
           return;
         }
-        if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+        if (event.key === 'Enter' && !isComposingKey(event.nativeEvent)) {
           event.preventDefault();
           finish(true);
         } else if (event.key === 'Escape') {

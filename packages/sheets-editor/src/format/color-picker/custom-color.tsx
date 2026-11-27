@@ -1,4 +1,5 @@
 import { TextInput } from '../../kit/text-input.tsx';
+import { isComposingKey } from '@open-artifact/ui/keys';
 import { Tooltip } from '../../kit/tooltip.tsx';
 import type { Color } from '@open-artifact/sheets-core';
 import * as React from 'react';
@@ -145,7 +146,7 @@ export function CustomColorPicker(props: CustomColorPickerProps) {
             hue: Number(event.target.value),
           })} onKeyDown={onRangeKeyDown} onKeyUp={sendChange} onPointerDown={notePointerDown} onPointerUp={sendChange} /><TextInput size="sm" aria-label={sheetMessages.hex()} aria-invalid={hexTyped !== null && normalizeHexColor(hexTyped) === null} spellCheck={false} autoComplete="off" autoCapitalize="off" autoCorrect="off" value={hexTyped ?? hex.toUpperCase()} onChange={(event) => setHexTyped(event.target.value)} onBlur={() => setHexTyped(null)} onKeyDown={(event) => {
           stopKeyUnlessTabOrEscape(event);
-          if (event.key === 'Enter') commitHexTyped();
+          if (event.key === 'Enter' && !isComposingKey(event.nativeEvent)) commitHexTyped();
         }} /><Tooltip anchor={() => rootRef.current?.closest('[role=dialog]') ?? rootRef.current} open={isPointerDown || isSampleShown} side="right" align="start" sideOffset={8} className="p-xs" content={<ColorSamplePreview sample={sample} color={color} />} /></div>;
 }
 export const clampToRange = (min: number, value: number, max: number): number => Math.min(max, Math.max(min, value));

@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { isComposingKey } from '@open-artifact/ui/keys';
 import { Toast as BaseToast } from '@base-ui/react/toast';
 import { Button } from './button.tsx';
 import { guardHeldActivationKey, guardWhileClosing } from './closing-guard.ts';
@@ -173,7 +174,7 @@ function ToastCard({ toast, isFront, frontHeight, zIndex }: ToastCardProps): Rea
       onKeyDownCapture={(event) => {
         guardHeldActivationKey(event);
         const doc = event.currentTarget.ownerDocument;
-        if (event.key === 'Escape' && !event.nativeEvent.isComposing && event.currentTarget.contains(doc.activeElement)) markClosedByUser();
+        if (event.key === 'Escape' && !isComposingKey(event.nativeEvent) && event.currentTarget.contains(doc.activeElement)) markClosedByUser();
         ending.onKeyDownCapture(event);
       }}
     >
@@ -288,7 +289,7 @@ function ToastRegion({ className, pinned, setPinned, regionRef, slotRef }: Toast
                 if (
                   event.key === 'Escape' &&
                   !event.defaultPrevented &&
-                  !event.nativeEvent.isComposing &&
+                  !isComposingKey(event.nativeEvent) &&
                   pinned?.dismissible === true &&
                   event.currentTarget.contains(doc.activeElement)
                 ) {

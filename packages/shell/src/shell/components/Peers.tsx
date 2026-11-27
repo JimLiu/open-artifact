@@ -7,7 +7,7 @@
 
 import { useEffect, useRef } from 'react';
 import type { ChromePeer } from '@open-artifact/protocol';
-import { Menu, MenuItem, MenuLabel, cn, toast } from '@open-artifact/ui';
+import { Menu, MenuItem, MenuLabel, cn, isComposingKey, toast } from '@open-artifact/ui';
 import { t } from '../../lib/i18n.ts';
 import { command } from '../bridge.ts';
 import { followedPeer, inkOnColor, offersFollow, peerColorOf, peerInitials } from '../model.ts';
@@ -15,6 +15,8 @@ import { useShell } from '../store.ts';
 
 /** Avatars shown on the bar before "+N". */
 const SHOWN = 3;
+/** Where Escape belongs to the element itself rather than to stopping a follow. */
+const OWNS_ESCAPE = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="menu"], [role="dialog"]';
 
 /** A peer's name in the list; `inSentence`, as the object of "Follow …", "Following …". */
 const nameOf = (peer: ChromePeer, inSentence = false): string => (peer.self ? t(inSentence ? 'yourOtherTab' : 'youOtherTab') : peer.name);
@@ -66,9 +68,9 @@ export function Peers() {
   useEffect(() => {
     if (!followed) return;
     const onKey = (event: KeyboardEvent) => {
-      // Escape in an open menu or dialog closes that instead.
-      if (event.key !== 'Escape' || event.defaultPrevented) return;
-      if (event.target instanceof Element && event.target.closest('[role="menu"], [role="dialog"]')) return;
+      // An input method's Escape drops its candidate; Escape in a field, an open menu or a dialog belongs to that.
+      if (event.key !== 'Escape' || event.defaultPrevented || event.repeat || isComposingKey(event)) return;
+      if (event.target instanceof Element && event.target.closest(OWNS_ESCAPE)) return;
       command({ cmd: 'follow', key: null });
     };
     window.addEventListener('keydown', onKey);

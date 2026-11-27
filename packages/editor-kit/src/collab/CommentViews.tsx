@@ -13,6 +13,7 @@
 
 
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject, type UIEvent, type WheelEvent } from 'react';
+import { isComposingKey } from '@open-artifact/ui';
 import type { CommentMessage, CommentThread } from '@open-artifact/runtime';
 import { Avatar, Button, cn, Icon, Menu, MenuItems, MenuPopup, Tooltip, type MenuItemSpec } from './cds/cds.tsx';
 import { Actions, Comment, CommentCard, DeleteConfirm, MoreMenu, Replies, ReplyField, ResolveAction, useLayerMenu, type WorkingState } from './cds/comment-card.tsx';
@@ -349,7 +350,7 @@ export function CommentPopover({ pin, corner, viewport, width: wanted = CARD_WID
       style={style}
       data-comment-card=""
       onKeyDown={(event) => {
-        if (event.key !== 'Escape' || event.defaultPrevented) return;
+        if (event.key !== 'Escape' || event.defaultPrevented || isComposingKey(event.nativeEvent)) return;
         event.preventDefault();
         onEscape();
       }}
