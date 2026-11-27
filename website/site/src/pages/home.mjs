@@ -3,9 +3,10 @@ import { t } from '../i18n.mjs';
 import { esc } from '../markdown.mjs';
 import { page, href } from '../layout.mjs';
 import { mark, icon, typeIcon } from '../icons.mjs';
-import { TYPES, SHOWCASE_ORDER, typeById } from '../data/types.mjs';
+import { SHOWCASE_ORDER, typeById } from '../data/types.mjs';
+import { DEMO_LINES, STAGE_ORDER } from '../data/demos.mjs';
 import { APPS, appName } from '../data/apps.mjs';
-import { typeCard, installTabs, typeStyle, cmd } from '../components.mjs';
+import { typeCard, installTabs, typeStyle, playground, cmd } from '../components.mjs';
 
 const PROMPTS = {
   en: [
@@ -52,13 +53,49 @@ function loopDiagram(lang) {
 </figure>`;
 }
 
+/**
+ * The live stage: the playground's demos, one tab each, in a frame on the page. The markup alone is links to the
+ * demos' own pages plus a poster; site.js makes the frame (`<demo>/?embed=1`) once the page has loaded, so the page
+ * itself never waits for an editor.
+ */
+function liveStage(lang) {
+  const g = t(lang).home.stage;
+  const first = typeById[STAGE_ORDER[0]];
+  const tabs = STAGE_ORDER.map((id, i) => {
+    const ty = typeById[id];
+    return `<a href="${playground(id)}" data-demo="${id}" data-name="${esc(ty.name)}" data-line="${esc(DEMO_LINES[id][lang])}" style="${typeStyle(ty)}"${i === 0 ? ' aria-current="true"' : ''}><span class="stage-tab-icon">${typeIcon(id, 15)}</span>${esc(ty.name)}</a>`;
+  }).join('');
+  const steps = g.steps.map(([k, d]) => `<li><b>${esc(k)}</b>${esc(d)}</li>`).join('');
+  return `<section class="stage-section" id="live" aria-label="${esc(g.label)}">
+  <div class="wrap stage-wrap">
+    <div class="stage" data-stage data-base="${url('/playground/')}" data-frame-title="${esc(g.frame)}" style="${typeStyle(first)}">
+      <div class="stage-bar">
+        <span class="stage-live"><i aria-hidden="true"></i>${esc(g.live)}</span>
+        <nav class="stage-tabs" aria-label="${esc(g.label)}">${tabs}</nav>
+        <a class="stage-open" data-stage-open href="${playground(first.id)}" target="_blank" rel="noopener" title="${esc(g.open)}">${icon.external(14)}<span>${esc(g.open)}</span></a>
+      </div>
+      <div class="stage-view" data-stage-view>
+        <div class="stage-poster" data-stage-poster>
+          <span class="type-icon lg" data-stage-icon>${typeIcon(first.id, 28)}</span>
+          <strong data-stage-name>${esc(first.name)}</strong>
+          <p data-stage-line>${esc(DEMO_LINES[first.id][lang])}</p>
+          <p class="stage-status" role="status"><i aria-hidden="true"></i>${esc(g.loading)}</p>
+          <a class="btn btn-type stage-load" data-stage-load href="${playground(first.id)}">${icon.play(13)}${esc(g.load)}</a>
+        </div>
+        <button class="stage-veil" type="button" data-stage-veil hidden><span>${icon.play(12)}${esc(g.veil)}</span></button>
+      </div>
+      <div class="stage-foot">
+        <ol class="stage-steps">${steps}</ol>
+        <span class="stage-note">${esc(g.note)}</span>
+      </div>
+    </div>
+  </div>
+</section>`;
+}
+
 export function homePage(lang) {
   const s = t(lang);
   const h = s.home;
-  const spectrum = SHOWCASE_ORDER.map((id) => {
-    const ty = typeById[id];
-    return `<a href="${href(lang, `/types/${id}/`)}" style="${typeStyle(ty)}" title="${esc(ty.name)}">${typeIcon(id, 16)}</a>`;
-  }).join('');
   const types = SHOWCASE_ORDER.map((id) => typeCard(typeById[id], lang)).join('\n');
   const apps = APPS.map(
     (a) => `<li><a href="${esc(a.guide)}" rel="noopener"><strong>${esc(appName(a, lang))}</strong><span>${esc(a.sub[lang])}</span></a></li>`,
@@ -69,32 +106,40 @@ export function homePage(lang) {
 
   const body = `
 <section class="hero">
-  <div class="wrap hero-grid">
-    <div class="hero-copy">
+  <div class="wrap hero-head">
+    <div class="hero-title">
       <p class="eyebrow">${mark(16)} ${esc(h.eyebrow)}</p>
       <h1>${esc(h.pitch)}</h1>
+    </div>
+    <div class="hero-copy">
       <p class="hero-sub">${esc(h.sub)}</p>
       <div class="cta-row">
         <a class="btn btn-primary" href="${href(lang, '/install/')}">${esc(h.ctaStart)}${icon.arrow(15)}</a>
-        <a class="btn btn-ghost" href="${url('/playground/')}">${icon.play(13)}${esc(h.ctaTry)}</a>
+        <a class="btn btn-ghost" href="#demo-video">${icon.play(13)}${esc(h.ctaVideo)}</a>
       </div>
       <p class="hero-privacy">${icon.lock(14)} ${esc(h.privacy)}</p>
-      <nav class="spectrum" aria-label="${esc(s.nav.types)}">${spectrum}</nav>
     </div>
-    <figure class="hero-media">
-      <div class="video-frame">
-        <video src="${DEMO_VIDEO}" controls muted playsinline preload="metadata" aria-label="${esc(h.videoCaption)}"></video>
-      </div>
-      <figcaption>${esc(h.videoCaption)} <a href="${DEMO_VIDEO}" rel="noopener">${esc(h.videoFallback)}</a></figcaption>
-    </figure>
   </div>
+  <p class="wrap stage-hint">${esc(h.stage.hint)}</p>
 </section>
+
+${liveStage(lang)}
 
 <section class="band" id="how">
   <div class="wrap">
-    <p class="kicker">${esc(h.loopKicker)}</p>
-    <h2 class="section-title">${esc(h.loopTitle)}</h2>
-    <p class="section-lead">${esc(h.loopLead)}</p>
+    <div class="how-head">
+      <div>
+        <p class="kicker">${esc(h.loopKicker)}</p>
+        <h2 class="section-title">${esc(h.loopTitle)}</h2>
+        <p class="section-lead">${esc(h.loopLead)}</p>
+      </div>
+      <figure class="how-video" id="demo-video">
+        <div class="video-frame">
+          <video src="${DEMO_VIDEO}" controls muted playsinline preload="metadata" aria-label="${esc(h.videoCaption)}"></video>
+        </div>
+        <figcaption>${esc(h.videoCaption)} <a href="${DEMO_VIDEO}" rel="noopener">${esc(h.videoFallback)}</a></figcaption>
+      </figure>
+    </div>
     ${loopDiagram(lang)}
   </div>
 </section>

@@ -10,7 +10,7 @@
 // the page.
 //
 // Each demo opens at its own page, `<base><demo>/`; ROUTES=query opens `demo.html?type=<demo>` instead. The landing page
-// and the hint bar above each demo are checked too (`landing`).
+// and the hint bar above each demo (and its absence with `?embed=1`) are checked too (`landing`).
 //
 //   node website/playground/scripts/verify.mjs [base URL, default http://127.0.0.1:5190/]
 //   ONLY=design,page node website/playground/scripts/verify.mjs   # some demos only
@@ -591,6 +591,14 @@ async function landing(browser) {
     check('…which links to all demos and to the site', (await demo.evaluate("[...document.querySelectorAll('#pg-hint [data-pg-href]')].map(a => a.href).join(' ')")) === `${BASE.href} ${new URL('../', BASE).href}`);
   } finally {
     await demo.close();
+  }
+  // The site's home page frames a demo at `?embed=1` and says what it is itself: the Shell alone.
+  const sep = demoUrl('slides').includes('?') ? '&' : '?';
+  const embed = await browser.load(`${demoUrl('slides')}${sep}embed=1`, { ready: "document.querySelector('iframe[name=open-artifact-shell]')", timeout: 30000, settle: 1500 });
+  try {
+    check('a demo page opened with embed=1 has no hint bar', await embed.evaluate("getComputedStyle(document.getElementById('pg-hint')).display === 'none' && document.getElementById('root').getBoundingClientRect().top === 0"));
+  } finally {
+    await embed.close();
   }
   if (process.env.ROUTES !== 'query') {
     const legacy = await browser.load(new URL('demo.html?type=whiteboard', BASE).href, { ready: "document.querySelector('iframe[name=open-artifact-shell]')", timeout: 30000, settle: 1500 });

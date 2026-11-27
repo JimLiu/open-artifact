@@ -242,7 +242,8 @@ artifact apps keep their ad hoc outer signatures. See `apps/desktop/RELEASING.md
 (EN/zh-CN) from the repo's markdown. `playground/` runs the real Shell (`packages/shell` sources) and the real prebuilt
 editors over an in-memory capability backend with a scripted agent, and the Docs host and Sheets store from
 `packages/type-server` are bundled for the browser (`playground/engines/`). Each demo is a static page at
-`/playground/<type>/`. See `website/README.md`.
+`/playground/<type>/`; the site's home page frames them (`?embed=1`, loaded after the page itself) in a tabbed stage.
+See `website/README.md`.
 
 ## Agent tools & wake loop
 

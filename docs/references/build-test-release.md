@@ -153,8 +153,8 @@ checks the separate desktop-update controls, saved preferences and test-mode ref
 `playground/` (Vite) each have their own `package.json` and lockfile. The playground copies the editors and the
 frame-host client that the root `npm run build` produced and bundles the Docs/Sheets engines with the root esbuild.
 `node website/build.mjs` builds both into `website/dist/` (site at the root, playground under `playground/`; `SITE_BASE`,
-`SITE_URL`); `cd website && npm run verify` checks every internal link and runs the playground's headless-Chrome checks
-against it. See `website/README.md`.
+`SITE_URL`); `cd website && npm run verify` checks every internal link, the home page's live stage (which frames the
+demos) and the playground's headless-Chrome checks against it. See `website/README.md`.
 
 ## Releasing
 

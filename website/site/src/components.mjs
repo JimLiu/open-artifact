@@ -11,6 +11,7 @@ export const playground = (id) => url(`/playground/${id}/`);
 
 export const betaBadge = (lang) => `<span class="badge-beta">${esc(t(lang).beta)}</span>`;
 
+/** A type's card. On a page with the live stage (home), "Try it live" shows the demo there (`data-stage-demo`). */
 export function typeCard(ty, lang) {
   const s = t(lang);
   return `<article class="type-card" style="${typeStyle(ty)}">
@@ -21,7 +22,7 @@ export function typeCard(ty, lang) {
   </a>
   <div class="type-card-foot">
     <span class="type-exports">${ty.exports.length ? ty.exports.map(esc).join(' · ') : '&nbsp;'}</span>
-    <a class="type-try" href="${playground(ty.id)}">${esc(s.tryLive)}${icon.arrow(13)}</a>
+    <a class="type-try" href="${playground(ty.id)}" data-stage-demo="${ty.id}">${esc(s.tryLive)}${icon.arrow(13)}</a>
   </div>
 </article>`;
 }

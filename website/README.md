@@ -8,7 +8,7 @@ is not an npm workspace and is not part of the repo's `npm test`. Each half has 
 | [`site/`](site/README.md) | The static site, EN and zh-CN (`/zh/…`). A plain Node build script renders the pages, and the docs are read from `../docs` at build time. It also produces `/llms.txt`, `/llms-full.txt`, `/llms/<repo path>`, the sitemap, robots.txt and `404.html`. |
 | `playground/` | The live demos. The real Shell (`packages/shell`, built with Vite) runs the real prebuilt editors over an in-memory backend, with a scripted simulated agent. The Docs and Sheets demos run the real engines in the page ([`engines/`](playground/engines/README.md)). |
 | `build.mjs` | Builds both halves into `dist/`: the site at the root and the playground under `playground/`. |
-| `scripts/` | `serve.mjs` (a static server that behaves like a host), `check-links.mjs` (internal links and anchors), and `verify.mjs` (link check plus the playground's browser checks against `dist/`). |
+| `scripts/` | `serve.mjs` (a static server that behaves like a host), `check-links.mjs` (internal links and anchors), `verify-home.mjs` (the home page's live stage, in headless Chrome), and `verify.mjs` (the link check, the home page's checks and the playground's browser checks against `dist/`). |
 
 ## Prerequisites
 
@@ -28,11 +28,26 @@ cd website/playground && npm run dev        # http://127.0.0.1:5190; landing at 
 cd website/playground && npm run typecheck  # tsc strict over src/, pages.ts, vite.config.ts and the engines
 ```
 
-The playground's landing page takes the type colors, icons and mark from `site/src/` and copies the site's tokens
-(`playground/src/landing/landing.css`), so it matches the site. Its language follows the site's `oa-lang` choice, then
+The playground's landing page takes the type colors, icons, mark and each demo's one-line description
+(`site/src/data/demos.mjs`) from `site/src/` and copies the site's tokens (`playground/src/landing/landing.css`), so it
+matches the site. Its language follows the site's `oa-lang` choice, then
 the site's `/zh/` pages when they linked here, then the browser. The Shell inside a demo follows the browser's language,
 as the product does. Each demo page has a one-line bar above the Shell that says it is a live demo with a simulated
 agent, and links back to the demos and the site.
+
+### The home page's live stage
+
+The home page shows the demos themselves: a stage under the hero with a tab per type, each one the demo's own page in a
+frame (`/playground/<type>/?embed=1`; `embed=1` leaves out the demo's hint bar, since the home page says what it is).
+The page's HTML holds only the tabs (plain links to the demos' pages, so they work without JavaScript) and a poster.
+`site/src/assets/site.js` makes the frame after the page has loaded and the stage is near the viewport, so the page
+never waits for an editor. A narrow window (760px or less) or a data-saving connection loads nothing until someone
+presses “Load the live demo”. A loaded demo sits under a veil until someone clicks in, so the wheel stays with the page
+while scrolling past; a press outside the stage, Escape, or scrolling away gives it back. The last three demos shown
+stay loaded, with what was done in them. “Try it live” on a type card shows that demo in the stage.
+
+The stage needs the playground on the same origin, so it only shows demos in the combined build
+(`node website/build.mjs`, then `npm run serve`). Under `site`'s own dev server there is no `/playground/`.
 
 Every demo opens at `/playground/<type>/`, which is a real HTML page, so deep links work on any static host.
 `demo.html?type=<type>` still works too.
@@ -50,7 +65,7 @@ prebuilt editors and the Sheets engine's `.wasm`. `SITE_BASE` sets the sub-path 
 `site/` or `playground/`). The standalone playground uses a relative base, so it works from any path.
 
 ```bash
-cd website && npm run verify  # check links and anchors, then run 187 browser checks against dist/ (needs Chrome)
+cd website && npm run verify  # check links and anchors, then the home page's stage and every demo in Chrome, against dist/
 npm run serve                 # serve dist/ at http://127.0.0.1:4330/
 ```
 

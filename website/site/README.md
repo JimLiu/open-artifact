@@ -36,6 +36,7 @@ preview.
 | `src/layout.mjs` | The page shell: head, header, language switch, and footer. |
 | `src/components.mjs` | Type cards, install tabs, and copyable commands. |
 | `src/data/types.mjs` | The 9 artifact types: colors, features, file tree, exports, and prompts. |
+| `src/data/demos.mjs` | The playground's demos: each one's line (the playground's landing page reads it too) and the tab order of the home page's live stage. |
 | `src/data/apps.mjs` | Install steps for each agent app, taken from `plugins/*/README.md`. |
 | `src/data/docs-manifest.mjs` | Which repository markdown becomes which `/docs/` route, and the sidebar groups. |
 | `src/markdown.mjs` | Markdown rendering, heading slugs, link rewriting, and highlighting. |
@@ -66,4 +67,6 @@ with `artifact-types/<type>/artifact-type.json` and `docs/types/<type>.md`.
 
 `dist/` contains `index.html` and `zh/index.html`, then `types/`, `install/` and `docs/` for both languages. It also
 has `404.html`, `assets/`, `llms*`, `robots.txt`, `.nojekyll`, and the favicons. `/playground/` is not built
-here: `node ../build.mjs` builds this site and the playground (`../playground`) together into `../dist/`.
+here: `node ../build.mjs` builds this site and the playground (`../playground`) together into `../dist/`. The home
+page's live stage frames `/playground/<type>/?embed=1`, so it shows demos only in that combined build (see
+[`../README.md`](../README.md)).
