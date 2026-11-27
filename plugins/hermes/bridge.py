@@ -43,7 +43,7 @@ class Bridge:
     """
 
     def __init__(self, harness: str, hello: dict, handlers: dict[str, Callable[[dict], Any]],
-                 on_notify: Callable[[str, dict], None], cli: Optional[str] = None,
+                 on_notify: Callable[[str, dict], None], cli: Optional[str | list[str]] = None,
                  env: Optional[dict] = None):
         self.harness = harness
         self._hello = hello
@@ -63,7 +63,12 @@ class Bridge:
     # ---- lifecycle ----
 
     def command(self) -> list[str]:
-        base = shlex.split(self._cli) if self._cli else [shutil.which("open-artifact") or "open-artifact"]
+        if isinstance(self._cli, str):
+            base = shlex.split(self._cli)  # OPEN_ARTIFACT_CLI: a command line
+        elif self._cli:
+            base = list(self._cli)  # the runtime the plugin folder carries: [node, script]
+        else:
+            base = [shutil.which("open-artifact") or "open-artifact"]
         return base + ["harness", "--stdio", "--harness", self.harness]
 
     @property

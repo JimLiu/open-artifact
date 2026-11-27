@@ -24,6 +24,8 @@ import contextlib
 import json
 import logging
 import os
+import re
+import shutil
 import tempfile
 import threading
 import time
@@ -42,7 +44,26 @@ HARNESS = os.environ.get("OPEN_ARTIFACT_HERMES_HARNESS", "hermes")
 TOOLSET = "open_artifact"
 TOOL_NAMES = ("Artifact", "ArtifactData", "ArtifactComments")
 AGENT_NAME = os.environ.get("OPEN_ARTIFACT_HERMES_AGENT_NAME") or "Hermes"
-VERSION = "0.17.0"
+
+
+def _plugin_version() -> str:
+    """The version in ``plugin.yaml``, the one place it is kept (raised with the repository's at a release)."""
+    try:
+        found = re.search(r"^version:\s*['\"]?([^'\"\s]+)", (PLUGIN_DIR / "plugin.yaml").read_text(encoding="utf-8"), re.M)
+    except OSError:
+        found = None
+    return found.group(1) if found else "0.0.0"
+
+
+def _bundled_cli() -> Optional[list[str]]:
+    """The Open Artifact runtime this folder carries (the release's ``hermes/`` folder has it under ``skills/``), run with
+    the ``node`` on the PATH; ``None`` in a source checkout, where the ``open-artifact`` on the PATH is used."""
+    script = PLUGIN_DIR / "skills" / "open-artifact" / "scripts" / "open-artifact.mjs"
+    node = shutil.which("node")
+    return [node, str(script)] if node and script.is_file() else None
+
+
+VERSION = _plugin_version()
 SESSION_TTL_S = 7 * 24 * 3600
 SEEN_SAVE_S = 3600  # how often a session in use refreshes its saved time
 TOOL_TIMEOUT_S = 300.0
@@ -96,7 +117,7 @@ def route_of(params: dict) -> str:
 class Adapter:
     """The adapter state shared by the tools, the hooks and the bridge's calls."""
 
-    def __init__(self, ctx: Any, *, cli: Optional[str] = None, data_dir: Optional[Path] = None):
+    def __init__(self, ctx: Any, *, cli: Optional[str | list[str]] = None, data_dir: Optional[Path] = None):
         self.ctx = ctx
         self.data_dir = Path(data_dir) if data_dir else _data_dir()
         self.sessions_file = self.data_dir / "sessions.json"
@@ -122,7 +143,7 @@ class Adapter:
                         "policy": {"artifacts": "home"}},
         }
         self.bridge = Bridge(HARNESS, hello, {"wake.deliver": self.on_wake}, self.on_notify,
-                             cli=cli or os.environ.get("OPEN_ARTIFACT_CLI"))
+                             cli=cli or os.environ.get("OPEN_ARTIFACT_CLI") or _bundled_cli())
 
     # ---- sessions ----
 

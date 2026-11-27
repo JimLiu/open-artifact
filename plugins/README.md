@@ -82,7 +82,9 @@ install `omp-open-artifact` from npm directly (`omp plugin install npm:omp-open-
 
 `hermes/` is a Hermes Agent plugin in Python (standard library only) that runs `open-artifact harness --stdio`.
 Hermes loads it from `~/.hermes/plugins/open-artifact` as it is: there is nothing to build, and it is copied into
-`dist/plugins/hermes/` with the skill like the other folders.
+`dist/plugins/hermes/` with the skill like the other folders. It runs the runtime that skill carries
+(`skills/open-artifact/scripts/open-artifact.mjs`, with the `node` on the PATH), and the `open-artifact` on the PATH
+when the folder has none (a source checkout).
 
 ## Use a server instead of this computer
 

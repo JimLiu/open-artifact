@@ -8,19 +8,21 @@
 
 ## 安装
 
-需要支持插件的 Hermes Agent、Python 3.9 及以上，以及 Open Artifact 命令行（`open-artifact`，用 `npm install -g @open-artifact/cli` 安装；也可以用 `OPEN_ARTIFACT_CLI` 指定别的运行方式）。
+需要支持插件的 Hermes Agent、Python 3.9 及以上、Node.js 22.18 及以上。发布包 `open-artifact-plugins.zip` 里的 `hermes/` 文件夹自带 Open Artifact 运行时（`skills/open-artifact/`），插件用 PATH 上的 `node` 运行它，不用再装别的。没有自带运行时的文件夹（比如源码检出里的这一个）会运行 PATH 上的 `open-artifact` 命令（`npm install -g @open-artifact/cli`）。设置了 `OPEN_ARTIFACT_CLI` 时以它为准。
 
 ```bash
-# 1. 插件：把这个文件夹复制或链接为 ~/.hermes/plugins/open-artifact
-ln -s "$PWD/plugins/hermes" ~/.hermes/plugins/open-artifact
+# 1. 插件：把解压出的 hermes/ 文件夹链接为 ~/.hermes/plugins/open-artifact
+ln -s /path/to/open-artifact-plugins/hermes ~/.hermes/plugins/open-artifact
 hermes plugins enable open-artifact
 
 # 2. 允许它在 gateway 会话里发起新一轮（页面上的评论要用到）
 hermes config set plugins.entries.open-artifact.allow_gateway_injection true
 
-# 3. 按 Hermes 原生工具渲染的 skill
-open-artifact skill install --command open-artifact --dir ~/.hermes/skills --harness hermes
+# 3. 按 Hermes 原生工具渲染的 skill，用文件夹自带的运行时
+node ~/.hermes/plugins/open-artifact/skills/open-artifact/scripts/open-artifact.mjs skill install --command open-artifact --dir ~/.hermes/skills --harness hermes
 ```
+
+从源码检出安装时，改为链接 `plugins/hermes`，第 3 步用同样的参数运行 `open-artifact skill install …`。
 
 正在运行的 gateway 在插件启用时就会加载它；启用前已经开着的会话，从下一个会话起才看到这些工具。不做第 2 步，工具照样能用，评论会等到会话的下一轮。
 
@@ -47,7 +49,7 @@ daemon 给 Hermes 用的 profile 是 `packages/daemon/harnesses/hermes.json`（h
 
 工具用 Hermes 的会话 key（`HERMES_SESSION_KEY`，gateway、TUI 和 ACP 会话会设置）标识会话。经典 CLI 会话没有 key，工具改用它的会话 id。
 
-可选设置：`OPEN_ARTIFACT_CLI`（怎样运行命令行，例如 `npx @open-artifact/cli`）、`OPEN_ARTIFACT_HERMES_AGENT_NAME`（Shell 里怎么称呼这个 agent，默认 `Hermes`）、`OPEN_ARTIFACT_HERMES_DATA`（会话记录放在哪里）、`OPEN_ARTIFACT_HERMES_DISABLE`（什么也不加载）。检查一个会话：`open-artifact doctor --harness hermes --session <会话 key 或 id>`。
+可选设置：`OPEN_ARTIFACT_CLI`（不用文件夹自带的运行时，改用别的方式运行命令行，例如 `npx @open-artifact/cli`）、`OPEN_ARTIFACT_HERMES_AGENT_NAME`（Shell 里怎么称呼这个 agent，默认 `Hermes`）、`OPEN_ARTIFACT_HERMES_DATA`（会话记录放在哪里）、`OPEN_ARTIFACT_HERMES_DISABLE`（什么也不加载）。检查一个会话：`open-artifact doctor --harness hermes --session <会话 key 或 id>`。
 
 ## 已知限制
 

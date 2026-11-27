@@ -13,20 +13,25 @@ over `open-artifact harness --stdio --harness hermes`, the path for hosts that a
 
 ## Install
 
-Hermes Agent with plugin support, Python 3.9 or later, and the Open Artifact command line (`open-artifact`, from
-`npm install -g @open-artifact/cli`, or point `OPEN_ARTIFACT_CLI` at another way to run it).
+Hermes Agent with plugin support, Python 3.9 or later, and Node.js 22.18 or later. The `hermes/` folder in the
+release's `open-artifact-plugins.zip` carries the Open Artifact runtime (`skills/open-artifact/`), and the plugin runs
+it with the `node` on the PATH, so nothing else needs installing. A folder without it (this one, in a source checkout)
+runs the `open-artifact` command on the PATH (`npm install -g @open-artifact/cli`). `OPEN_ARTIFACT_CLI` overrides both.
 
 ```bash
-# 1. The plugin: copy or link this folder as ~/.hermes/plugins/open-artifact
-ln -s "$PWD/plugins/hermes" ~/.hermes/plugins/open-artifact
+# 1. The plugin: link the extracted hermes/ folder as ~/.hermes/plugins/open-artifact
+ln -s /path/to/open-artifact-plugins/hermes ~/.hermes/plugins/open-artifact
 hermes plugins enable open-artifact
 
 # 2. Let it start turns in gateway sessions (comments from the page do that)
 hermes config set plugins.entries.open-artifact.allow_gateway_injection true
 
-# 3. The skill, rendered for Hermes's native tools
-open-artifact skill install --command open-artifact --dir ~/.hermes/skills --harness hermes
+# 3. The skill, rendered for Hermes's native tools, with the runtime the folder carries
+node ~/.hermes/plugins/open-artifact/skills/open-artifact/scripts/open-artifact.mjs skill install --command open-artifact --dir ~/.hermes/skills --harness hermes
 ```
+
+From a source checkout, link `plugins/hermes` instead and run step 3 as `open-artifact skill install …` with the
+same arguments.
 
 A running gateway picks the plugin up when it is enabled; sessions opened before that see the tools from their next
 session on. Without step 2 the tools still work, and comments wait for the session's next turn.
@@ -61,7 +66,7 @@ the commands that are the person's (publishing, sites) refuse to run there.
 The tools name a session by its Hermes session key (`HERMES_SESSION_KEY`, which the gateway, the TUI and ACP sessions
 set). A classic CLI session has no key, and the tools use its session id instead.
 
-Settings, all optional: `OPEN_ARTIFACT_CLI` (how to run the command line, e.g. `npx @open-artifact/cli`),
+Settings, all optional: `OPEN_ARTIFACT_CLI` (how to run the command line instead of the runtime the folder carries, e.g. `npx @open-artifact/cli`),
 `OPEN_ARTIFACT_HERMES_AGENT_NAME` (what the Shell calls the agent, default `Hermes`), `OPEN_ARTIFACT_HERMES_DATA`
 (where it keeps its sessions), `OPEN_ARTIFACT_HERMES_DISABLE` (load nothing). To check a session, run
 `open-artifact doctor --harness hermes --session <session key or id>`.

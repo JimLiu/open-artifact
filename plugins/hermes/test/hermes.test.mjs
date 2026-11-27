@@ -10,7 +10,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
@@ -58,6 +58,43 @@ print(json.dumps({"harness": m.HARNESS, "hello": a.bridge._hello}))
     assert.deepEqual(hello.profile.policy, shipped.policy);
     assert.deepEqual(hello.caps.wake, shipped.caps.wake);
     assert.equal(hello.caps.tools, shipped.caps.tools);
+    // plugin.yaml keeps the version (raised with the others at a release); the hello reports that one.
+    const { version } = JSON.parse(readFileSync(join(repo, 'packages', 'daemon', 'package.json'), 'utf8'));
+    assert.equal(readFileSync(join(plugin, 'plugin.yaml'), 'utf8').match(/^version:\s*(\S+)/m)?.[1], version, 'raise plugins/hermes/plugin.yaml with the release');
+    assert.equal(hello.kit.version, version);
+  });
+
+  // 2026-11-27: the release's hermes/ folder carries the runtime, but the plugin ran only the `open-artifact` on the
+  // PATH, so a folder installed as the README says answered every tool call `unavailable`.
+  it('runs the runtime its folder carries, else the one on the PATH, unless OPEN_ARTIFACT_CLI says otherwise', { skip: skip ?? false }, () => {
+    const folder = mkdtempSync(join(tmpdir(), 'oa-hermes-cli-'));
+    for (const file of ['__init__.py', 'bridge.py', 'plugin.yaml']) writeFileSync(join(folder, file), readFileSync(join(plugin, file)));
+    const command = (env) => {
+      const run = spawnSync('python3', ['-c', `
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location("oa_hermes", sys.argv[1] + "/__init__.py", submodule_search_locations=[sys.argv[1]])
+m = importlib.util.module_from_spec(spec); sys.modules["oa_hermes"] = m; spec.loader.exec_module(m)
+print(json.dumps(m.Adapter(object(), data_dir=sys.argv[2]).bridge.command()))
+`, folder, join(folder, 'data')], { encoding: 'utf8', env: { ...process.env, OPEN_ARTIFACT_CLI: '', PYTHONDONTWRITEBYTECODE: '1', ...env } });
+      assert.equal(run.status, 0, run.stderr);
+      return JSON.parse(run.stdout);
+    };
+    try {
+      const tail = ['harness', '--stdio', '--harness', 'hermes'];
+      const onPath = command();
+      assert.match(onPath[0], /open-artifact$/);
+      assert.deepEqual(onPath.slice(1), tail);
+      const script = join(folder, 'skills', 'open-artifact', 'scripts', 'open-artifact.mjs');
+      mkdirSync(dirname(script), { recursive: true });
+      writeFileSync(script, '');
+      const carried = command();
+      assert.match(carried[0], /node(\.exe)?$/);
+      assert.equal(realpathSync(carried[1]), realpathSync(script));
+      assert.deepEqual(carried.slice(2), tail);
+      assert.deepEqual(command({ OPEN_ARTIFACT_CLI: 'npx @open-artifact/cli' }), ['npx', '@open-artifact/cli', ...tail]);
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
   });
 });
 
