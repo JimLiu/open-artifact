@@ -1254,17 +1254,33 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
     const heard = (p, text) => p.waitFor(`(document.querySelector('.wb-announcer')?.textContent ?? '').includes(${JSON.stringify(text)})`, 3000);
     const mod = process.platform === 'darwin' ? { meta: true } : { ctrl: true };
 
+    const SCENE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 240">'
+      + '<g id="sky_wash"><rect width="400" height="240" fill="#bfdbfe" fill-opacity=".5"/></g>'
+      + '<g id="green-hill"><path d="M0 240 L0 120 Q200 20 400 120 L400 240 Z" fill="#16a34a"/></g>'
+      + '<g id="sun"><circle cx="300" cy="80" r="30" fill="#facc15"/></g></svg>';
+    const writeScene = (dir, svg) => fs.writeFileSync(path.join(dir, 'db/elements/scene.json'), JSON.stringify({ type: 'image', x: 0, y: 0, w: 400, h: 240, style: 'watercolor', src: 'data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64') }));
+    const openScene = async (name) => {
+      const dir = tmpDir(name);
+      for (const sub of ['db/elements', 'db/board']) fs.mkdirSync(path.join(dir, sub), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'db/board/meta.json'), JSON.stringify({ v: 1, title: 'Layers', order: ['scene'] }));
+      writeScene(dir, SCENE_SVG);
+      const { url } = await run.json(['open', dir, '--type', 'whiteboard', '--json']);
+      return { dir, url };
+    };
+    /** Opens the scene and picks its sun with a double-click. */
+    const pickSun = async (url) => {
+      const p = await browser.load(url, { ready });
+      const img = "document.querySelector('[data-wb-id=\"scene\"] img')";
+      assert.ok(await p.waitFor(`${img}?.src.startsWith('blob:') && ${img}.naturalWidth > 0`, 15000), 'the watercolor look is painted');
+      const r = await p.evaluate(`(() => {const r = document.querySelector('[data-wb-id="scene"]').getBoundingClientRect(); return {x: r.x, y: r.y, w: r.width, h: r.height};})()`);
+      await p.clickTimes(r.x + (300 * r.w) / 400, r.y + (80 * r.h) / 240, 2);
+      assert.ok(await p.waitFor("document.querySelector('[data-wb-layer-frame]')", 3000), 'the sun is picked');
+      return { p, img };
+    };
+    const center = (p, selector) => p.evaluate(`(() => {const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2];})()`);
+
     before(async () => {
-      board = tmpDir('whiteboard-layers');
-      const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 240">'
-        + '<g id="sky_wash"><rect width="400" height="240" fill="#bfdbfe" fill-opacity=".5"/></g>'
-        + '<g id="green-hill"><path d="M0 240 L0 120 Q200 20 400 120 L400 240 Z" fill="#16a34a"/></g>'
-        + '<g id="sun"><circle cx="300" cy="80" r="30" fill="#facc15"/></g></svg>';
-      const elements = { scene: { type: 'image', x: 0, y: 0, w: 400, h: 240, style: 'watercolor', src: 'data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64') } };
-      for (const sub of ['db/elements', 'db/board']) fs.mkdirSync(path.join(board, sub), { recursive: true });
-      fs.writeFileSync(path.join(board, 'db/board/meta.json'), JSON.stringify({ v: 1, title: 'Layers', order: Object.keys(elements) }));
-      for (const [id, el] of Object.entries(elements)) fs.writeFileSync(path.join(board, 'db/elements', id + '.json'), JSON.stringify(el));
-      ({ url: boardUrl } = await run.json(['open', board, '--type', 'whiteboard', '--json']));
+      ({ dir: board, url: boardUrl } = await openScene('whiteboard-layers'));
     });
     after(async () => { await run?.run(['stop', board]); });
 
@@ -1317,6 +1333,65 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
         assert.ok(await until(() => !/opacity='0'/.test(svgOf())), 'undo shows the layer again');
         assert.deepEqual(p.problems, []);
       } finally { await p.close(); }
+    });
+
+    it('undoes a layer move on that layer alone, keeping a change made on disk since', async () => {
+      const { dir, url } = await openScene('whiteboard-layer-undo');
+      const read = () => {
+        const src = JSON.parse(fs.readFileSync(path.join(dir, 'db/elements/scene.json'))).src;
+        const comma = src.indexOf(',');
+        return src.slice(0, comma).endsWith(';base64') ? Buffer.from(src.slice(comma + 1), 'base64').toString() : decodeURIComponent(src.slice(comma + 1));
+      };
+      const order = () => [...read().matchAll(/<g\b[^>]*?\bid=["']([^"']+)/g)].map(m => m[1]).join();
+      const { p, img } = await pickSun(url);
+      try {
+        await p.click(...await center(p, '[data-wb-layer-action="backward"]'));
+        assert.ok(await until(() => order() === 'sky_wash,sun,green-hill'), `saved order ${order()}`);
+        await p.evaluate(`window.__beforeDisk = ${img}.src`);
+        // Another hand hides the sky on disk while the move is the page's last step.
+        writeScene(dir, read().replace('<g id="sky_wash">', `<g opacity='0' id="sky_wash">`));
+        assert.ok(await p.waitFor(`${img}.src !== window.__beforeDisk && ${img}.src.startsWith('blob:')`, 15000), 'the page shows the change from disk');
+        await p.evaluate('document.activeElement?.blur()');
+        await p.press('z', mod);
+        assert.ok(await until(() => order() === 'sky_wash,green-hill,sun'), `undone order ${order()}`);
+        assert.match(read(), /<g opacity='0' id="sky_wash">/, 'the sky hidden on disk stays hidden');
+        await p.press('z', { ...mod, shift: true });
+        assert.ok(await until(() => order() === 'sky_wash,sun,green-hill'), `redone order ${order()}`);
+        assert.match(read(), /<g opacity='0' id="sky_wash">/);
+        assert.deepEqual(p.problems, []);
+      } finally {
+        await p.close();
+        await run.run(['stop', dir]);
+      }
+    });
+
+    it('goes back to the picked layer with Escape from the layer buttons, and to the drawing after Hide', async () => {
+      const { dir, url } = await openScene('whiteboard-layer-escape');
+      const { p } = await pickSun(url);
+      const onBoard = "document.activeElement?.classList.contains('wb-surface') === true";
+      try {
+        await p.click(...await center(p, '[data-wb-layer-action="backward"]'));
+        assert.ok(await p.waitFor("document.activeElement?.closest('[data-wb-region=\"selection\"]') != null", 3000), 'Move keeps the keyboard on its button');
+        await p.evaluate("document.querySelector('.wb-announcer').textContent = ''");
+        await p.press('Escape');
+        assert.ok(await p.waitFor(onBoard, 3000), 'Escape goes back to the board');
+        assert.ok(await p.waitFor("!!document.querySelector('[data-wb-layer-frame]')", 3000), 'the layer stays picked');
+        assert.ok(await heard(p, 'Sun\u2069, layer 2 of 3, selected'), 'the picked layer is said again');
+        await p.press('Escape');
+        assert.ok(await p.waitFor("!document.querySelector('[data-wb-layer-frame]') && !!document.querySelector('.wb-sel-frame')", 3000), 'a second Escape ends picking, keeping the drawing selected');
+
+        await p.press('Enter');
+        assert.ok(await p.waitFor("!!document.querySelector('[data-wb-layer-action=\"hide\"]')", 3000));
+        await p.click(...await center(p, '[data-wb-layer-action="hide"]'));
+        assert.ok(await p.waitFor("!document.querySelector('[data-wb-layer-frame]')", 3000), 'Hide ends picking');
+        assert.ok(await p.waitFor(onBoard, 3000), 'Hide sends the keyboard back to the drawing');
+        await p.press('Escape');
+        assert.ok(await p.waitFor("!document.querySelector('.wb-sel-frame')", 3000), 'Escape on the board clears the selection');
+        assert.deepEqual(p.problems, []);
+      } finally {
+        await p.close();
+        await run.run(['stop', dir]);
+      }
     });
   });
 });

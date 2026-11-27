@@ -55,6 +55,7 @@ export * from './drawn-svg/restyle.ts';
 export * from './drawn-svg/contrast.ts';
 export * from './drawn-svg/looks.ts';
 export * from './drawn-svg/layers.ts';
+export * from './drawn-svg/layer-edits.ts';
 export * from './text/inline-markdown.ts';
 export * from './text/note-markdown.ts';
 export * from './text/text-arrows.ts';

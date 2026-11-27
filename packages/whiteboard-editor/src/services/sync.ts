@@ -62,6 +62,7 @@ import { installUndoHandler, redo, undo } from './commands.ts';
 import { session } from './session.ts';
 import { onShellCommand, setShellReport, useShellDraws } from './shell.ts';
 import { boardScope } from './storage-scope.ts';
+import { setLayerHistory } from './drawing-layers.ts';
 import { flushTableCell, setTableEditor } from './table-edits.ts';
 
 /** Longest pause between keyboard edits or follow-up corrections that still merge. */
@@ -274,7 +275,7 @@ export function startSync(options: SyncOptions = {}): () => void {
       announce(message);
     },
   });
-  /** Ends the open run and the agent's answer, so a table step lands after them. */
+  /** Ends the open run and the agent's answer, so a table or layer step lands after them. */
   const beforeTableEdit = (): void => {
     open = null;
     closeAnswer();
@@ -296,6 +297,9 @@ export function startSync(options: SyncOptions = {}): () => void {
     flushTableCell();
     setTableEditor(null);
   });
+  // Layer edits record steps of their own too (undoing one takes back only that layer).
+  setLayerHistory({ begin: beforeTableEdit, seed: (step) => history.seed(step) });
+  stops.push(() => setLayerHistory(null));
 
   /**
    * Records a local edit as a step, merging it into the open run when the

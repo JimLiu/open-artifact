@@ -112,6 +112,12 @@ export function focusBoardHome(): void {
   document.querySelector<HTMLElement>('.wb-surface')?.focus({ preventScroll: true });
 }
 
+/** Whether a DOM node is in the selection's bar. */
+export function isInSelectionBar(node: EventTarget | null | undefined): boolean {
+  if (typeof Element === 'undefined' || !(node instanceof Element)) return false;
+  return node.closest('[data-wb-region="selection"]') !== null;
+}
+
 /** Runs a stopped embed again: selects it alone, keeps the keyboard on the board, and says so. */
 export function runEmbedAgain(id: ElementId): void {
   useSelection.getState().select([id]);

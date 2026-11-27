@@ -279,6 +279,15 @@ export function setDrawingLayerHidden(svg: string, ref: LayerRef, hidden: boolea
   return checkLayeredSvg(next, ids);
 }
 
+/** Where the root `<svg>`'s content starts (after its start tag); 0 when the text does not read. */
+export function drawingBodyStart(svg: string): number {
+  let start = 0;
+  walkTags(svg, (tag) => {
+    if (tag.depth === 0) start = tag.open;
+  });
+  return start;
+}
+
 /**
  * The drawing with only one layer (shown, even when hidden) and its
  * `<defs>`, for a thumbnail; `undefined` when it has no such layer.
@@ -288,11 +297,8 @@ export function drawingLayerAlone(svg: string, ref: LayerRef): string | undefine
   if (isLayerEditRefusal(shown)) return undefined;
   const own = findDrawingLayer(shown, ref);
   const parts = topParts(shown);
-  let rootEnd = 0;
-  walkTags(shown, (tag) => {
-    if (tag.depth === 0) rootEnd = tag.open;
-  });
   if (own === undefined || parts === undefined) return undefined;
+  const rootEnd = drawingBodyStart(shown);
   const defs = parts.filter((part) => part.name === 'defs').map((part) => shown.slice(part.from, part.to));
   return shown.slice(0, rootEnd) + defs.join('') + shown.slice(own.from, own.to) + '</svg>';
 }

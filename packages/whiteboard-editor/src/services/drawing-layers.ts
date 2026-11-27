@@ -4,7 +4,9 @@
  * selected drawing picks the layer there; while one is picked, presses on
  * the drawing switch layers, a press elsewhere ends picking, and the layer
  * can be moved, hidden and shown. The pick lives in the selection store
- * (`layer`); edits rewrite the drawing's SVG as one undo step.
+ * (`layer`). An edit rewrites the drawing's SVG and records an undo step
+ * of its own that undoes and redoes only that layer, so changes made to
+ * the drawing meanwhile stay.
  */
 
 import { useMemo } from 'react';
@@ -20,22 +22,27 @@ import {
   imageDrawingLook,
   isElementLocked,
   isLayerEditRefusal,
+  layerMoveEdit,
+  layerVisibilityEdit,
   moveDrawingLayer,
   normalizeImageSource,
   overlappingDrawingLayer,
-  setDrawingLayerHidden,
   svgToBase64DataUrl,
   topDrawingLayerHit,
   type BoardElement,
   type DrawingLayer,
+  type DrawingLayerEdit,
   type DrawingLayerShapes,
   type ElementId,
+  type HistoryStep,
   type ImageElement,
   type LayerBox,
+  type LayerDestination,
   type LayerEditRefusal,
   type LayerRef,
   type LayerShapes,
 } from '@open-artifact/whiteboard-core';
+import { focusBoardHome, isInSelectionBar } from '../elements/embed-control.ts';
 import type { Point } from '../lib/camera.ts';
 import {
   LAYER_EDIT_LABELS,
@@ -229,6 +236,14 @@ export function leaveLayer(): boolean {
   return true;
 }
 
+/** Says which layer is picked (as picking it does); `false` when none is. */
+export function sayPickedLayer(): boolean {
+  const picked = pickedDrawingLayer();
+  if (picked === undefined) return false;
+  announce(layerSelectedMessage(picked.layer.name, picked.nth, picked.of));
+  return true;
+}
+
 /** Picks a listed layer; a hidden one is shown first. */
 export function chooseLayer(ref: LayerRef, element: BoardElement | undefined = selectedDrawing()): boolean {
   const drawing = enterable(element);
@@ -283,6 +298,20 @@ export function rightClickWhilePicked(point: Point): void {
 /** A layer action from the toolbar, menus or keys. */
 export type LayerAction = LayerStep | 'hide';
 
+/** Where layer edits record their undo steps (installed by sync). */
+export interface LayerHistory {
+  /** Called before an edit writes, so earlier open steps end first. */
+  begin(): void;
+  seed(step: HistoryStep): void;
+}
+
+let layerHistory: LayerHistory | null = null;
+
+/** Installs (or, with `null`, removes) where layer edits record their steps. */
+export function setLayerHistory(next: LayerHistory | null): void {
+  layerHistory = next;
+}
+
 /** When this page last wrote a layer edit that may not be saved yet. */
 let wroteAt: number | undefined;
 let lastRefusal: { why: string; at: number } = { why: '', at: Number.NEGATIVE_INFINITY };
@@ -304,23 +333,50 @@ export function layerEditBlocked(): string | undefined {
   return why === undefined ? undefined : LAYER_MESSAGES.refused[why];
 }
 
-/** Rewrites a drawing's SVG as one undo step; the new SVG, or `false` when refused or unchanged. */
-function editDrawing(id: ElementId, label: string, change: (svg: string) => string | LayerEditRefusal): string | false {
+/** Writes `change` of the drawing `id`'s SVG without a step of the board's own: the new SVG, `false` when unchanged, or why not. */
+function writeDrawing(id: ElementId, change: (svg: string) => string | LayerEditRefusal): string | LayerEditRefusal | false {
+  const element = useBoard.getState().byId.get(id);
+  const svg = element?.type === 'image' ? decodeSvgDataUrl(element.src, true) : undefined;
+  if (element === undefined || svg === undefined) return 'gone';
+  const next = change(svg);
+  if (isLayerEditRefusal(next)) return next;
+  if (next === svg) return false;
+  const src = normalizeImageSource(svgToBase64DataUrl(next));
+  if (src === undefined) return 'long';
+  if (!patchElements([id], (item) => (item === element ? { ...element, src } : item), { history: false })) return 'gone';
+  wroteAt = now();
+  return next;
+}
+
+/** A layer edit may run now; says why not when it can't. */
+function layerEditAllowed(): boolean {
+  const wait = waitNow();
+  if (wait !== undefined) refuseLayer(wait);
+  return wait === undefined;
+}
+
+/** Makes a layer edit and records its step; the new SVG, or `false` when refused or unchanged. */
+function editDrawing(id: ElementId, label: string, edit: DrawingLayerEdit): string | false {
   const element = useBoard.getState().byId.get(id);
   if (element === undefined) return refuseLayer('gone');
   if (isElementLocked(element)) return refuse(LOCKED_MESSAGE);
-  const drawing = layeredDrawing(element);
-  if (drawing === undefined) return refuseLayer('gone');
-  const wait = waitNow();
-  if (wait !== undefined) return refuseLayer(wait);
-  const next = change(drawing.svg);
+  if (layeredDrawing(element) === undefined) return refuseLayer('gone');
+  if (!layerEditAllowed()) return false;
+  layerHistory?.begin();
+  const next = writeDrawing(id, (svg) => edit.apply(svg));
+  if (next === false) return false;
   if (isLayerEditRefusal(next)) return refuseLayer(next);
-  if (next === drawing.svg) return false;
-  const src = normalizeImageSource(svgToBase64DataUrl(next));
-  if (src === undefined) return refuseLayer('long');
-  const changed = patchElements([id], (item) => (item === element ? { ...element, src } : item), { label });
-  if (!changed) return refuseLayer('gone');
-  wroteAt = now();
+  const replay = (change: (svg: string) => string | LayerEditRefusal) => (): void => {
+    const done = writeDrawing(id, change);
+    if (done !== false && isLayerEditRefusal(done)) refuseLayer(done);
+  };
+  layerHistory?.seed({
+    label,
+    do: replay((svg) => edit.apply(svg)),
+    undo: replay((svg) => edit.revert(svg)),
+    canDo: layerEditAllowed,
+    canUndo: layerEditAllowed,
+  });
   return next;
 }
 
@@ -349,14 +405,17 @@ export function runLayerAction(action: LayerAction): boolean {
   const id = drawing.element.id;
   if (action === 'hide') {
     if (picked.of === 1) return refuseLayer('last');
-    if (editDrawing(id, LAYER_EDIT_LABELS.hide, (svg) => setDrawingLayerHidden(svg, layer, true)) === false) return false;
+    const fromBar = typeof document !== 'undefined' && isInSelectionBar(document.activeElement);
+    if (editDrawing(id, LAYER_EDIT_LABELS.hide, layerVisibilityEdit(layer, true)) === false) return false;
     useSelection.getState().pickLayer(null);
     justHid = true;
     announce(layerHiddenMessage(layer.name));
+    // The hide button goes away with the pick: the keyboard goes back to the drawing.
+    if (fromBar) focusBoardHome();
     return true;
   }
-  let to: number;
-  if (action === 'front' || action === 'back') to = action === 'front' ? drawing.layers.length - 1 : 0;
+  let to: LayerDestination;
+  if (action === 'front' || action === 'back') to = action;
   else {
     const neighbor = overlappingDrawingLayer(drawing.shapes, layer.n, action);
     if (neighbor === undefined) {
@@ -366,7 +425,7 @@ export function runLayerAction(action: LayerAction): boolean {
     to = neighbor;
   }
   const own = drawing.svg.slice(layer.from, layer.to);
-  const next = editDrawing(id, LAYER_EDIT_LABELS[action], (svg) => moveDrawingLayer(svg, layer, to));
+  const next = editDrawing(id, LAYER_EDIT_LABELS[action], layerMoveEdit(layer, to));
   if (next === false) return false;
   const moved = drawingLayersOf(next)?.find((item) => item.id === layer.id && next.slice(item.from, item.to) === own);
   if (moved !== undefined) useSelection.getState().pickLayer({ el: id, n: moved.n, id: moved.id });
@@ -376,7 +435,7 @@ export function runLayerAction(action: LayerAction): boolean {
 
 /** Shows a hidden layer and picks it. */
 function showLayer(drawing: LayeredDrawing, layer: DrawingLayer): boolean {
-  const next = editDrawing(drawing.element.id, LAYER_EDIT_LABELS.show, (svg) => setDrawingLayerHidden(svg, layer, false));
+  const next = editDrawing(drawing.element.id, LAYER_EDIT_LABELS.show, layerVisibilityEdit(layer, false));
   if (next === false) return false;
   const shown = layeredDrawing(useBoard.getState().byId.get(drawing.element.id));
   const again = shown?.shown.find((item) => item.id === layer.id && item.n === layer.n);

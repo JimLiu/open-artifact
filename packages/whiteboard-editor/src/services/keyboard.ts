@@ -43,7 +43,7 @@ import { shortcutLetter, isComposingKey } from '@open-artifact/ui/keys';
 import { isElementLocked, orderElementsForReading, tableColumnIds, tableRowIds, type BoardElement, type ElementId } from '@open-artifact/whiteboard-core';
 import { panBy, type Point } from '../lib/camera.ts';
 import { alignShortcutOf, layerOrderShortcutOf, toolShortcutOf, zoomShortcutOf } from '../lib/tools.ts';
-import { embedEnterAction, enterEmbed, focusBoardHome, runEmbedAgain } from '../elements/embed-control.ts';
+import { embedEnterAction, enterEmbed, focusBoardHome, isInSelectionBar, runEmbedAgain } from '../elements/embed-control.ts';
 import { toggleVideo } from '../elements/video-playback.ts';
 import { openLink } from './link-card.ts';
 import { describeElement } from '../elements/describe.ts';
@@ -76,7 +76,7 @@ import {
 import { NOTHING_SELECTED_MESSAGE, announce, groupSelectedMessage, selectionCountMessage, toolNameMessage } from './announce.ts';
 import { redo, undo } from './commands.ts';
 import { cancelCrop } from './crop.ts';
-import { deleteAfterHide, enterFirstLayer, holdWholeDrawing, leaveLayer, pickedDrawingLayer, runLayerAction } from './drawing-layers.ts';
+import { deleteAfterHide, enterFirstLayer, holdWholeDrawing, leaveLayer, pickedDrawingLayer, runLayerAction, sayPickedLayer } from './drawing-layers.ts';
 import { toggleSelectionMark } from './text-marks.ts';
 import { maybeSession } from './session.ts';
 import { groupKeyStep } from './group-keys.ts';
@@ -472,6 +472,19 @@ function placeWithTool(): boolean {
   }
 }
 
+/**
+ * Escape from the selection's bar goes back to the selection on the board
+ * and keeps it (and a picked layer, said again). `true` when it did.
+ */
+function escapeFromSelectionBar(target: EventTarget | null): boolean {
+  const selection = useSelection.getState();
+  if (!isInSelectionBar(target) || isTypingTarget(target) || keepsOwnEscape(target) || isChromePopupTarget(target)) return false;
+  if (selection.ids.length === 0 || selection.editing !== null || selection.cropping !== null) return false;
+  focusBoardHome();
+  sayPickedLayer();
+  return true;
+}
+
 /** Escape: leaves editing, then cropping, then the selection, then the tool or comment mode. */
 function escapeStep(): boolean {
   const selection = useSelection.getState();
@@ -734,11 +747,19 @@ export function installKeyboard(): () => void {
     if (document.visibilityState === 'hidden') onBlur();
   };
 
+  // Taken while capturing, before a tooltip open on the focused button keeps the key.
+  const onBarEscape = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape' || event.defaultPrevented || isComposingKey(event) || !useBoard.getState().revealed) return;
+    if (escapeFromSelectionBar(event.target)) event.preventDefault();
+  };
+
+  window.addEventListener('keydown', onBarEscape, true);
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('keyup', onKeyUp);
   window.addEventListener('blur', onBlur);
   document.addEventListener('visibilitychange', onVisibility);
   return () => {
+    window.removeEventListener('keydown', onBarEscape, true);
     window.removeEventListener('keydown', onKeyDown);
     window.removeEventListener('keyup', onKeyUp);
     window.removeEventListener('blur', onBlur);

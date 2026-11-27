@@ -7,7 +7,7 @@
 
 import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
-import { DRAWING_STYLES, decodeSvgDataUrl, drawingLayersOf, svgToBase64DataUrl, type Board, type ImageElement } from '@open-artifact/whiteboard-core';
+import { DRAWING_STYLES, createCommandHistory, decodeSvgDataUrl, drawingLayersOf, setDrawingLayerHidden, svgToBase64DataUrl, type Board, type ImageElement } from '@open-artifact/whiteboard-core';
 import { drawnImageSrc } from '../src/export/drawn-svg.ts';
 import {
   LAYER_UNSAVED_AFTER_MS,
@@ -29,6 +29,7 @@ import {
   pickedDrawingLayer,
   pressWhilePicked,
   runLayerAction,
+  setLayerHistory,
 } from '../src/services/drawing-layers.ts';
 import { setBoardSnapshot, useBoard } from '../src/state/board.ts';
 import { useSelection } from '../src/state/selection.ts';
@@ -221,6 +222,32 @@ describe('picking layers on the board', () => {
     assert.equal(pickedDrawingLayer(), undefined);
     useTool.getState().setCommentMode(false);
     assert.equal(pickedDrawingLayer()?.layer.id, 'sun');
+  });
+
+  it('undoes a layer edit on that layer alone, keeping what changed in the drawing since', () => {
+    const history = createCommandHistory();
+    let begun = 0;
+    setLayerHistory({ begin: () => void (begun += 1), seed: (step) => history.seed(step) });
+    try {
+      load(drawing());
+      chooseLayer({ n: 0, id: 'sky_wash' });
+      assert.equal(runLayerAction('forward'), true);
+      assert.equal(begun, 1);
+      assert.deepEqual(idsNow(), ['green-hill', 'sky_wash', 'sun', 'bird']);
+      const sunHidden = setDrawingLayerHidden(svgNow(), { n: 2, id: 'sun' }, true);
+      setBoardSnapshot({ title: 'Board', content: { elements: [drawing(sunHidden)] } }, { status: 'ready', pending: 0 });
+      history.undo();
+      assert.deepEqual(idsNow(), ['sky_wash', 'green-hill', 'sun', 'bird']);
+      assert.match(svgNow(), /<g opacity='0' id="sun">/, 'the sun someone hid since stays hidden');
+      history.redo();
+      assert.deepEqual(idsNow(), ['green-hill', 'sky_wash', 'sun', 'bird']);
+      useBoard.setState({ status: 'offline' });
+      history.undo();
+      assert.deepEqual(idsNow(), ['green-hill', 'sky_wash', 'sun', 'bird'], 'no undo while offline');
+      assert.equal(history.canUndo(), true, 'the step waits');
+    } finally {
+      setLayerHistory(null);
+    }
   });
 
   it('cannot pick a layer of a locked drawing', () => {
