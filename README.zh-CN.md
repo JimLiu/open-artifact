@@ -44,7 +44,7 @@
 | **Slides** | 1920×1080（或 4:3）的演示文稿：幻灯片栏、总览、演讲者备注、逐项动画、转场、演示模式、多边形相框 | `project/deck.json` | PDF、PPTX、HTML、PNG | [指南](docs/types/slides.zh-CN.md) · [SKILL](artifact-types/slides/SKILL.md) |
 | **Design** | 由实时 `.dc.html` 画板组成的无限画布：界面、组件、可点击原型、便签、多页面 | `project/canvas.json` | PNG、JPEG、PDF、HTML | [指南](docs/types/design.zh-CN.md) · [SKILL](artifact-types/design/SKILL.md) |
 | **Design System** | 品牌手册：设计令牌（tokens）、带对比度检查的颜色、字体样张、实时组件预览、素材。Design、Slides、Data 和 Motion 都可以安装它 | `project/design-system.json` | — | [指南](docs/types/design-system.zh-CN.md) · [SKILL](artifact-types/design-system/SKILL.md) |
-| **Whiteboard** | 多人共享的无限白板：便利贴、形状、箭头、手绘、图片、表格、嵌入网页、实时光标、计时器 | `db/board/meta.json` | PNG、GIF | [指南](docs/types/whiteboard.zh-CN.md) · [SKILL](artifact-types/whiteboard/SKILL.md) |
+| **Whiteboard** | 多人共享的无限白板：便利贴、形状、箭头、手绘、图片、表格、嵌入网页、实时光标、计时器 | `db/board/meta.json` | PNG、GIF、MP4 | [指南](docs/types/whiteboard.zh-CN.md) · [SKILL](artifact-types/whiteboard/SKILL.md) |
 | **Sheets** | 多人共享的电子表格：多工作表单元格、完整公式引擎、数字格式、边框、合并单元格、带筛选的数据表、下拉菜单、复选框、条件格式、冻结与分组行列、基于单元格的图表、CSV 导入、单元格历史 | `sheet/sheet.json` | XLSX、CSV | [指南](docs/types/sheets.zh-CN.md) · [SKILL](artifact-types/sheets/SKILL.md) |
 | **Data** | 实时数据看板或报告：支持 CSV/JSON/文本上传、实时 MCP 连接器查询或脚本计算，由原生 HTML/CSS/d3 渲染；Sources 展示每个数字的来源；支持筛选、手改文字与 Remix 草稿 | `db/dash/meta.json` | PDF、HTML、JSON | [指南](docs/types/data.zh-CN.md) · [SKILL](artifact-types/data/SKILL.md) |
 | **Docs** | 分标签页的在线文档：标题、列表、表格、图片、日期、提及和下拉选项；可接受或拒绝的修改建议、评论、每个标签页各自的版本历史；可导入 Markdown、Word 和 PDF | `doc/doc.json` | Markdown、Word、PDF、HTML | [指南](docs/types/docs.zh-CN.md) · [SKILL](artifact-types/docs/SKILL.md) |

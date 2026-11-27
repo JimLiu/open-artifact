@@ -577,6 +577,80 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
       } finally { await p.close(); }
     });
 
+    it('offers an MP4 video only for a board with flowing arrows, and downloads six silent seconds', async t => {
+      const openExport = async page => {
+        await page.evaluate("document.querySelector('button[aria-label=Share]').click()");
+        assert.ok(await page.waitFor("document.body.innerText.includes('Only this computer')"));
+        await page.evaluate("[...document.querySelectorAll('button')].find(b => b.textContent === 'Export').click()");
+        assert.ok(await page.waitFor(`document.querySelector('[data-export-row="PNG image"]')?.disabled === false`));
+      };
+      const mp4Row = `document.querySelector('[data-export-row="MP4 video"]')`;
+      const still = await browser.load(shellUrl, { ready });
+      try {
+        await openExport(still);
+        assert.equal(await still.evaluate(`Boolean(${mp4Row})`), false, 'a board without flowing arrows has no video');
+        const encodes = await still.evaluate(`(async () => {
+          if (typeof VideoEncoder === 'undefined') return false;
+          for (const codec of ['avc1.42001f', 'vp09.00.10.08', 'av01.0.04M.08']) {
+            const { supported } = await VideoEncoder.isConfigSupported({ codec, width: 640, height: 360, bitrate: 2_000_000 }).catch(() => ({}));
+            if (supported) return true;
+          }
+          return false;
+        })()`);
+        if (!encodes) {
+          t.skip('this browser has no video encoder');
+          return;
+        }
+      } finally { await still.close(); }
+
+      const flowRoot = tmpDir('whiteboard-shell-flow-video');
+      const elements = {
+        s1: { type: 'shape', kind: 'rect', x: 0, y: 0, w: 120, h: 80, color: 'blue', text: 'In' },
+        s2: { type: 'shape', kind: 'rect', x: 361, y: 0, w: 121, h: 81, color: 'green', text: 'Out' },
+        a1: { type: 'arrow', from: 's1', to: 's2', head: 'end', dash: true, flow: true, color: 'ink' },
+      };
+      for (const sub of ['db/elements', 'db/board']) fs.mkdirSync(path.join(flowRoot, sub), { recursive: true });
+      fs.writeFileSync(path.join(flowRoot, 'db/board/meta.json'), JSON.stringify({ v: 1, title: 'Flowing video', order: Object.keys(elements) }));
+      for (const [id, el] of Object.entries(elements)) fs.writeFileSync(path.join(flowRoot, 'db/elements', id + '.json'), JSON.stringify(el));
+      const board = daemon.store.create({ root: flowRoot, type: 'whiteboard', title: 'Flowing video' });
+      const p = await browser.load(daemon.viewUrl(board.id), { ready });
+      try {
+        await openExport(p);
+        assert.ok(await p.waitFor(`${mp4Row}?.disabled === false`), 'the Export tab lists the MP4 video');
+        assert.equal(
+          await p.evaluate(`[...document.querySelectorAll('[data-export-row]')].map(row => row.dataset.exportRow).slice(0, 4).join('|')`),
+          'PNG image|Animated GIF|MP4 video|Board file',
+          'the video comes after the GIF',
+        );
+        await p.evaluate(mp4Row + '.click()');
+        const filename = path.join(downloads, 'Flowing video.mp4');
+        assert.ok(await until(() => fs.existsSync(filename) && fs.statSync(filename).size > 0, 60000), 'a video reached the download folder');
+        const file = fs.readFileSync(filename);
+        assert.equal(file.subarray(4, 8).toString(), 'ftyp', 'an MP4 starts with its ftyp box');
+        // The top-level boxes, then the movie's length from its mvhd box.
+        const boxes = new Map();
+        for (let at = 0; at + 8 <= file.length; ) {
+          const size = file.readUInt32BE(at);
+          boxes.set(file.subarray(at + 4, at + 8).toString(), at);
+          if (size < 8) break;
+          at += size;
+        }
+        assert.ok(boxes.has('moov'), 'the file has a moov box');
+        const moov = boxes.get('moov');
+        const mvhd = file.indexOf('mvhd', moov);
+        const version = file[mvhd + 4];
+        const timescale = file.readUInt32BE(mvhd + (version === 1 ? 24 : 16));
+        const duration = version === 1 ? Number(file.readBigUInt64BE(mvhd + 28)) : file.readUInt32BE(mvhd + 20);
+        const seconds = duration / timescale;
+        assert.ok(Math.abs(seconds - 6) < 0.15, `about six seconds: ${seconds}`);
+        const handlers = [];
+        for (let at = file.indexOf('hdlr', moov); at > 0; at = file.indexOf('hdlr', at + 4)) handlers.push(file.subarray(at + 12, at + 16).toString());
+        assert.ok(handlers.includes('vide'), `a video track: ${handlers}`);
+        assert.ok(!handlers.includes('soun'), 'no sound track');
+        assert.deepEqual(p.problems, []);
+      } finally { await p.close(); }
+    });
+
     it('routes the board shortcut through the shell and keeps download out of the zoom menu', async () => {
       const p = await browser.load(shellUrl, { ready });
       try {

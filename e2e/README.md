@@ -388,11 +388,12 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - A board of its own. The page's event stream (a WebSocket, wrapped before the page's scripts run) is closed, and its reconnects are sent to a port nobody listens on. Meanwhile the agent edits one element's file and deletes another's, and the page still shows the old board.
 - Once reconnects are let through, the page shows the edit and drops the deleted element with no reload: the stream's first event says where the store stands, and the page reads the board again because it missed something.
 
-**Flowing arrows on a whiteboard** (`whiteboard.test.mjs`, three cases, Chrome only)
+**Flowing arrows on a whiteboard** (`whiteboard.test.mjs`, four cases, Chrome only)
 
 - An arrow set to **Flowing** in the selection bar's Line menu saves `dash` and `flow`, its line runs the `wb-arrow-flow` animation (an arrow whose only head is at its start flows back), "Animate lines" off in the zoom menu stills every line and is kept over a reload, so does reduced motion, and **Dashed** drops `flow` for a still dashed line.
 - The PNG of a board with a flowing arrow is the same file as the PNG of that board with a still dashed one.
 - Share → Export lists "Animated GIF" only on a board with a flowing arrow; the downloaded `<title>.gif` has ten frames of 5/100 s that loop for ever, each one different from the next.
+- Share → Export lists "MP4 video" after the GIF only on a board with a flowing arrow; the downloaded `<title>.mp4` starts with an `ftyp` box, has a `moov` box, one video track and no sound, and lasts about six seconds. In a browser with no video encoder the case is skipped.
 
 **Moving the view with the right button** (`slides.test.mjs` and `whiteboard.test.mjs`, Chrome only)
 

@@ -12,7 +12,7 @@
 - **Real-time multiplayer collaboration**: Live cursors, presence avatars, shared editing, and built-in workshop timers when shared on a LAN or hosted site.
 - **Spatial AI teammate**: The agent understands what you have selected or anchored a comment to, rearranges/tidies layouts cleanly, extends existing sections without duplicating them, and shifts neighboring items to prevent overlap.
 - **Comments & "Send to agent"**: Pin comment threads to specific elements or areas and send them straight to your agent.
-- **Exports & archives**: Export the board as **PNG** from **Share → Export** (or as an **animated GIF** when it has flowing arrows), or archive the entire board (documents, uploads, comments, history) as a portable `.zip`.
+- **Exports & archives**: Export the board as **PNG** from **Share → Export** (or as an **animated GIF** or **MP4 video** when it has flowing arrows), or archive the entire board (documents, uploads, comments, history) as a portable `.zip`.
 
 ## How to use (for users)
 
@@ -32,7 +32,7 @@ Or start with no agent: on the home page, click **New artifact**, pick **Whitebo
 - **Link to things on the board**: Right-click an element and pick **Copy link to item**, then paste it onto the board as a link card, onto a picture, or into a text link; in a text link field you can also pick a section from the list. Clicking such a link takes the view to the element and rings it briefly; **Back** at the bottom returns to where you were. A card whose element was removed turns grey. A copied link opened in a browser opens the board at that element.
 - **Flowing arrows**: Select an arrow, open **Line** and pick **Flowing**: its dashes keep travelling towards the head, to show where something moves (requests, data, money). **Dashed** stills it again. To keep lines still on your own screen, turn off **Animate lines** in the zoom menu; they also stay still when your system asks for reduced motion.
 - **Ask your agent in context**: Select a cluster of stickies or pin a comment (e.g. *"cluster these by theme and summarize top 3 risks"*), then click **Send to agent**.
-- **Export**: Open **Share → Export** to download a PNG image, or, on a board with flowing arrows, an **Animated GIF** of them that loops (half a second, ten frames, framed like the PNG).
+- **Export**: Open **Share → Export** to download a PNG image, or, on a board with flowing arrows, an **Animated GIF** of them that loops (half a second, ten frames, framed like the PNG) or an **MP4 video** (six silent seconds, longest edge 1920 pixels). A browser that cannot make videos shows the MP4 row greyed out, with the reason.
 
 ## How to use (for agents)
 

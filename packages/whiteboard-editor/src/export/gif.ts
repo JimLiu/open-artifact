@@ -1,13 +1,13 @@
 /**
  * The board as an animated GIF of its flowing arrows: the board painted at
- * each frame of `gif-frames.ts`, framed like the PNG. Pictures, icon art
+ * each frame of `flow-frames.ts`, framed like the PNG. Pictures, icon art
  * and the font load once; the encoder (WebAssembly, in a Worker) loads
  * only when a GIF is made.
  */
 
 import { drawnImagePen } from './drawn-svg.ts';
 import { exportFrameFor } from './frame.ts';
-import { FLOW_GIF_MAX_PX, flowGifFrames } from './gif-frames.ts';
+import { FLOW_GIF_MAX_PX, flowGifFrames } from './flow-frames.ts';
 import { loadPictureAssets, RASTER_IMAGE_LOAD_TIMEOUT_MS, type ImageLoadTally } from './images.ts';
 import { drawBoardCanvas } from './paint.ts';
 import type { BoardPngInput } from './png.ts';

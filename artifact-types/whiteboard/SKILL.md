@@ -466,7 +466,7 @@ changing the board; what guests comment stays on the page, and only the owner se
 owner, the person at this computer, sends requests to you, saves downloads here and changes the sharing; on this
 computer they stay the owner even when they open a link.
 
-- **Under a host**, the shell’s **Share → Export** tab offers the PNG image, an animated GIF while the board has flowing arrows, and the portable board file. Sharing is the person's: `Artifact {action: "open", url, panel: "share"}` opens the Share panel for
+- **Under a host**, the shell’s **Share → Export** tab offers the PNG image, an animated GIF and an MP4 video while the board has flowing arrows, and the portable board file. Sharing is the person's: `Artifact {action: "open", url, panel: "share"}` opens the Share panel for
   them, `Artifact {action: "share", url}` tells you how it is shared. Never turn it on yourself.
 - **Standalone**, when the person asks: `open-artifact share <root>` shares it and prints a link per role
   (`open-artifact open <root> --lan` shares as it opens); `--off` stops. `--disable <role>` / `--enable <role>` turn

@@ -1,6 +1,6 @@
 /**
- * Downloads of the whole board: a PNG picture, an animated GIF (while the
- * board has flowing arrows) and the board file (JSON).
+ * Downloads of the whole board: a PNG picture, an animated GIF and an MP4
+ * video (while the board has flowing arrows) and the board file (JSON).
  *
  * The Shell's Share panel lists these formats in its Export tab. The board
  * reports availability and progress, and saves the requested file through
@@ -12,13 +12,15 @@ import { hasFlowingArrow, type ColorScheme } from '@open-artifact/whiteboard-cor
 import { boardPngFilename, EXPORT_MAX_PX, exportFrameFor } from '../export/frame.ts';
 import { exportBoardFile } from '../export/board-file.ts';
 import { exportBoardGif } from '../export/gif.ts';
-import { FLOW_GIF_MAX_PX } from '../export/gif-frames.ts';
+import { FLOW_GIF_MAX_PX, FLOW_VIDEO_MAX_PX } from '../export/flow-frames.ts';
+import { canEncodeBoardVideo, exportBoardMp4 } from '../export/mp4.ts';
 import { exportBoardPng } from '../export/png.ts';
 import { useBoard } from '../state/board.ts';
 import { currentMeasures } from '../state/measures.ts';
 import { usePresence } from '../state/presence.ts';
 import { useTheme } from '../state/theme.ts';
 import { paintLooksForExport } from './drawing-looks.ts';
+import { boardExportFormats, type VideoSupport } from './export-formats.ts';
 import { maybeSession } from './session.ts';
 import { onShellCommand, setShellReport } from './shell.ts';
 
@@ -30,8 +32,10 @@ const MIN_RETRY_PX = 512;
 const OBJECT_URL_LIFETIME_MS = 30_000;
 
 /** The formats this board exports. */
-type ExportFormat = 'png' | 'gif' | 'json';
-const EXPORT_FORMATS: readonly string[] = ['png', 'gif', 'json'] satisfies readonly ExportFormat[];
+type ExportFormat = 'png' | 'gif' | 'mp4' | 'json';
+const EXPORT_FORMATS: readonly string[] = ['png', 'gif', 'mp4', 'json'] satisfies readonly ExportFormat[];
+/** The formats that only a board with flowing arrows has. */
+const FLOW_FORMATS: readonly string[] = ['gif', 'mp4'] satisfies readonly ExportFormat[];
 
 /** Options of {@link renderBoardPng}. */
 export interface RenderBoardPngOptions {
@@ -144,6 +148,38 @@ export async function renderBoardGif(options: RenderBoardPngOptions = {}): Promi
   }
 }
 
+/**
+ * Renders the board's flowing arrows as a silent MP4 video in the board's
+ * current color scheme (framed and painted like {@link renderBoardPng},
+ * longest edge 1920 px): 12 loops of the flow, 6 seconds; `undefined` for
+ * a board without flowing arrows. A video over `maxBytes` is made once more
+ * at three quarters the size, and that one is kept whatever its size.
+ * Rejects with the encoder's message when the browser cannot make it.
+ */
+export async function renderBoardMp4(options: RenderBoardPngOptions = {}): Promise<Blob | undefined> {
+  const { board } = useBoard.getState();
+  if (!hasFlowingArrow(board.content.elements)) return undefined;
+  const maxBytes = options.maxBytes ?? MAX_DOWNLOAD_BYTES;
+  const input = {
+    elements: board.content.elements,
+    title: board.title,
+    measures: currentMeasures(),
+    scheme: options.scheme ?? useTheme.getState().scheme,
+    showAuthors: options.showAuthors ?? true,
+    faceName: faceNameResolver(),
+  };
+  const maxPx = options.maxPx ?? FLOW_VIDEO_MAX_PX;
+  const frame = exportFrameFor(input.elements, input.measures, maxPx);
+  const painted = await paintLooksForExport(input.elements, input.scheme, frame?.scale ?? 1);
+  try {
+    const { blob } = await exportBoardMp4({ ...input, looks: painted.looks, maxPx });
+    if (blob.size <= maxBytes) return blob;
+    return (await exportBoardMp4({ ...input, looks: painted.looks, maxPx: Math.floor(maxPx * 0.75) })).blob;
+  } finally {
+    painted.release();
+  }
+}
+
 /** Builds a format's file: its name and bytes; `undefined` for an empty board. */
 async function produce(format: ExportFormat): Promise<{ name: string; data: Blob } | undefined> {
   const { board } = useBoard.getState();
@@ -156,6 +192,10 @@ async function produce(format: ExportFormat): Promise<{ name: string; data: Blob
     const data = await renderBoardGif();
     return data ? { name: boardPngFilename(board.title, 'gif'), data } : undefined;
   }
+  if (format === 'mp4') {
+    const data = await renderBoardMp4();
+    return data ? { name: boardPngFilename(board.title, 'mp4'), data } : undefined;
+  }
   const { name, data } = await exportBoardFile({ board, measures: currentMeasures() });
   return { name, data };
 }
@@ -164,8 +204,9 @@ async function produce(format: ExportFormat): Promise<{ name: string; data: Blob
 async function runShellExport(request: string, format: string, variant: string | undefined): Promise<void> {
   const shell = maybeSession()?.shell;
   if (!shell) return;
-  if (!EXPORT_FORMATS.includes(format) || variant !== undefined || boardIsEmpty() || (format === 'gif' && !boardFlows())) {
-    // Unknown formats, variants, the formats disabled on an empty board and a GIF of a board that does not move.
+  if (!EXPORT_FORMATS.includes(format) || variant !== undefined || boardIsEmpty() || (FLOW_FORMATS.includes(format) && !boardFlows()) || (format === 'mp4' && videoSupport === 'no')) {
+    // Unknown formats, variants, the formats disabled on an empty board, a GIF or video of a board that does not
+    // move, and a video in a browser that cannot make one.
     shell.exportState(request, 'unsupported');
     return;
   }
@@ -178,7 +219,7 @@ async function runShellExport(request: string, format: string, variant: string |
   try {
     const file = await produce(format as ExportFormat);
     if (!file) {
-      shell.exportState(request, 'declined', format === 'gif' ? 'The board has no flowing arrows.' : 'The board is empty.');
+      shell.exportState(request, 'declined', FLOW_FORMATS.includes(format) ? 'The board has no flowing arrows.' : 'The board is empty.');
       return;
     }
     await saveKit(maybeSession()?.downloads, file.name, file.data, OBJECT_URL_LIFETIME_MS);
@@ -190,19 +231,31 @@ async function runShellExport(request: string, format: string, variant: string |
   }
 }
 
-/** Reports the export formats to the Shell, disabled while the board is empty; the GIF only while it has flowing arrows. */
+/** Whether this browser encodes video, once asked; the asking starts when a board first flows. */
+let videoSupport: VideoSupport = 'unknown';
+let videoProbe: Promise<void> | undefined;
+
+/** Asks the browser once whether it can make a video, then lists the formats again. */
+function probeVideo(): void {
+  videoProbe ??= canEncodeBoardVideo().then((yes) => {
+    videoSupport = yes ? 'yes' : 'no';
+    if (reporting) reportFormats();
+  });
+}
+
+/** The formats are being reported to the Shell. */
+let reporting = false;
+
+/**
+ * Reports the export formats to the Shell, disabled while the board is
+ * empty; the GIF and the video only while it has flowing arrows, the video
+ * disabled in a browser that cannot make one.
+ */
 function reportFormats(): void {
   const empty = boardIsEmpty();
-  const state = empty ? { disabled: true, why: 'other' as const } : {};
-  setShellReport({
-    formats: [
-      { format: 'png', label: 'PNG image', ...state },
-      ...(boardFlows() ? [{ format: 'gif', label: 'Animated GIF' }] : []),
-      { format: 'json', label: 'Board file', ...state },
-    ],
-    exports: false,
-    hasContent: !empty,
-  });
+  const flows = boardFlows();
+  if (flows) probeVideo();
+  setShellReport({ formats: boardExportFormats({ empty, flows, video: videoSupport }), exports: false, hasContent: !empty });
 }
 
 /**
@@ -212,6 +265,7 @@ function reportFormats(): void {
  * function.
  */
 export function startExport(): () => void {
+  reporting = true;
   reportFormats();
   const unsubscribe = useBoard.subscribe((state, previous) => {
     const elements = state.board.content.elements;
@@ -223,6 +277,7 @@ export function startExport(): () => void {
     if (command.cmd === 'export_format') void runShellExport(command.request, command.format, command.variant);
   });
   return () => {
+    reporting = false;
     unsubscribe();
     stopCommands();
     setShellReport({ formats: undefined, exports: undefined, hasContent: undefined });
