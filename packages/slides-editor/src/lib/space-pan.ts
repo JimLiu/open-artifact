@@ -1,6 +1,7 @@
 /**
- * Holding Space (Shift+Space too) to drag the stage around: what each press
- * and release of the key, and each press of the pointer, does to the hold,
+ * Holding Space (Shift+Space too) to drag the stage around, or dragging it
+ * with the middle button: what each press and release of the key, and each
+ * press of the pointer, does to the hold,
  * and when the browser's own handling of the key has to be stopped (a
  * repeating Space scrolls the page; a Space released after a drag would
  * click a focused button).
@@ -60,10 +61,17 @@ export function releaseOtherKey(hold: SpaceHold, key: string): SpaceHold {
   return key === 'Meta' && hold.held ? { ...hold, held: false } : hold;
 }
 
-/** The pointer pressed on the stage: while Space is held, that starts a drag of the stage. */
-export function pressPointer(hold: SpaceHold): { hold: SpaceHold; drags: boolean } {
-  if (!hold.held) return { hold, drags: false };
-  return { hold: { ...hold, dragging: true, dragged: true }, drags: true };
+/** `PointerEvent.button` of the middle button (the wheel). */
+export const MIDDLE_BUTTON = 1;
+
+/**
+ * The pointer pressed on the stage: while Space is held any button starts a
+ * drag of the stage; the middle button does without it. Only a drag made
+ * during the hold swallows the key's release.
+ */
+export function pressPointer(hold: SpaceHold, button = 0): { hold: SpaceHold; drags: boolean } {
+  if (hold.held) return { hold: { ...hold, dragging: true, dragged: true }, drags: true };
+  return { hold, drags: button === MIDDLE_BUTTON };
 }
 
 /** The pointer released (or the press was cancelled). */

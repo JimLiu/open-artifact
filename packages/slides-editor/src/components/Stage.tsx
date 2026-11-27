@@ -127,10 +127,10 @@ export function Stage(): ReactNode {
 
   /* ------------------------------- Pointer ------------------------------- */
 
-  // While Space is held a press drags the stage, whatever it lands on (handles included).
+  // While Space is held a press drags the stage, whatever it lands on (handles included); so does the middle button.
   const onPointerDownCapture = (event: ReactPointerEvent<HTMLDivElement>): void => {
     if ((event.target as Element).closest('[data-open-artifact-comment-ui], [data-open-artifact-notes]')) return;
-    if (!claimStageDrag()) return;
+    if (!claimStageDrag(event.button)) return;
     event.preventDefault();
     event.stopPropagation();
     startPan(event.currentTarget, event);

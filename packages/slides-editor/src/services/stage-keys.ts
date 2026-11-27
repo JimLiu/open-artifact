@@ -1,6 +1,7 @@
 /**
  * Keys held over the stage: Space (or Shift+Space) to drag the stage
- * around, Alt (Option) to show distances from the selection.
+ * around (the middle button drags it too), Alt (Option) to show distances
+ * from the selection.
  *
  * The keyboard module hands Space presses here, having decided whether the
  * key is the stage's; the releases, the pointer and the window losing focus
@@ -31,9 +32,9 @@ export function holdSpace(event: KeyboardEvent, elsewhere: boolean): void {
   setHold(step.hold);
 }
 
-/** A pointer press on the stage: true (and the press is the stage's drag) while Space is held. */
-export function claimStageDrag(): boolean {
-  const { hold: next, drags } = pressPointer(hold);
+/** A pointer press on the stage: true (and the press is the stage's drag) while Space is held, or for the middle button. */
+export function claimStageDrag(button: number): boolean {
+  const { hold: next, drags } = pressPointer(hold, button);
   setHold(next);
   return drags;
 }

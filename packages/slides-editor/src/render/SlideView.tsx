@@ -271,7 +271,8 @@ export function RunsView({ runs, linkable }: { runs: readonly Run[]; linkable: b
           {content}
         </a>
       ) : (
-        <a href={marks.href} onClick={(e) => e.preventDefault()} tabIndex={-1}>
+        // Off the presenter a link only shows: neither a click nor a middle click follows it.
+        <a href={marks.href} onClick={(e) => e.preventDefault()} onAuxClick={(e) => e.preventDefault()} tabIndex={-1}>
           {content}
         </a>
       );

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { isSpaceKey, pressPointer, pressSpace, releaseOtherKey, releasePointer, releaseSpace, SPACE_RELEASED, type SpaceHold } from '../src/lib/space-pan.ts';
+import { isSpaceKey, MIDDLE_BUTTON, pressPointer, pressSpace, releaseOtherKey, releasePointer, releaseSpace, SPACE_RELEASED, type SpaceHold } from '../src/lib/space-pan.ts';
 
 const press = { repeat: false, chord: false, elsewhere: false };
 const held: SpaceHold = { held: true, dragging: false, dragged: false };
@@ -34,6 +34,18 @@ describe('space pan', () => {
   it('drags the stage on a pointer press only while held', () => {
     assert.deepEqual(pressPointer(SPACE_RELEASED), { hold: SPACE_RELEASED, drags: false });
     assert.deepEqual(pressPointer(held), { hold: { held: true, dragging: true, dragged: true }, drags: true });
+  });
+
+  it('drags the stage with the middle button, held or not', () => {
+    assert.deepEqual(pressPointer(SPACE_RELEASED, MIDDLE_BUTTON), { hold: SPACE_RELEASED, drags: true });
+    assert.deepEqual(pressPointer(SPACE_RELEASED, 2), { hold: SPACE_RELEASED, drags: false });
+    assert.deepEqual(pressPointer(held, MIDDLE_BUTTON), { hold: { held: true, dragging: true, dragged: true }, drags: true });
+  });
+
+  it('lets Space go as usual after a middle-button drag made without it', () => {
+    const { hold } = pressPointer(SPACE_RELEASED, MIDDLE_BUTTON);
+    const pressed = pressSpace(hold, press).hold;
+    assert.equal(releaseSpace(releasePointer(pressed)).preventDefault, false);
   });
 
   it('swallows the release after a drag, not after a plain hold', () => {

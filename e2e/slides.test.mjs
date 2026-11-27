@@ -1323,6 +1323,87 @@ describe('slides', { skip: skipFor('slides') }, () => {
       }
     });
 
+    it('drags the zoomed stage with the middle button, keeping the selection and opening no menu', async () => {
+      const tab = await openDeck();
+      try {
+        await selectBack(tab);
+        assert.equal(await zoomIn(tab), true, 'zooming in left nothing to scroll');
+        const frame = `[...document.querySelector('[data-open-artifact-overlay]').children].find(el => el.classList.contains('border-accent'))`;
+        const offBack = `(() => { const f = (${frame}).getBoundingClientRect(), b = (${back}).getBoundingClientRect(); return Math.max(Math.abs(f.left - b.left), Math.abs(f.top - b.top)); })()`;
+        const left = await tab.evaluate(`${stage}.scrollLeft`);
+        const dx = left > 150 ? 120 : -120;
+        // Pressed on another element, with no key held.
+        const [x, y] = await middle(tab, stageNode(1));
+        const mouse = (type, at, buttons) => tab.cdp('Input.dispatchMouseEvent', { type, x: at, y, button: 'middle', buttons, clickCount: 1 });
+        await tab.cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+        await mouse('mousePressed', x, 4);
+        assert.ok(await tab.waitFor(`${stage}.getAttribute('data-open-artifact-pan') === 'drag'`), 'the middle button did not start a drag of the stage');
+        for (let n = 1; n <= 10; n++) {
+          await mouse('mouseMoved', x + (dx * n) / 10, 4);
+          await pause(16);
+        }
+        await mouse('mouseReleased', x + dx, 0);
+        const after = await tab.evaluate(`${stage}.scrollLeft`);
+        assert.ok(Math.abs(after - (left - dx)) <= 2, `scrolled from ${left} to ${after} by ${dx}`);
+        assert.ok(await tab.waitFor(`!${stage}.hasAttribute('data-open-artifact-pan')`), 'the stage stayed in a drag after the button was let go');
+        assert.ok(await tab.waitFor(`${selectedCount} === 1 && ${offBack} < 3`), 'the drag changed the selection');
+        assert.equal(await tab.evaluate(`Boolean(document.querySelector('[role="menu"]'))`), false, 'a menu opened');
+        assert.equal(shapes(), SHAPES);
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await tab.close();
+      }
+    });
+
+    it('leaves Space alone while a menu is open anywhere on the page', async () => {
+      const tab = await openDeck();
+      try {
+        await selectBack(tab);
+        // A menu that has not taken the focus: Space pressed on the stage still is not the stage's.
+        await tab.evaluate(`(() => { const menu = document.createElement('div'); menu.setAttribute('role', 'menu'); menu.id = 'e2e-open-menu'; document.body.append(menu); })()`);
+        await space(tab, true);
+        await pause(100);
+        assert.equal(await tab.evaluate(`${stage}.hasAttribute('data-open-artifact-pan')`), false, 'Space readied a drag of the stage with a menu open');
+        await space(tab, false);
+        await tab.evaluate(`document.getElementById('e2e-open-menu').remove()`);
+        await space(tab, true);
+        assert.ok(await tab.waitFor(`${stage}.getAttribute('data-open-artifact-pan') === 'ready'`), 'Space did not ready the stage once the menu was gone');
+        await space(tab, false);
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await tab.close();
+      }
+    });
+
+    it('keeps the format strip where it was while the Scale dialog is open, and centers it again once it closes', async () => {
+      const tab = await openDeck();
+      const off = `(() => { const s = ${strip}.getBoundingClientRect(), c = (${caption}).getBoundingClientRect(); return s.left + s.width / 2 - (c.left + c.width / 2); })()`;
+      const stripMiddle = `(() => { const s = ${strip}.getBoundingClientRect(); return s.left + s.width / 2; })()`;
+      try {
+        await tab.click(...(await middle(tab, caption)));
+        assert.ok(await tab.waitFor(`${selectedCount} === 1`));
+        await propertiesKey(tab);
+        assert.ok(await tab.waitFor(`${strip} && Math.abs(${off}) <= 1`, 4000), 'no format strip centered over the caption');
+        await chord(tab, 'k', 'KeyK', 75, { mac });
+        assert.ok(await tab.waitFor(`[...document.querySelectorAll('[role="dialog"]')].some(d => d.textContent.includes('Scale'))`), 'K did not open the Scale dialog');
+        const before = await tab.evaluate(stripMiddle);
+        const width = await tab.evaluate(`(${caption}).getBoundingClientRect().width`);
+        // The caption grows on disk while the dialog is open: the strip stays.
+        fs.writeFileSync(shapesFile(), SHAPES.replace('width:800px;font-size:48px', 'width:1200px;font-size:48px'));
+        assert.ok(await tab.waitFor(`(${caption}).getBoundingClientRect().width > ${width} + 20`, 5000), 'the wider caption never showed');
+        await pause(500);
+        const held = await tab.evaluate(stripMiddle);
+        assert.ok(Math.abs(held - before) <= 1, `the strip moved from ${before} to ${held} with the dialog open`);
+        await tab.press('Escape');
+        assert.ok(await tab.waitFor(`![...document.querySelectorAll('[role="dialog"]')].some(d => d.textContent.includes('Scale'))`), 'Escape left the Scale dialog open');
+        assert.ok(await tab.waitFor(`${strip} && Math.abs(${off}) <= 1`, 2000), `the strip stayed ${await tab.evaluate(off)}px off the caption's middle`);
+        assert.deepEqual(tab.problems, []);
+      } finally {
+        await forgetView(tab);
+        await tab.close();
+      }
+    });
+
     it('measures from the selection to the hovered element while Alt is held, with the format strip faded', async () => {
       const tab = await openDeck();
       const distances = `[...document.querySelectorAll('[data-open-artifact-distance]')].map(el => el.getAttribute('data-open-artifact-distance'))`;

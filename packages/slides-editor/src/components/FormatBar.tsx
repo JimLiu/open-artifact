@@ -56,6 +56,7 @@ import { isLinkKey } from '../lib/shortcut-keys.ts';
 import { linkPromptBox } from '../lib/link-prompt.ts';
 import { activeEditor, editorHasMark, editorSelectionCollapsed, editorSelectionHref, editorSelectionInLink, editorSelectionRange, focusEditor, formatEditor, linkEditorSelection } from './TextEditor.tsx';
 import { useStageGesture } from './stage/store.ts';
+import { hasOpenOverlay } from '../lib/open-overlay.ts';
 import { ColorPanel, useColorGroups } from './properties/ColorField.tsx';
 import { Button, NumberInput, TextInput } from './properties/kit.tsx';
 import { updateTable } from './properties/ContentSections.tsx';
@@ -203,13 +204,12 @@ function useAnchor(paths: readonly NodePath[] | null): Anchor | null {
   return anchor && anchor.key === key ? anchor.box : null;
 }
 
-/** True when the strip should stay put: the pointer is on it (or a finger pressed it), the focus is in it, or one of its menus is open. */
+/** True when the strip should stay put: the pointer is on it (or a finger pressed it), the focus is in it, or a menu, popover or dialog is open anywhere. */
 function stripHeld(strip: HTMLElement | null, touched: boolean): boolean {
   if (!strip) return false;
-  if (touched || strip.matches(':hover')) return true;
+  if (touched || strip.matches(':hover') || hasOpenOverlay()) return true;
   // Menus and popovers render outside the strip but carry its attribute.
-  if (document.hasFocus() && document.activeElement?.closest('[data-open-artifact-format-bar]')) return true;
-  return strip.querySelector('[aria-expanded="true"]') !== null;
+  return document.hasFocus() && Boolean(document.activeElement?.closest('[data-open-artifact-format-bar]'));
 }
 
 /**

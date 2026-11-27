@@ -82,6 +82,7 @@ import { commandLetter, holdsLayerKeyInField, layerMoveKey, undoRedoKey } from '
 import { isApplePlatform } from '@open-artifact/editor-kit';
 import { REVEAL_FOCUS_EVENT, ZOOM_STEP_EVENT } from './lib/reveal.ts';
 import { isComposingKey, shortcutLetter } from '@open-artifact/ui';
+import { hasOpenOverlay } from './lib/open-overlay.ts';
 import { isSpaceKey } from './lib/space-pan.ts';
 import { holdSpace, installStageKeys } from './services/stage-keys.ts';
 
@@ -117,7 +118,7 @@ function pressesControl(event: KeyboardEvent): boolean {
  */
 function spaceIsElsewhere(event: KeyboardEvent): boolean {
   const view = useView.getState();
-  if (typing(event) || pressesControl(event) || view.textEdit || useComments.getState().on) return true;
+  if (typing(event) || pressesControl(event) || view.textEdit || useComments.getState().on || hasOpenOverlay()) return true;
   if (!(view.mode === 'edit' || view.canvasEdit)) return true;
   const el = event.target instanceof Element ? event.target : null;
   // `main` holds the stage: the focus lands there when a banner it was on is dismissed.
