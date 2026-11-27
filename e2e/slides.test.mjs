@@ -181,24 +181,27 @@ describe('slides', { skip: skipFor('slides') }, () => {
     }
   });
 
-  async function chooseExport(item) {
-    wrapped ??= await browser.load(publicUrl + '#slide-~cover', { ready: `document.querySelector('[data-comments-button]')` });
+  /** Picks `item` from the Share menu's Export tab of `shell` (the deck in the global frame by default). */
+  async function chooseExport(item, shell) {
+    shell ??= wrapped ??= await browser.load(publicUrl + '#slide-~cover', { ready: `document.querySelector('[data-comments-button]')` });
     const share = 'header button[aria-label="Share"]';
-    await wrapped.evaluate(`document.querySelector('${share}').click()`);
+    await shell.evaluate(`document.querySelector('${share}').click()`);
     const exportTab = `[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Export')`;
-    assert.ok(await wrapped.waitFor(exportTab, 4000), await wrapped.evaluate('document.body.innerText'));
-    await wrapped.evaluate(exportTab + '.click()');
+    assert.ok(await shell.waitFor(exportTab, 4000), await shell.evaluate('document.body.innerText'));
+    await shell.evaluate(exportTab + '.click()');
     const choice = `[...document.querySelectorAll('[data-export-row]')].find(el => el.dataset.exportRow.includes(${JSON.stringify(item)}))`;
-    assert.ok(await wrapped.waitFor(choice, 4000), await wrapped.evaluate('document.body.innerText'));
-    await wrapped.evaluate(choice + '.click()');
+    assert.ok(await shell.waitFor(choice, 4000), await shell.evaluate('document.body.innerText'));
+    await shell.evaluate(choice + '.click()');
   }
 
-  async function download(item, ext, dialog = false) {
+  /** Downloads `item`; with `dialog`, through its options dialog, which `inspect` may look at first. */
+  async function download(item, ext, dialog = false, inspect = async () => {}) {
     const previous = new Set(fs.existsSync(downloads) ? fs.readdirSync(downloads) : []);
     await chooseExport(item);
     if (dialog) {
       const submit = `[...document.querySelectorAll('[role="dialog"] button')].find(b => b.textContent.trim() === 'Download')`;
       assert.ok(await wrapped.waitFor(submit));
+      await inspect();
       if (dialog === 'notes') await wrapped.evaluateAll(`document.querySelector('[aria-label="Include speaker notes"]')?.click()`);
       await wrapped.evaluateAll(submit + '?.click()');
     }
@@ -307,6 +310,17 @@ describe('slides', { skip: skipFor('slides') }, () => {
     assert.match(pdf, /\/Count\s+4\b/);
     const boxes = [...pdf.matchAll(/\/MediaBox\s*\[([^\]]+)\]/g)].map(match => match[1].trim().split(/\s+/).map(Number));
     assert.deepEqual(boxes, Array(4).fill([0, 0, 720, 540]));
+  });
+
+  it('writes every picture of a web page into it, and says when Best would shrink them', { skip: browserSkip }, async () => {
+    const file = await download('Web page', '.html', true, async () => {
+      assert.ok(await wrapped.waitFor(`document.querySelector('[role="dialog"]')?.textContent.includes('200 MB')`), 'the Best quality help does not give the limit');
+    });
+    const html = fs.readFileSync(file, 'utf8');
+    assert.doesNotMatch(html, /data:,open-artifact-file-/);
+    const sources = [...html.matchAll(/<img\b[^>]*?\ssrc="([^"]*)"/g)].map(match => match[1]);
+    assert.ok(sources.length > 0, 'no picture in the page');
+    assert.ok(sources.every(src => src.startsWith('data:image/')), sources.map(src => src.slice(0, 60)).join('\n'));
   });
 
   it('previews a historical slide and restores that slide from the editor', { skip: browserSkip }, async () => {
@@ -1439,5 +1453,39 @@ describe('slides', { skip: skipFor('slides') }, () => {
         await tab.close();
       }
     });
+  });
+
+  // Last, after the tests on the main deck: this opens a deck of its own on the same server and writes into it.
+  it('warns in the PDF options while the deck is still being written, and says when every slide is in', { skip: browserSkip }, async () => {
+    const deck = tmpDir('slides-writing');
+    fs.mkdirSync(path.join(deck, 'project', 'slides'), { recursive: true });
+    fs.writeFileSync(path.join(deck, 'project', 'deck.json'), JSON.stringify({
+      v: 5, lists: 'css', title: 'Half written', order: ['first', 'second'], createdOnFiles: { v: 1, at: '2026-11-26T00:00:00Z' },
+      sections: {}, faces: {}, designSystems: [],
+    }));
+    const slideFile = id => path.join(deck, 'project', 'slides', id + '.html');
+    fs.writeFileSync(slideFile('first'), '<section id="first"><h1>First</h1></section>');
+    const { url: deckPublic } = await run.json(['open', deck, '--json']);
+    const shell = await browser.load(deckPublic + '#slide-~first', { ready: `document.querySelector('[data-comments-button]')` });
+    try {
+      // A file changed on disk: the agent is at work, and the outline still lists a slide it has not written.
+      fs.writeFileSync(slideFile('first'), '<section id="first"><h1>First slide</h1></section>');
+      assert.ok(await shell.waitFor(`document.querySelector('[data-open-artifact-mode="edit"] h1')?.textContent === 'First slide'`));
+      await chooseExport('PDF', shell);
+      const warning = `document.querySelector('[role="dialog"] [data-testid="slides-download-warning"]')`;
+      const buttons = `[...document.querySelectorAll('[role="dialog"] button')].map(b => b.textContent.trim())`;
+      assert.ok(await shell.waitFor(`${warning}?.textContent.includes('1 of 2')`), 'no warning that a slide is missing');
+      assert.ok(await shell.waitFor(`${buttons}.includes('Download anyway') && !${buttons}.includes('Download')`));
+      assert.ok(await shell.waitFor(`document.activeElement?.closest('[role="dialog"]') && document.activeElement.textContent.trim() === 'Cancel'`), 'the dialog does not open on Cancel');
+      fs.writeFileSync(slideFile('second'), '<section id="second"><h1>Second</h1></section>');
+      const status = `document.querySelector('[role="dialog"] [data-testid="slides-download-warning-status"]')`;
+      assert.ok(await shell.waitFor(`${status}?.textContent.includes('Every slide is written') && ${warning}?.textContent.includes('Every slide is written')`), 'the dialog does not say the warning is gone');
+      assert.ok(await shell.waitFor(`${buttons}.includes('Download')`));
+      await shell.evaluateAll(`[...document.querySelectorAll('[role="dialog"] button')].find(b => b.textContent.trim() === 'Cancel')?.click()`);
+      assert.deepEqual(shell.problems, []);
+    } finally {
+      // Not stopped: the deck under test shares its server (the suite stops it at the end).
+      await shell.close();
+    }
   });
 });

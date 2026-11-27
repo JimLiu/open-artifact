@@ -5,9 +5,11 @@
  * (text already shrunk to fit, so the page needs no layout code), with the
  * slide stylesheet, the page reset and the build keyframes. Pictures,
  * uploaded clips and fonts are inlined as `data:` URLs while they fit the
- * budgets; larger files stay links to the deck online. Embedded pages run
- * again in sandboxed frames; hosted videos load their player while their
- * slide shows. The built-in player (player.ts) scales and plays the deck.
+ * budgets; larger clips stay links to the deck online. A page that would
+ * pass the download limit gets its largest pictures made smaller, one by
+ * one, until it fits (picture-fit.ts). Embedded pages run again in sandboxed
+ * frames; hosted videos load their player while their slide shows. The
+ * built-in player (player.ts) scales and plays the deck.
  */
 
 import { nodeAt, parsePathKey, SLIDE_HEIGHT, SLIDE_WIDTH, videoEmbedUrl, type ImageNode } from '@open-artifact/slides-core';
@@ -21,28 +23,68 @@ import { elementMotion, readMotionRules } from '../motion.ts';
 import { buildSteps, TRANSITION_MS } from '../present.ts';
 import { blobToDataUrl, shrinkPicture } from '@open-artifact/export-kit';
 import { deckFontCss, deckText } from './fonts.ts';
+import { BROWSER_LIMIT } from './files.ts';
+import { linkToFit, picturesShrunkNote, shrinkToFit, stepsBelow } from './picture-fit.ts';
 import { breathe, type ExportJob, type ExportSlide } from './job.ts';
 import { PLAYER_CSS, PLAYER_SCRIPT, READER_CSS } from './player.ts';
 
-/** Largest single file inlined, bytes. */
-const MAX_INLINE_FILE = 10 * 1024 * 1024;
-/** Most bytes of pictures and clips inlined in one page. */
-const MAX_INLINE_TOTAL = 120 * 1024 * 1024;
+/** Largest uploaded clip inlined, bytes (clips are never re-encoded). */
+const MAX_INLINE_CLIP = 10 * 1024 * 1024;
 /** Most bytes of fonts inlined in one page. */
 const MAX_FONT_BYTES = 8 * 1024 * 1024;
 
+/** How much smaller pictures get at one step. */
+export interface HtmlPictureStep {
+  /** The long edge is at most this many times the size the picture is shown at on its slide. */
+  scale: number;
+  /** Encoder quality. */
+  quality: number;
+}
+
 /**
- * How much smaller pictures get at each setting: the long edge at most
- * `scale` times the size the picture is shown at on its slide, re-encoded at
- * `quality`. Best keeps every file as it is.
+ * The picture steps, sharpest first. Better starts at the second, Good at
+ * the last; Best keeps every file as it is. A page that would pass the
+ * download limit shrinks pictures through the steps below its start.
  */
-export const HTML_IMAGE_TIERS: Record<Exclude<HtmlQuality, 'best'>, { scale: number; quality: number }> = {
-  better: { scale: 1.5, quality: 0.8 },
-  good: { scale: 1, quality: 0.72 },
-};
+export const HTML_STEPS: readonly HtmlPictureStep[] = [
+  { scale: 2, quality: 0.85 },
+  { scale: 1.5, quality: 0.8 },
+  { scale: 1, quality: 0.72 },
+];
+
+/** The step a quality starts at; null keeps pictures as they are. */
+export function htmlStartStep(quality: HtmlQuality): number | null {
+  return quality === 'best' ? null : quality === 'better' ? 1 : HTML_STEPS.length - 1;
+}
 
 /** Smallest long edge a shrunk picture keeps, px. */
 const MIN_SHRINK_EDGE = 256;
+
+/** The long edge a picture is shrunk to at a step, px (`shown`: its long edge on the slide, the slide's when unknown). */
+function shrinkEdge(step: HtmlPictureStep, shown: number): number {
+  return Math.max(MIN_SHRINK_EDGE, Math.ceil((shown > 0 ? shown : Math.max(SLIDE_WIDTH, SLIDE_HEIGHT)) * step.scale));
+}
+
+/** What the markup holds in place of an inlined file until the page is put together. */
+const FILE_MARK = /data:,open-artifact-file-(\d+)/;
+
+/** A file inlined in the page. */
+interface PageFile {
+  /** What the markup holds in its place. */
+  mark: string;
+  src: string;
+  /** Its link to the deck online. */
+  link: string;
+  /** The `data:` URL written for it. */
+  data: string;
+  bytes: number;
+  /** Times the page writes it (counted once the page is put together). */
+  uses: number;
+  /** Long edge it is shown at, px (0 when unknown); pictures only. */
+  shown: number;
+  online: 'pictureOnline' | 'videoOnline';
+  slides: number[];
+}
 
 const PLAY_ICON =
   '<svg width="72" height="72" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.14v13.72a1 1 0 0 0 1.52.85l10.6-6.86a1 1 0 0 0 0-1.7L9.52 4.29A1 1 0 0 0 8 5.14z"/></svg>';
@@ -52,33 +94,34 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-/** Turns asset references into `data:` URLs within the budgets, or into absolute links. */
+/** Turns asset references into marks for inlined files, or into absolute links. */
 class Inliner {
-  private bytes = 0;
   /** Address (and size it is shrunk to) → what was written and how. */
-  private readonly done = new Map<string, { url: string; how: 'inlined' | 'online' | 'missing' | 'foreign' }>();
+  private readonly done = new Map<string, { url: string; how: 'inlined' | 'online' | 'missing' | 'foreign'; file?: PageFile }>();
+  /** The files inlined, by the number in their mark. */
+  readonly files: PageFile[] = [];
 
   private readonly job: ExportJob;
-  private readonly quality: HtmlQuality;
+  private readonly step: HtmlPictureStep | undefined;
 
-  constructor(job: ExportJob, quality: HtmlQuality) {
+  constructor(job: ExportJob, step: HtmlPictureStep | undefined) {
     this.job = job;
-    this.quality = quality;
+    this.step = step;
   }
 
   /**
    * The address to write for a file the slide shows. Files that cannot be
    * inlined stay links, noted as `online` for the slide; unreadable files
-   * of the deck are noted as missing pictures. Below best quality a picture
-   * is shrunk to the size it is shown at (`shown`, its long edge in slide
-   * px; the slide's when unknown) before it is inlined.
+   * of the deck are noted as missing pictures. At a step a picture is
+   * shrunk to the size it is shown at (`shown`, its long edge in slide px;
+   * the slide's when unknown) before it is inlined.
    */
   async url(src: string, slide: number, online: 'pictureOnline' | 'videoOnline', shown?: number): Promise<string> {
     if (!src || src.startsWith('data:')) return src;
     const assets = this.job.capture.assets;
     const absolute = assets.url(src);
-    const tier = online === 'pictureOnline' && this.quality !== 'best' ? HTML_IMAGE_TIERS[this.quality] : undefined;
-    const edge = tier ? Math.max(MIN_SHRINK_EDGE, Math.ceil((shown && shown > 0 ? shown : Math.max(SLIDE_WIDTH, SLIDE_HEIGHT)) * tier.scale)) : 0;
+    const tier = online === 'pictureOnline' ? this.step : undefined;
+    const edge = tier ? shrinkEdge(tier, shown ?? 0) : 0;
     const key = tier ? `${absolute} ${edge}` : absolute;
     let result = this.done.get(key);
     if (!result) {
@@ -86,14 +129,19 @@ class Inliner {
       const original = await assets.blob(src);
       result = { url: absolute, how: original ? 'online' : foreign ? 'foreign' : 'missing' };
       const blob = original && tier ? ((await shrinkPicture(original, edge, tier.quality).catch(() => null)) ?? original) : original;
-      if (blob && blob.size <= MAX_INLINE_FILE && this.bytes + blob.size <= MAX_INLINE_TOTAL) {
+      if (blob && (online === 'pictureOnline' || blob.size <= MAX_INLINE_CLIP)) {
         const data = blob === original ? await assets.dataUrl(src) : await blobToDataUrl(blob).catch(() => null);
         if (data) {
-          this.bytes += blob.size;
-          result = { url: data, how: 'inlined' };
+          const file: PageFile = { mark: `data:,open-artifact-file-${this.files.length}`, src, link: absolute, data, bytes: data.length, uses: 0, shown: 0, online, slides: [] };
+          this.files.push(file);
+          result = { url: file.mark, how: 'inlined', file };
         }
       }
       this.done.set(key, result);
+    }
+    if (result.file) {
+      result.file.shown = Math.max(result.file.shown, shown ?? 0);
+      result.file.slides.push(slide);
     }
     if (result.how === 'online') this.job.notes.add(online, slide);
     else if (result.how === 'missing') this.job.notes.add('picture', slide);
@@ -281,9 +329,39 @@ async function pageFonts(job: ExportJob): Promise<string> {
   return parts.join('\n');
 }
 
+/**
+ * Fits the page under the download limit: pictures are made smaller through
+ * the steps below `start`, the largest first; when that cannot save enough,
+ * the largest files are linked to the deck online instead. Changes the
+ * files' `data` in place; `skeleton` is the page's bytes besides them.
+ */
+async function fitPage(job: ExportJob, files: PageFile[], skeleton: number, start: number | null): Promise<void> {
+  const over = files.reduce((sum, file) => sum + file.bytes * file.uses, skeleton) - BROWSER_LIMIT;
+  if (over <= 0) return;
+  const assets = job.capture.assets;
+  const pictures = files.filter((file) => file.online === 'pictureOnline');
+  const shrunk = await shrinkToFit(pictures, stepsBelow(start, HTML_STEPS.length), over, async (file, step) => {
+    const original = await assets.blob(file.src);
+    const smaller = original && (await shrinkPicture(original, shrinkEdge(HTML_STEPS[step]!, file.shown), HTML_STEPS[step]!.quality).catch(() => null));
+    const data = smaller ? await blobToDataUrl(smaller).catch(() => null) : null;
+    await breathe();
+    return data ? { data, bytes: data.length } : null;
+  });
+  if (shrunk) {
+    for (const [file, smaller] of shrunk) Object.assign(file, smaller);
+    if (shrunk.size) job.notes.text(picturesShrunkNote(shrunk.size));
+    return;
+  }
+  for (const file of linkToFit(files, over, (file) => file.link.length)) {
+    Object.assign(file, { data: file.link, bytes: file.link.length });
+    for (const slide of file.slides) job.notes.add(file.online, slide);
+  }
+}
+
 /** Writes the deck as a self-contained HTML page. */
 export async function exportHtml(job: ExportJob, options: { quality: HtmlQuality } = { quality: 'best' }): Promise<Blob> {
-  const inliner = new Inliner(job, options.quality);
+  const start = htmlStartStep(options.quality);
+  const inliner = new Inliner(job, start === null ? undefined : HTML_STEPS[start]);
   const fonts = await pageFonts(job);
   const motionCss = [...(currentSourceDeck()?.sheet.motion ?? [])];
   const rules = readMotionRules(motionCss);
@@ -316,5 +394,16 @@ ${READER_CSS}`;
     `<script type="application/json" id="open-artifact-plan">${plan}</script>\n` +
     `<script>${PLAYER_SCRIPT.replace('var W = 1920', `var W = ${SLIDE_WIDTH}`)}</script>\n` +
     '</body>\n</html>\n';
-  return new Blob([page], { type: 'text/html;charset=utf-8' });
+  // Text and marks alternate; the page is put together from parts, so it never needs one string as large as the file.
+  const parts = page.split(new RegExp(FILE_MARK.source, 'g'));
+  const files = inliner.files;
+  for (let i = 1; i < parts.length; i += 2) files[Number(parts[i])]!.uses += 1;
+  const skeleton = new Blob(parts.filter((_, i) => i % 2 === 0)).size;
+  await fitPage(job, files, skeleton, start);
+  // Marks sit in attributes (`src`, `href`, inline styles): escape what the markup would have.
+  const attribute = (text: string): string => (/[&"<>]/.test(text) ? escapeHtml(text) : text);
+  return new Blob(
+    parts.map((part, i) => (i % 2 === 0 ? part : attribute(files[Number(part)]!.data))),
+    { type: 'text/html;charset=utf-8' },
+  );
 }

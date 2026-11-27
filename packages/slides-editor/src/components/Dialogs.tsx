@@ -1,19 +1,24 @@
 /**
  * The editor's dialogs: the new-slide layout picker, scale the selection
  * (K), insert or change a video link, insert a table, the keyboard
- * shortcuts, the PDF and web page download options, "download anyway?"
- * while the agent is still writing the deck, and the notes of the last
- * download (what it could not carry over).
+ * shortcuts, the PDF and web page download options (which warn when the
+ * file will miss slides), "download anyway?" while the agent is still
+ * writing the deck, and the notes of the last download (what it could not
+ * carry over).
  */
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { LAYOUT_IDS, LAYOUT_NAMES, LIMITS, makeLayout, parseVideoUrl, pinnedRectOf, VIDEO_PROVIDER_LABELS, type LayoutId, type VideoProvider } from '@open-artifact/slides-core';
 import { Button, Dialog, NumberInput, Segmented, SwitchInput, cn, isComposingKey } from '@open-artifact/ui';
+import { useDeck } from '../state/deck.ts';
 import { useSelectedNodes } from '../state/selection.ts';
 import { useUi } from '../state/ui.ts';
 import { insertVideoLink } from '../services/assets.ts';
 import { addSlide, insertTable, scaleSelection } from '../services/commands.ts';
-import type { HtmlQuality, PdfQuality } from '../services/exports.ts';
+import { useAgent } from '../services/agent.ts';
+import { useCreation, writingShortfall } from '../services/creation.ts';
+import { heldSlideNumbers, type HtmlQuality, type PdfQuality } from '../services/exports.ts';
+import { clearedLine, exportWarning, warningSpeech, type WarningPart } from '../services/export/warning.ts';
 import { session } from '../services/session.ts';
 import { answerPartialExport, startExport, useExportUi } from '../services/shell.ts';
 import { SlideThumb } from './SlideThumb.tsx';
@@ -353,11 +358,94 @@ function ShortcutsDialog({ open, onClose }: { open: boolean; onClose: () => void
 /* Downloads                                                                   */
 /* -------------------------------------------------------------------------- */
 
+/** What a download dialog shows and reads out about slides the file will miss. */
+interface DownloadWarning {
+  parts: WarningPart[];
+  /** The line under the description: the warning, or what cleared it. */
+  line: string | null;
+  cleared: boolean;
+  /** The last thing read out; `serial` makes the same words read again. */
+  speech: { text: string; serial: number };
+}
+
+/**
+ * The warning of a download dialog while it is `open`, kept up to date as
+ * the agent writes and slides are fixed. What changes after the dialog
+ * opened is read out from the dialog itself (a modal dialog hides the
+ * page's own live region); what it opens with is its description.
+ */
+function useDownloadWarning(open: boolean): DownloadWarning {
+  // Closed, the dialog does not follow the deck.
+  const slides = useDeck((s) => (open ? s.slides : null));
+  const order = useDeck((s) => (open ? s.index.order : null));
+  const status = useDeck((s) => (open ? s.status : null));
+  const busy = useAgent((s) => open && s.status.busy);
+  const writing = useCreation((s) => open && s.writing);
+  const parts = useMemo(
+    () => (open ? exportWarning({ writing: writingShortfall(), held: status === 'ready' ? heldSlideNumbers(useDeck.getState()) : [] }) : []),
+    [open, slides, order, status, busy, writing],
+  );
+  const key = parts.map((part) => `${part.kind}:${part.say}:${part.line}`).join('\n');
+  const seen = useRef<WarningPart[] | null>(null);
+  const [cleared, setCleared] = useState<string | null>(null);
+  const [speech, setSpeech] = useState({ text: '', serial: 0 });
+  useEffect(() => {
+    if (!open) {
+      seen.current = null;
+      setCleared(null);
+      setSpeech((last) => (last.text ? { text: '', serial: last.serial } : last));
+      return;
+    }
+    const before = seen.current;
+    seen.current = parts;
+    if (before === null) return;
+    const text = warningSpeech(before, parts);
+    if (text) setSpeech((last) => ({ text, serial: last.serial + 1 }));
+    if (parts.length) setCleared(null);
+    else {
+      const line = clearedLine(before);
+      if (line) setCleared(line);
+    }
+    // `key` stands for `parts`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, key]);
+  const line = parts.length ? parts.map((part) => part.line).join(' ') : cleared;
+  return { parts, line, cleared: parts.length === 0 && cleared !== null, speech };
+}
+
+/** A download dialog's description with its warning line. */
+function WarnedDescription({ text, warning }: { text: string; warning: DownloadWarning }): ReactNode {
+  return (
+    <>
+      {text}
+      {warning.line ? (
+        <span data-testid="slides-download-warning" className={cn('mt-2 block', warning.cleared ? 'text-fg-muted' : 'text-warning')}>
+          {warning.line}
+        </span>
+      ) : null}
+    </>
+  );
+}
+
+/** Reads a download dialog's warning changes out. */
+function WarningStatus({ warning }: { warning: DownloadWarning }): ReactNode {
+  return (
+    <span className="sr-only" role="status" aria-live="polite" data-testid="slides-download-warning-status">
+      {warning.speech.text ? <span key={warning.speech.serial}>{warning.speech.text}</span> : null}
+    </span>
+  );
+}
+
+/** Whether downloading past the warning answers "download anyway?": the dialog showed the deck is still being written. */
+const warnedOfWriting = (warning: DownloadWarning): boolean => warning.parts.some((part) => part.kind === 'writing');
+
 /** PDF options: picture quality and speaker notes. */
 function PdfDialog(): ReactNode {
   const pdf = useExportUi((s) => s.pdf);
   const [quality, setQuality] = useState<PdfQuality>('better');
   const [notes, setNotes] = useState(false);
+  const warning = useDownloadWarning(pdf !== null);
+  const cancel = useRef<HTMLButtonElement>(null);
   const close = (): void => {
     if (pdf) session().shell?.exportState(pdf.request, 'declined');
     useExportUi.getState().closePdf();
@@ -367,10 +455,12 @@ function PdfDialog(): ReactNode {
       open={pdf !== null}
       onOpenChange={(open) => !open && close()}
       title="Download PDF"
-      description="Each slide becomes a page with selectable, searchable text and working links."
+      description={<WarnedDescription text="Each slide becomes a page with selectable, searchable text and working links." warning={warning} />}
+      // With a warning, Enter should not download by reflex.
+      initialFocus={warning.parts.length ? cancel : undefined}
       footer={
         <>
-          <Button variant="ghost" onClick={close}>
+          <Button ref={cancel} variant="ghost" onClick={close}>
             Cancel
           </Button>
           <Button
@@ -379,15 +469,16 @@ function PdfDialog(): ReactNode {
               if (!pdf) return;
               const { request } = pdf;
               useExportUi.getState().closePdf();
-              void startExport({ format: 'pdf', quality, notes }, request);
+              void startExport({ format: 'pdf', quality, notes }, request, warnedOfWriting(warning));
             }}
           >
-            Download
+            {warning.parts.length ? 'Download anyway' : 'Download'}
           </Button>
         </>
       }
     >
       <div className="flex flex-col gap-3">
+        <WarningStatus warning={warning} />
         <div className="flex flex-col gap-1.5">
           <span className="text-xs text-fg-muted">Picture quality</span>
           <Segmented<PdfQuality>
@@ -414,6 +505,8 @@ function PdfDialog(): ReactNode {
 function HtmlDialog(): ReactNode {
   const html = useExportUi((s) => s.html);
   const [quality, setQuality] = useState<HtmlQuality>('best');
+  const warning = useDownloadWarning(html !== null);
+  const cancel = useRef<HTMLButtonElement>(null);
   const close = (): void => {
     if (html) session().shell?.exportState(html.request, 'declined');
     useExportUi.getState().closeHtml();
@@ -423,10 +516,11 @@ function HtmlDialog(): ReactNode {
       open={html !== null}
       onOpenChange={(open) => !open && close()}
       title="Download web page"
-      description="One file that presents the deck in any browser, with builds, transitions and videos."
+      description={<WarnedDescription text="One file that presents the deck in any browser, with builds, transitions and videos." warning={warning} />}
+      initialFocus={warning.parts.length ? cancel : undefined}
       footer={
         <>
-          <Button variant="ghost" onClick={close}>
+          <Button ref={cancel} variant="ghost" onClick={close}>
             Cancel
           </Button>
           <Button
@@ -435,15 +529,16 @@ function HtmlDialog(): ReactNode {
               if (!html) return;
               const { request } = html;
               useExportUi.getState().closeHtml();
-              void startExport({ format: 'html', quality }, request);
+              void startExport({ format: 'html', quality }, request, warnedOfWriting(warning));
             }}
           >
-            Download
+            {warning.parts.length ? 'Download anyway' : 'Download'}
           </Button>
         </>
       }
     >
       <div className="flex flex-col gap-1.5">
+        <WarningStatus warning={warning} />
         <span className="text-xs text-fg-muted">Picture quality</span>
         <Segmented<HtmlQuality>
           value={quality}
@@ -454,7 +549,7 @@ function HtmlDialog(): ReactNode {
           ]}
           onChange={setQuality}
         />
-        <span className="text-[11px] text-fg-subtle">Best keeps images as they are. Better and Good shrink large images to make a smaller file.</span>
+        <span className="text-[11px] text-fg-subtle">Best keeps images as they are, shrinking them only if the file would pass 200 MB. Better and Good shrink large images to make a smaller file.</span>
       </div>
     </Dialog>
   );

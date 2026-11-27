@@ -255,6 +255,8 @@ export function startShellBridge(): void {
           shell.exportState(request, 'busy');
           return;
         }
+        // A new download replaces the notes of the last one (the Shell's menu stays usable while they show).
+        ui.setNotes(null);
         if (format === 'pdf' || format === 'html') {
           if (format === 'pdf') ui.openPdf(request);
           else ui.openHtml(request);

@@ -10,6 +10,7 @@ import { buildPdf, type PdfPage, type PdfTextRun } from '@open-artifact/wasm-exp
 import { linkAreas, mountSlide, slidePicture, textLines } from '../capture.ts';
 import { canvasBlob } from '@open-artifact/export-kit';
 import { BROWSER_LIMIT } from './files.ts';
+import { OverLimit, projectedBytes, type QualityStep } from './budget.ts';
 import { breathe, noteStills, type ExportJob, type ExportSlide } from './job.ts';
 import type { PdfQuality } from '../exports.ts';
 import { paginate, wrapLines } from './notes.ts';
@@ -20,6 +21,11 @@ export const PDF_QUALITY: Record<PdfQuality, { scale: number; jpeg: number }> = 
   better: { scale: 1.5, jpeg: 0.85 },
   best: { scale: 2, jpeg: 0.9 },
 };
+
+/** The qualities, sharpest first: the steps a PDF too large for a download steps down. */
+export const PDF_STEPS: readonly PdfQuality[] = ['best', 'better', 'good'];
+/** {@link PDF_STEPS} as a ladder of scales. */
+export const PDF_LADDER: readonly QualityStep[] = PDF_STEPS.map((quality) => PDF_QUALITY[quality]);
 
 /** Most pages in one file. */
 const MAX_PAGES = 2000;
@@ -48,6 +54,10 @@ const PAGE_H = SLIDE_HEIGHT * PT_PER_PX;
 export interface PdfOptions {
   quality: PdfQuality;
   notes: boolean;
+  /** A lower quality is left to try: reaching the byte limit stops with {@link OverLimit} instead of leaving slides out. */
+  canStepDown?: boolean;
+  /** The quality is lower than the one asked for, to fit the limit: said in the notes. */
+  steppedDown?: boolean;
 }
 
 /** A canvas as a JPEG. */
@@ -136,6 +146,7 @@ export async function exportPdf(job: ExportJob, options: PdfOptions): Promise<Bl
   const pages: PdfPage[] = [];
   let bytes = 0;
   for (const [index, entry] of job.slides.entries()) {
+    if (bytes >= MAX_BYTES && options.canStepDown) throw new OverLimit(projectedBytes(bytes, index, job.slides.length), MAX_BYTES);
     if (pages.length >= MAX_PAGES || bytes >= MAX_BYTES) {
       for (const rest of job.slides.slice(index)) job.notes.add('pageLimit', rest.number);
       break;
@@ -183,6 +194,7 @@ export async function exportPdf(job: ExportJob, options: PdfOptions): Promise<Bl
     await breathe();
   }
   if (pages.length === 0) throw new Error('There are no slides to export.');
+  if (options.steppedDown) job.notes.add('picturesReduced');
   // Assembled in the export Worker: the pictures travel there as Blobs.
   const pdf = await buildPdf(pages, { title: job.title });
   return new Blob([pdf as BlobPart], { type: 'application/pdf' });

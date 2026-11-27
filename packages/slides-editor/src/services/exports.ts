@@ -5,8 +5,11 @@
  * Every export works from the slides as they are in this tab (unsaved
  * edits included): hidden slides are skipped, slides whose file has errors
  * are skipped with a note, and what a format cannot carry over is reported
- * back as export notes. The file is saved through the host's downloads
- * capability when it fits, else as an ordinary browser download.
+ * back as export notes. A PDF that would pass the download limit is made
+ * again at a lower picture quality; a web page shrinks its largest
+ * pictures until it fits. The file is saved
+ * through the host's downloads capability when it fits, else as an
+ * ordinary browser download.
  */
 
 import { mayExportHere } from '@open-artifact/editor-kit';
@@ -14,12 +17,13 @@ import { displayTitle } from '@open-artifact/slides-core';
 import { deckOrder, useDeck } from '../state/deck.ts';
 import type { CaptureContext } from './capture.ts';
 import { AssetCache } from './export/assets.ts';
+import { fitWithinLimit, type QualityStep, type StepTry } from './export/budget.ts';
 import { exportFileName, saveExport, slideFileName } from './export/files.ts';
 import { deckFontCss, deckText } from './export/fonts.ts';
 import { exportHtml } from './export/html.ts';
 import type { ExportJob, ExportSlide } from './export/job.ts';
 import { ExportNotes } from './export/notes.ts';
-import { exportPdf } from './export/pdf.ts';
+import { exportPdf, PDF_LADDER, PDF_STEPS } from './export/pdf.ts';
 import { exportPng } from './export/png.ts';
 import { exportPicturePptx } from './export/picture-pptx.ts';
 import { exportPptx, type PptxFonts } from './export/pptx.ts';
@@ -70,6 +74,15 @@ function deckTitle(): string {
   return state.title.trim() || displayTitle(state.index);
 }
 
+/** Numbers (in the deck) of the slides an export leaves out because their files have errors. */
+export function heldSlideNumbers(state: Parameters<typeof deckOrder>[0]): number[] {
+  const out: number[] = [];
+  deckOrder(state).forEach((id, i) => {
+    if (state.slides[id]?.held) out.push(i + 1);
+  });
+  return out;
+}
+
 /** The slides a request covers, with notes for what is left out. */
 function selectSlides(request: ExportRequest, notes: ExportNotes): ExportSlide[] {
   const state = useDeck.getState();
@@ -92,11 +105,23 @@ function selectSlides(request: ExportRequest, notes: ExportNotes): ExportSlide[]
   return out;
 }
 
-/** Writes the file a request asks for. */
-async function render(request: ExportRequest, job: ExportJob): Promise<Blob> {
+/** The picture qualities a request can step down through, and the step it starts at (null: pictures as they are). */
+interface QualityPlan {
+  ladder: readonly QualityStep[];
+  start: number | null;
+}
+
+/** The quality plan of a request; null for formats not made again at a lower quality. */
+function qualityPlan(request: ExportRequest): QualityPlan | null {
+  if (request.format === 'pdf') return { ladder: PDF_LADDER, start: PDF_STEPS.indexOf(request.quality) };
+  return null;
+}
+
+/** Writes the file a request asks for; `at` is the try within its quality plan. */
+async function render(request: ExportRequest, job: ExportJob, at: StepTry): Promise<Blob> {
   switch (request.format) {
     case 'pdf':
-      return exportPdf(job, { quality: request.quality, notes: request.notes });
+      return exportPdf(job, { quality: at.step === null ? request.quality : (PDF_STEPS[at.step] ?? request.quality), notes: request.notes, canStepDown: at.canStepDown, steppedDown: at.steppedDown });
     case 'pptx':
       return request.pictures ? exportPicturePptx(job) : exportPptx(job, { fonts: request.fonts });
     case 'html':
@@ -119,9 +144,14 @@ export async function runExport(request: ExportRequest, progress?: (done: number
   if (state.status !== 'ready') throw new Error('The deck has not finished loading.');
   busy = true;
   try {
-    const notes = new ExportNotes();
-    if (options.writing) notes.text(writingNote(options.writing.written, options.writing.planned));
-    const slides = selectSlides(request, notes);
+    let notes = new ExportNotes();
+    // Each try starts from fresh notes: one given up on must not leave its notes behind.
+    const freshNotes = (): ExportSlide[] => {
+      notes = new ExportNotes();
+      if (options.writing) notes.text(writingNote(options.writing.written, options.writing.planned));
+      return selectSlides(request, notes);
+    };
+    const slides = freshNotes();
     if (slides.length === 0) throw new Error('There are no slides to export: every slide is hidden or has errors.');
     const title = deckTitle();
     const assets = new AssetCache(resolveSrc);
@@ -137,26 +167,32 @@ export async function runExport(request: ExportRequest, progress?: (done: number
       onMissingPicture: () => notes.add('picture', current),
       onLateFonts: (families) => families.forEach((family) => notes.family('fontLate', family)),
     };
+    let fontsMissing = false;
     if (request.format !== 'html') {
       // Slide pictures cannot load fonts from the network: inline them.
       const bundle = await deckFontCss(faces, { text: deckText(slides.map((entry) => entry.slide)), assets, maxBytes: PICTURE_FONT_BYTES });
       capture.fontCss = bundle.css;
       // Editable PowerPoint names its fonts instead of drawing them; pictures of slides need them.
-      if (bundle.missing.length && (request.format !== 'pptx' || request.pictures)) notes.add('fontsMissing');
+      fontsMissing = bundle.missing.length > 0 && (request.format !== 'pptx' || request.pictures === true);
     }
     const total = slides.length;
-    progress?.(0, total);
-    const job: ExportJob = {
-      title,
-      slides,
-      capture,
-      notes,
-      begin: (number) => {
-        current = number;
-      },
-      progress: (done) => progress?.(Math.min(done, total), total),
+    const plan = qualityPlan(request);
+    const attempt = (at: StepTry): Promise<Blob> => {
+      if (fontsMissing) notes.add('fontsMissing');
+      progress?.(0, total);
+      const job: ExportJob = {
+        title,
+        slides,
+        capture,
+        notes,
+        begin: (number) => {
+          current = number;
+        },
+        progress: (done) => progress?.(Math.min(done, total), total),
+      };
+      return render(request, job, at);
     };
-    const blob = await render(request, job);
+    const blob = plan ? await fitWithinLimit(plan.ladder, plan.start, attempt, freshNotes) : await attempt({ step: null, canStepDown: false, steppedDown: false });
     const name = request.format === 'png' ? slideFileName(title, slides[0]!.number, 'png') : exportFileName(title, request.format);
     const saved = await saveExport(name, blob, maybeSession()?.downloads ?? null);
     return { name, notes: notes.list(), savedTo: saved.savedTo };

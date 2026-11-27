@@ -7,6 +7,7 @@
 
 /** Every kind of note about slides (or the whole deck), with its message. */
 export const NOTE_MESSAGES = {
+  picturesReduced: 'Pictures were made smaller so the file fits the 200 MB download limit',
   hidden: 'Hidden slides were left out',
   held: 'Slides with errors were left out',
   embed: 'Embedded pages became still pictures',
