@@ -5,6 +5,7 @@
  * go, and the person is told.
  */
 import type { CommentCreate } from '@open-artifact/runtime';
+import type { sendParts } from './send-parts.ts';
 import { Backoff } from '../sync/backoff.ts';
 import { committed, openStore, settle } from '../sync/idb.ts';
 
@@ -14,12 +15,12 @@ const OUTBOX_STORE = 'comments';
 /** A kept comment older than this is let go instead of sent. */
 export const OUTBOX_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
-export type OutboxEntry =
-  | { id: string; scope: string; at: number; kind: 'create'; input: CommentCreate }
-  | { id: string; scope: string; at: number; kind: 'reply'; threadId: string; text: string; to?: string[]; assignee?: string; quiet?: true };
+export type OutboxItem = (
+  | { kind: 'create'; input: CommentCreate }
+  | { kind: 'reply'; threadId: string; text: string; to?: string[]; assignee?: string; quiet?: true }
+) & { parts?: ReturnType<typeof sendParts> };
 
-/** What an entry is, without its id, scope and time. */
-export type OutboxItem = { kind: 'create'; input: CommentCreate } | { kind: 'reply'; threadId: string; text: string; to?: string[]; assignee?: string; quiet?: true };
+export type OutboxEntry = OutboxItem & { id: string; scope: string; at: number };
 
 export interface OutboxStore {
   load(scope: string): Promise<OutboxEntry[]>;

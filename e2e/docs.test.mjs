@@ -1151,8 +1151,11 @@ describe(`${TYPE} in Chrome: Ask Agent as a comment on an agent chip`, { skip: s
   });
 
   it('an ask made while the server cannot be reached is kept to send later, with its chip in the text', T, async () => {
-    const w = await startWait(ctx, ctx.root, 60);
-    const { browser, page } = await opened(ctx.root, 'Bikes ride free');
+    const { root } = await make('offline', '# Bikes\n\nBikes ride free.\n');
+    let w = await startWait(ctx, root, 60);
+    const { browser, page } = await opened(root, 'Bikes ride free');
+    const sentRequests = () => fs.readdirSync(path.join(root, '_agent/done'))
+      .map(file => JSON.parse(fs.readFileSync(path.join(root, '_agent/done', file), 'utf8')));
     try {
       const before = await chips(page);
       await page.evaluateAll(`(() => {
@@ -1161,7 +1164,7 @@ describe(`${TYPE} in Chrome: Ask Agent as a comment on an agent chip`, { skip: s
         window.__offline = true;
         window.fetch = function (input, init) {
           const where = typeof input === 'string' ? input : input?.url ?? String(input);
-          if (window.__offline && where.includes('_api/comments/create')) return Promise.reject(new TypeError('Failed to fetch'));
+          if (window.__offline && (where.includes('_api/comments/create') || where.includes('_api/comments/reply'))) return Promise.reject(new TypeError('Failed to fetch'));
           return send.call(this, input, init);
         };
       })()`);
@@ -1172,8 +1175,33 @@ describe(`${TYPE} in Chrome: Ask Agent as a comment on an agent chip`, { skip: s
       assert.ok(await page.waitFor(`!${PROMPT}`, 3000), 'the prompt stayed open');
       assert.equal(await chips(page), before + 1);
       assert.ok(await page.waitFor(`[...document.querySelectorAll('${AGENT_CHIP}')].some(chip => chip.closest('p')?.textContent.startsWith('Bikes ride free.'))`, 2000), 'the chip is not in the line');
-      assert.equal((await ctx.cli.json(['comments', ctx.root, '--json'])).threads.length, 1);
-      await page.evaluateAll(`window.__offline = false`);
+      assert.equal((await ctx.cli.json(['comments', root, '--json'])).threads.length, 0);
+      await page.evaluateAll(`window.__offline = false; window.dispatchEvent(new Event('online'))`);
+      assert.equal((await w.done).code, 0);
+      const [thread] = (await ctx.cli.json(['comments', root, '--json'])).threads;
+      const sent = sentRequests().find(request => request.context?.comment?.id === thread.id);
+      assert.equal(sent?.userText, 'Say where bikes go');
+      assert.deepEqual(sent.selectionSnapshot, {
+        kind: 'line', label: 'Bikes ride free.', count: 1,
+        items: [{ id: thread.location.block, kind: 'block' }], text: 'Bikes ride free.',
+      });
+
+      w = await startWait(ctx, root, 60);
+      const card = `document.querySelector('[data-comment-card="${thread.id}"]')`;
+      await clickInEditor(page, card);
+      const box = `${card}.querySelector('[data-comment-composer] textarea')`;
+      assert.ok(await page.waitFor(box));
+      await clickInEditor(page, box);
+      await page.evaluateAll('window.__offline = true');
+      const reply = '@Agent Is there a bike rack?';
+      await page.cdp('Input.insertText', { text: reply });
+      await page.press('Enter');
+      assert.ok(await page.waitFor(`${card} && !${box}?.value`));
+      assert.equal((await ctx.cli.json(['comments', root, '--json'])).threads[0].messages.length, 1);
+      await page.evaluateAll(`window.__offline = false; window.dispatchEvent(new Event('online'))`);
+      assert.equal((await w.done).code, 0);
+      const resent = sentRequests().find(request => request.context?.comment?.messages.at(-1)?.text === reply);
+      assert.equal(resent?.userText, reply);
       assert.deepEqual(page.problems, []);
     } finally {
       await browser.close();
