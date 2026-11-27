@@ -164,6 +164,8 @@ export const PLAYER_SCRIPT = String.raw`
       frame.src = url;
       frame.title = holder.getAttribute('aria-label') || 'Video';
       frame.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
+      // The provider needs the page's origin (YouTube refuses an embed with no Referer).
+      frame.referrerPolicy = 'strict-origin-when-cross-origin';
       frame.setAttribute('allowfullscreen', '');
       holder.appendChild(frame);
     }

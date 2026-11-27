@@ -124,6 +124,24 @@ describe('navigation in a tab', () => {
     await view.evaluate<void | undefined>("document.getElementById('probe')?.remove(); true");
   });
 
+  it("a slide's video player is let into the page", T, async () => {
+    const player = 'https://www.youtube-nocookie.com/embed/M7lc1UVf-VE?playsinline=1&autoplay=1';
+    // The player, then a frame from the web: once the second is refused, the guard has seen the first.
+    await view.evaluate<boolean>(`(() => {
+      for (const [id, src] of [['player', ${JSON.stringify(player)}], ['other', 'https://example.com/after-player']]) {
+        const f = document.createElement('iframe'); f.id = id; f.src = src; document.body.append(f);
+      }
+      return true;
+    })()`);
+    assert.ok(await logged('[desktop] blocked frame navigation to https://example.com/after-player'), app.lines.join('\n'));
+    assert.equal(
+      app.lines.some((line) => line.includes('blocked frame navigation to https://www.youtube-nocookie.com')),
+      false,
+      app.lines.join('\n'),
+    );
+    await view.evaluate<boolean>("(() => { document.getElementById('player')?.remove(); document.getElementById('other')?.remove(); return true; })()");
+  });
+
   it('the Shell going to another artifact (Duplicate, Copy as) opens it in a tab of its own', T, async () => {
     // As the Shell's Duplicate does: location.href = /a/<copy> + the page's own query.
     await view.evaluate<string>(`location.href = '/a/${second.id}' + location.search; true`);

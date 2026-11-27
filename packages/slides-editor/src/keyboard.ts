@@ -70,7 +70,7 @@ import {
 } from './services/commands.ts';
 import { useAgent } from './services/agent.ts';
 import { maybeSession } from './services/session.ts';
-import { useComments } from './services/comments.ts';
+import { setCommenting, useComments } from './services/comments.ts';
 import { useFind } from './services/find.ts';
 import { scaleKey, startScale } from './services/scale.ts';
 import { playableSlides } from './services/present.ts';
@@ -410,7 +410,7 @@ export function installKeyboard(): () => void {
     if (!onStage) return;
     // Single-letter tools and commands.
     if (letter === 'c' && !event.shiftKey && useComments.getState().available) {
-      maybeSession()?.shell?.requestCommentMode(!useComments.getState().on);
+      setCommenting(!useComments.getState().on);
       return;
     }
     // No slide yet (an empty deck): a drawing tool would have nothing to draw on.

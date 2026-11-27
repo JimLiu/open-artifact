@@ -11,7 +11,9 @@ switcher for the Open Artifact sites (servers) the daemon knows.
   session, no wake, `embed: 'view'`. The daemon's token stays in the main process; pages get no Node, no preload and
   no bridge.
 - A view may only show the daemon's origin and the page origins the daemon lists (`embed.origins`); its frames are
-  checked again at each server redirect, so an allowed address cannot redirect a frame elsewhere. Links to the web
+  checked again at each server redirect, so an allowed address cannot redirect a frame elsewhere. A frame may also
+  be a slide's video player (https YouTube, Vimeo, Loom or Google Drive embeds only), and the player's own frames may
+  go anywhere on the web but this computer. Links to the web
   go to the system browser (only http(s), without a user name or password; the log keeps the origin and the path);
   new windows are denied; another artifact's Shell address opens a tab of its own; the
   daemon's home page goes to the first tab; the Shell's `close` closes the tab (asked first when its work is not
@@ -371,8 +373,8 @@ npm test         # builds, then runs test/*.test.ts one file at a time
 - `smoke.test.ts`: the app in test mode: a blank doc in a tab, typing reaches the artifact's folder, no Node or
   bridge in the view, the tab comes back after `open-artifact daemon restart` and after the daemon is stopped (the bar
   says it is reconnecting meanwhile), the daemon outlives the app.
-- `navigation.test.ts`: the navigation guards and the permission handler in the running app, `--open`, and the
-  refusal of port 4800 and the default home.
+- `navigation.test.ts`: the navigation guards and the permission handler in the running app (a frame from the web is
+  refused, a slide's YouTube player is let in), `--open`, and the refusal of port 4800 and the default home.
 - `home.test.ts`: the sidebar, the tab bar and the home page in the running app: the list and its live updates,
   opening a card, pin and fold, rename, delete and undo, the new dialog (a blank doc whose typing reaches its folder,
   an empty design with the Shell's prompt, a failed create that says why), back and forward, folding the sidebar,

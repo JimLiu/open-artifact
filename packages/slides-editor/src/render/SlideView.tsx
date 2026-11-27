@@ -46,7 +46,8 @@ import {
   type TextNode,
   type EmbedNode,
 } from '@open-artifact/slides-core';
-import { ImageIcon, Play, Video } from 'lucide-react';
+import { ImageIcon, Video } from 'lucide-react';
+import { ClipPlayButton, ClipPlayer, ClipSign } from './clip.tsx';
 import { SECTION_LAYOUT, SLIDE_CLASS, toReactStyle, installSlideStyles, withItemMargin } from './css.ts';
 import { embedDocument, mountEmbedStill } from './embed-still.ts';
 import { useTextFit } from './fit.ts';
@@ -468,11 +469,8 @@ function ImageView({ node, path }: NodeProps<ImageNode>): ReactNode {
   return (
     <div {...frame} style={style} role={node.alt ? 'img' : undefined} aria-label={node.alt || undefined}>
       {media}
-      {node.video && options.mode === 'edit' ? (
-        <span className="open-artifact-clip-badge" aria-hidden>
-          <Video size={28} />
-        </span>
-      ) : null}
+      {/* A video reads as one in the editor and in thumbnails: a play sign over its poster. */}
+      {node.video && (options.mode === 'edit' || options.mode === 'thumb') ? <ClipSign small={options.mode === 'thumb'} /> : null}
     </div>
   );
 }
@@ -482,12 +480,18 @@ function MediaPlaceholder({ video }: { video?: boolean }): ReactNode {
   return <span className="open-artifact-media-empty">{video ? <Video size={64} strokeWidth={1.5} /> : <ImageIcon size={64} strokeWidth={1.5} />}</span>;
 }
 
-/** A playing clip while presenting: uploaded file or hosted player. */
+/**
+ * A clip while presenting. An uploaded clip plays in place with its controls (after its delay, or once clicked when
+ * it waits for a click). A hosted video shows its poster and the play button, and loads the provider's player,
+ * playing, once clicked.
+ */
 function ClipView({ node, clipKey, poster }: { node: ImageNode; clipKey: string; poster?: string }): ReactNode {
   const options = useRenderOptions();
   const video = node.video!;
-  const waiting = video.startOnClick && !options.startedClips?.has(clipKey);
-  const [delayed, setDelayed] = useState(Boolean(video.delay) && !video.startOnClick);
+  const [clicked, setClicked] = useState(false);
+  const started = clicked || Boolean(options.startedClips?.has(clipKey));
+  const waiting = (video.startOnClick || Boolean(video.link)) && !started;
+  const [delayed, setDelayed] = useState(Boolean(video.delay) && !video.startOnClick && !video.link);
   useEffect(() => {
     if (!delayed || !video.delay) return;
     const timer = setTimeout(() => setDelayed(false), video.delay * 1000);
@@ -495,50 +499,47 @@ function ClipView({ node, clipKey, poster }: { node: ImageNode; clipKey: string;
   }, [delayed, video.delay]);
   // A clip past its wait still needs a free slot: it shows its poster until one opens.
   const slot = useClipSlot(!waiting && !delayed);
+  const still = poster ?? (video.link ? videoThumbnailUrl(video.link) ?? undefined : undefined);
   if (waiting || delayed || !slot) {
     return (
       <>
-        {poster ? <img src={poster} alt="" style={pictureStyle(node)} /> : null}
+        {still ? <img src={still} alt="" style={pictureStyle(node)} /> : null}
         {waiting ? (
-          <button
-            type="button"
-            className="open-artifact-clip-start"
-            aria-label="Play video"
-            onClick={(e) => {
-              e.stopPropagation();
+          <ClipPlayButton
+            onPlay={() => {
+              setClicked(true);
               options.onStartClip?.(clipKey);
             }}
-          >
-            <Play size={72} />
-          </button>
+          />
         ) : null}
       </>
     );
   }
   if (video.src) {
-    return (
-      <video
-        src={options.resolveSrc(video.src)}
-        poster={poster}
-        autoPlay
-        playsInline
-        muted={!video.sound}
-        loop={video.loop !== false}
-        style={pictureStyle(node)}
-      />
-    );
+    return <ClipPlayer src={options.resolveSrc(video.src)} poster={poster} sound={Boolean(video.sound)} loop={video.loop !== false} style={pictureStyle(node)} />;
   }
   const url = video.link ? videoEmbedUrl(video.link, typeof location === 'undefined' ? undefined : location.origin) : null;
   if (!url) return null;
   return (
     <iframe
-      src={url}
+      src={autoplayUrl(url)}
       title={node.alt || 'Video'}
       allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+      // The provider needs the page's origin to play an embed (YouTube refuses one with no Referer); the page's own
+      // policy sends none across origins. The path, which holds the page's token, still stays here.
+      referrerPolicy="strict-origin-when-cross-origin"
       sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
       style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 0 }}
     />
   );
+}
+
+/** A player URL that starts playing as it loads (the viewer has just clicked play). */
+function autoplayUrl(url: string): string {
+  if (/[?&#]autoplay=1\b/.test(url)) return url;
+  const hash = url.indexOf('#');
+  const [base, fragment] = hash < 0 ? [url, ''] : [url.slice(0, hash), url.slice(hash)];
+  return `${base}${base.includes('?') ? '&' : '?'}autoplay=1${fragment}`;
 }
 
 function TableView({ node, path }: NodeProps<TableNode>): ReactNode {

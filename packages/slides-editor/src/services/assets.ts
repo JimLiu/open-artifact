@@ -359,3 +359,6 @@ export function pickFiles(accept: string, multiple: boolean): Promise<File[]> {
 
 /** Accept string of the picture / clip picker. */
 export const MEDIA_ACCEPT = 'image/png,image/jpeg,image/gif,image/webp,image/svg+xml,video/mp4,video/quicktime,video/webm,.mov';
+
+/** The clips the Video button's Upload video picks. */
+export const VIDEO_ACCEPT = 'video/mp4,video/quicktime,video/webm,.mov';

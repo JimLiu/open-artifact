@@ -159,6 +159,33 @@ describe('navigation', () => {
     assert.equal(subframeAllowed('https://example.com/', allowlist), false);
   });
 
+  it("subframes: a slide's video players, and inside one the web but not this computer", () => {
+    for (const player of [
+      'https://www.youtube-nocookie.com/embed/M7lc1UVf-VE?playsinline=1&autoplay=1',
+      'https://www.youtube.com/embed/M7lc1UVf-VE',
+      'https://player.vimeo.com/video/76979871?dnt=1',
+      'https://www.loom.com/embed/0123456789abcdef0123456789abcdef',
+      'https://drive.google.com/file/d/abcdefghijklmnopqrstuvwxyz/preview',
+    ])
+      assert.equal(subframeAllowed(player, allowlist), true, player);
+    for (const other of [
+      'http://www.youtube-nocookie.com/embed/M7lc1UVf-VE',
+      'https://www.youtube-nocookie.com:8443/embed/M7lc1UVf-VE',
+      'https://www.youtube.com/watch?v=M7lc1UVf-VE',
+      'https://evil.example/embed/www.youtube-nocookie.com',
+      'https://www.youtube-nocookie.com.evil.example/embed/x',
+      'https://user:pw@player.vimeo.com/video/1',
+    ])
+      assert.equal(subframeAllowed(other, allowlist), false, other);
+    const player = 'https://www.youtube-nocookie.com/embed/M7lc1UVf-VE';
+    const page = 'http://127.0.0.1:5001/slides/x/';
+    assert.equal(subframeAllowed('https://accounts.example.com/frame', allowlist, [player, page]), true);
+    assert.equal(subframeAllowed('https://accounts.example.com/frame', allowlist, [page]), false);
+    assert.equal(subframeAllowed('http://127.0.0.1:9999/', allowlist, [player, page]), false);
+    assert.equal(subframeAllowed('http://evil.localhost/', allowlist, [player, page]), false);
+    assert.equal(subframeAllowed('file:///etc/passwd', allowlist, [player, page]), false);
+  });
+
   it('reads the artifact id of a Shell address', () => {
     assert.equal(shellArtifactId('http://127.0.0.1:4891/a/art_x%20y?z'), 'art_x y');
     assert.equal(shellArtifactId('http://127.0.0.1:4891/b/art_x'), null);

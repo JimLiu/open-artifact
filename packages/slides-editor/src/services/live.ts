@@ -37,7 +37,7 @@
 import { create } from 'zustand';
 import { SLIDE_WIDTH } from '@open-artifact/slides-core';
 import { deckOrder, useDeck } from '../state/deck.ts';
-import { useView } from '../state/view.ts';
+import { railWanted, useView } from '../state/view.ts';
 import { lookKey, snapshotKey, wantedLive, captureOrder, type PlacedThumb, type Rect } from './live-plan.ts';
 import { resolveSrc } from './session.ts';
 import { snapshotSlide } from './snapshot.ts';
@@ -367,7 +367,7 @@ function start(): Engine {
   };
 
   useView.subscribe((state, prev) => {
-    if (state.current !== prev.current || state.mode !== prev.mode || state.showRail !== prev.showRail || state.canvasEdit !== prev.canvasEdit) queueRecompute();
+    if (state.current !== prev.current || state.mode !== prev.mode || railWanted(state) !== railWanted(prev) || state.canvasEdit !== prev.canvasEdit) queueRecompute();
     if (state.textEdit !== prev.textEdit || state.editingSection !== prev.editingSection) schedulePump(SETTLE_MS);
   });
   useDeck.subscribe((state, prev) => {

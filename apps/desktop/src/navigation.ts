@@ -1,3 +1,4 @@
+import { onThisComputer } from './offline.ts';
 export type NavigationDecision = { action: 'allow' | 'home' | 'block' } | { action: 'open-tab'; id: string } | { action: 'external'; url: string };
 /**
  * Which addresses an artifact view may load, and what the app does with a top-level navigation in a view.
@@ -25,6 +26,8 @@ export type NavigationDecision = { action: 'allow' | 'home' | 'block' } | { acti
  * - any other http(s) address: the system browser; anything else: blocked.
  * Its subframes (`serverSubframeAllowed`): any http(s) address but this computer's own pages (the site's content
  * origin is not listed anywhere, its own CSP decides its frames), and the page's own frames.
+ * A local view's subframes (`subframeAllowed`): the page's own frames, the allowed origins, and the video players a
+ * slide frames (`VIDEO_PLAYERS`), whose own frames may go anywhere on the web but this computer.
  * Pure: the tests check it without Electron.
  */
 
@@ -187,10 +190,35 @@ export function externalTarget(input: string): { href: string; log: string } | n
   return { href: url.href, log: `${url.origin}${url.pathname}` };
 }
 
-/** Whether a subframe may load this address: the page's own frames, or an allowed origin. */
-export function subframeAllowed(address: string, allowlist: OriginAllowlist) {
-  return ownSubframe(address) || allowlist.allows(address);
+/**
+ * The video players a page may frame (a slide's hosted video: YouTube, Vimeo, Loom, Google Drive), as the editors
+ * write their addresses: https, the provider's own host, its player's path.
+ */
+const VIDEO_PLAYERS: readonly { host: string; path: string }[] = [
+  { host: 'www.youtube-nocookie.com', path: '/embed/' },
+  { host: 'www.youtube.com', path: '/embed/' },
+  { host: 'player.vimeo.com', path: '/video/' },
+  { host: 'www.loom.com', path: '/embed/' },
+  { host: 'drive.google.com', path: '/file/d/' },
+];
+
+/** Whether an address is a video player's (`VIDEO_PLAYERS`). */
+export function videoPlayer(address: string | null | undefined) {
+  const url = parse(address);
+  if (!url || url.protocol !== 'https:' || url.port || url.username || url.password) return false;
+  return VIDEO_PLAYERS.some((player) => url.hostname === player.host && url.pathname.startsWith(player.path));
 }
+
+/**
+ * Whether a subframe may load this address: the page's own frames, an allowed origin, or a video player. `framers`:
+ * the addresses of the frames around it, nearest first; inside a video player the player's own frames are its own
+ * business (as a site's page's are), so they may go anywhere on the web but this computer's own pages.
+ */
+export function subframeAllowed(address: string, allowlist: OriginAllowlist, framers: readonly string[] = []) {
+  if (ownSubframe(address) || allowlist.allows(address) || videoPlayer(address)) return true;
+  return framers.some(videoPlayer) && httpish(address) && !onThisComputer(address);
+}
+
 
 /** `open-artifact://artifact/<id>`, `/a/<id>` or a bare id → the id. */
 export function artifactIdOf(ref: unknown) {

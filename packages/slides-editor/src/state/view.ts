@@ -5,6 +5,7 @@
 
 import { create } from 'zustand';
 import type { NodePath, ShapeKind, StyleMap } from '@open-artifact/slides-core';
+import { railFits } from '../lib/narrow.ts';
 
 /** The editor's faces. */
 export type ViewMode = 'edit' | 'grid' | 'canvas';
@@ -61,6 +62,12 @@ interface ViewState {
   fitScale: number;
   tool: Tool;
   showRail: boolean;
+  /** The window is wide enough for the rail beside the stage (see lib/narrow.ts). */
+  railFits: boolean;
+  /** A narrow window shows the rail anyway, until the window changes (View › Slide thumbnails). */
+  railPeek: boolean;
+  /** The pager and zoom card sits above the bottom toolbar (no room beside it): the stage keeps room for both. */
+  footStacked: boolean;
   showProperties: boolean;
   showNotes: boolean;
   findOpen: boolean;
@@ -87,6 +94,8 @@ interface ViewState {
   setFitScale(scale: number): void;
   setTool(tool: Tool): void;
   toggle(panel: 'showRail' | 'showProperties' | 'showNotes' | 'findOpen', value?: boolean): void;
+  setRailFits(fits: boolean): void;
+  setFootStacked(stacked: boolean): void;
   present(presenting: Presenting | null): void;
   setStyleClipboard(value: ViewState['styleClipboard']): void;
   setDropGap(gap: number | null): void;
@@ -128,6 +137,9 @@ export const useView = create<ViewState>()((set, get) => ({
   fitScale: 0.5,
   tool: 'select',
   showRail: prefs.showRail ?? true,
+  railFits: typeof window === 'undefined' ? true : railFits(null, window.innerWidth),
+  railPeek: false,
+  footStacked: false,
   showProperties: prefs.showProperties ?? true,
   showNotes: prefs.showNotes ?? false,
   findOpen: false,
@@ -189,8 +201,19 @@ export const useView = create<ViewState>()((set, get) => ({
     set({ tool, textEdit: tool === 'select' ? get().textEdit : null });
   },
   toggle(panel, value) {
+    // A narrow window: the rail shows for now, and the remembered choice stays for a wide one.
+    if (panel === 'showRail' && !get().railFits) {
+      set({ railPeek: value ?? !get().railPeek });
+      return;
+    }
     set({ [panel]: value ?? !get()[panel] } as Partial<ViewState>);
     writePrefs(get());
+  },
+  setRailFits(fits) {
+    if (fits !== get().railFits) set({ railFits: fits, railPeek: false });
+  },
+  setFootStacked(footStacked) {
+    if (footStacked !== get().footStacked) set({ footStacked });
   },
   present(presenting) {
     set({ presenting, presentRun: get().presentRun + (presenting ? 1 : 0), textEdit: null, cropping: null });
@@ -206,4 +229,20 @@ export const useView = create<ViewState>()((set, get) => ({
 /** The stage scale in effect. */
 export function stageScale(state: Pick<ViewState, 'zoom' | 'fitScale'>): number {
   return state.zoom === 'fit' ? state.fitScale : state.zoom;
+}
+
+/** The rail is wanted: the remembered choice in a wide window, or shown for now in a narrow one. */
+export function railWanted(state: Pick<ViewState, 'showRail' | 'railFits' | 'railPeek'>): boolean {
+  return state.railFits ? state.showRail : state.railPeek;
+}
+
+/** Keeps {@link ViewState.railFits} in step with the window's width. */
+export function watchRailFit(): () => void {
+  const update = (): void => {
+    const view = useView.getState();
+    view.setRailFits(railFits(view.railFits, window.innerWidth));
+  };
+  update();
+  window.addEventListener('resize', update);
+  return () => window.removeEventListener('resize', update);
 }

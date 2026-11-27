@@ -55,7 +55,11 @@ function LayoutPreview({ layout }: { layout: LayoutId }): ReactNode {
   return <SlideThumb slide={slide} />;
 }
 
-/** "New slide": pick a layout; the slide goes after the current one. */
+/**
+ * "New slide": pick a layout; the slide goes after the current one (first,
+ * in a deck without slides). The focused layout, Blank on opening, shows its
+ * ring whether the picker opened by click or key: Enter picks it.
+ */
 function NewSlideDialog({ onClose }: { onClose: () => void }): ReactNode {
   const pick = (layout: LayoutId): void => {
     onClose();
@@ -71,13 +75,13 @@ function NewSlideDialog({ onClose }: { onClose: () => void }): ReactNode {
             role="option"
             aria-selected={false}
             autoFocus={i === 0}
-            className="group flex flex-col gap-1.5 rounded-[8px] p-1 text-left outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-accent"
+            className="group flex flex-col gap-1.5 rounded-[8px] p-1 text-left outline-none hover:bg-hover focus:ring-2 focus:ring-accent"
             onClick={() => pick(layout)}
           >
             <span className="block overflow-hidden rounded-[4px] ring-1 ring-line group-hover:ring-line-strong">
               <LayoutPreview layout={layout} />
             </span>
-            <span className="px-0.5 text-[13px] text-fg">{LAYOUT_NAMES[layout]}</span>
+            <span className="px-0.5 text-[13px] text-fg-muted group-hover:text-fg group-focus:text-fg">{LAYOUT_NAMES[layout]}</span>
           </button>
         ))}
       </div>
