@@ -192,6 +192,13 @@ export interface EngineOptions {
   fadeMs: number;
   /** Emit `dragging` on every pointer move of a drag (e.g. to reroute connectors). */
   dragEvents: boolean;
+  /**
+   * A drag released with Alt held copies instead of moving: the items stay put while
+   * ghosts show where the copies land, and the `move` commit carries `copy: true` for the
+   * owner to make them. Selectable items that cannot move come along for a copy only.
+   * Off by default.
+   */
+  altCopy: boolean;
   grid: 'none' | 'dots' | 'lines';
   /** Grid spacing in world units at the finest level. */
   gridSpacing: number;
@@ -246,11 +253,20 @@ export interface Modifiers {
   meta: boolean;
 }
 
+/** A snap guide the host draws: a vertical line at x = `at` (else horizontal at y = `at`) from `from` to `to`, in world units. */
+export interface Guide {
+  vertical: boolean;
+  at: number;
+  from: number;
+  to: number;
+}
+
 /** Which handle: a corner or an edge midpoint, by compass direction. */
 export type Handle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 
 export type CommitIntent = (
-  | { op: 'move'; ids: string[]; dx: number; dy: number }
+  /** `copy`: an `altCopy` drag released with Alt held, nothing moved. */
+  | { op: 'move'; ids: string[]; dx: number; dy: number; copy?: true }
   | { op: 'resize'; id: string; rect: Rect }
   | { op: 'select'; ids: string[] }
 ) & { modifiers: Modifiers };

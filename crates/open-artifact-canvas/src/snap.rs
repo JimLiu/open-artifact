@@ -72,25 +72,43 @@ pub fn snap_values(features: &[Feature], values: &[f64], threshold: f64) -> Opti
 
 const EPS: f64 = 1e-6;
 
+/// The smallest extent (world units) a resized box may snap down to.
+pub const MIN_EXTENT: f64 = 0.5;
+
+/// Corrections (target - v) that move edge `v` onto a feature within `threshold`, keeping
+/// the box more than `MIN_EXTENT` across: `dir` is 1 for a right or bottom edge, -1 for
+/// a left or top one, `size` the box's current extent on that axis.
+pub fn edge_moves(features: &[Feature], v: f64, threshold: f64, dir: f64, size: f64) -> impl Iterator<Item = f64> + '_ {
+    let start = features.partition_point(|f| f.v < v - threshold);
+    features[start..]
+        .iter()
+        .take_while(move |f| f.v <= v + threshold)
+        .map(move |f| f.v - v)
+        .filter(move |d| dir * d + size > MIN_EXTENT)
+}
+
+/// The nearest of `edge_moves`.
+pub fn snap_edge(features: &[Feature], v: f64, threshold: f64, dir: f64, size: f64) -> Option<f64> {
+    edge_moves(features, v, threshold, dir, size).fold(None, |best: Option<f64>, d| if best.is_none_or(|b| d.abs() < b.abs()) { Some(d) } else { best })
+}
+
+/// The guide for value `v` on one axis: the nearest feature less than `tol` away (and those on
+/// the same line), spanning them and the box's extent `span` on the other axis.
+fn guide_near(features: &[Feature], v: f64, tol: f64, vertical: bool, span: (f64, f64)) -> Option<Guide> {
+    let at = features.iter().filter(|f| (f.v - v).abs() < tol).min_by(|a, b| (a.v - v).abs().total_cmp(&(b.v - v).abs()))?.v;
+    let (lo, hi) = features.iter().filter(|f| (f.v - at).abs() < EPS).fold((span.0, span.1), |(a, b), f| (a.min(f.lo), b.max(f.hi)));
+    Some(Guide { vertical, at, lo, hi })
+}
+
 /// Guides for every feature of `r` that lines up exactly with a target, spanning both.
 pub fn guides_for(t: &Targets, r: &Rect, x_values: &[f64], y_values: &[f64]) -> Vec<Guide> {
-    let mut out = Vec::new();
-    for &v in x_values {
-        let lo_hi = t.xs.iter().filter(|f| (f.v - v).abs() < EPS).fold(None, |acc: Option<(f64, f64)>, f| {
-            Some(acc.map_or((f.lo, f.hi), |(a, b)| (a.min(f.lo), b.max(f.hi))))
-        });
-        if let Some((lo, hi)) = lo_hi {
-            out.push(Guide { vertical: true, at: v, lo: lo.min(r.y), hi: hi.max(r.bottom()) });
-        }
-    }
-    for &v in y_values {
-        let lo_hi = t.ys.iter().filter(|f| (f.v - v).abs() < EPS).fold(None, |acc: Option<(f64, f64)>, f| {
-            Some(acc.map_or((f.lo, f.hi), |(a, b)| (a.min(f.lo), b.max(f.hi))))
-        });
-        if let Some((lo, hi)) = lo_hi {
-            out.push(Guide { vertical: false, at: v, lo: lo.min(r.x), hi: hi.max(r.right()) });
-        }
-    }
+    guides_near(t, r, x_values, y_values, EPS)
+}
+
+/// `guides_for` with a tolerance: a value within `tol` of a target shows that target's line.
+pub fn guides_near(t: &Targets, r: &Rect, x_values: &[f64], y_values: &[f64], tol: f64) -> Vec<Guide> {
+    let mut out: Vec<Guide> = x_values.iter().filter_map(|&v| guide_near(&t.xs, v, tol, true, (r.y, r.bottom()))).collect();
+    out.extend(y_values.iter().filter_map(|&v| guide_near(&t.ys, v, tol, false, (r.x, r.right()))));
     out.dedup_by(|a, b| a.vertical == b.vertical && (a.at - b.at).abs() < EPS);
     out
 }
@@ -130,6 +148,27 @@ mod tests {
         let r = Rect::new(200.0, 47.0, 10.0, 8.0); // centre y = 51, target centre 50
         let (_, dy, _) = snap_box(&t, &r, 4.0, true, true);
         assert_eq!(dy, -1.0);
+    }
+
+    #[test]
+    fn edge_snaps_skip_lines_behind_the_opposite_edge() {
+        // A right edge at 100 on a box 10 wide: a line at 89 would leave it -1 across.
+        let t = Targets::from_rects([Rect::new(89.0, 0.0, 0.0, 10.0)]);
+        assert_eq!(snap_edge(&t.xs, 100.0, 12.0, 1.0, 10.0), None);
+        // The same line beyond a left edge at 100 only widens the box.
+        assert_eq!(snap_edge(&t.xs, 100.0, 12.0, -1.0, 10.0), Some(-11.0));
+        // Exactly 0.5 across is not enough; more is.
+        assert_eq!(snap_edge(&t.xs, 100.0, 12.0, 1.0, 11.5), None);
+        assert_eq!(snap_edge(&t.xs, 100.0, 12.0, 1.0, 11.6), Some(-11.0));
+    }
+
+    #[test]
+    fn guides_near_show_the_target_line() {
+        let t = Targets::from_rects([Rect::new(0.0, 0.0, 100.0, 50.0)]);
+        let r = Rect::new(200.0, 10.0, 20.0, 40.3);
+        let g = guides_near(&t, &r, &[], &[50.3], 0.5);
+        assert_eq!(g, vec![Guide { vertical: false, at: 50.0, lo: 0.0, hi: 220.0 }]);
+        assert!(guides_for(&t, &r, &[], &[50.3]).is_empty());
     }
 
     #[test]

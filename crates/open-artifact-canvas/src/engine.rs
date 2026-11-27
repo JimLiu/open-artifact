@@ -101,6 +101,10 @@ pub struct Options {
     pub marquee_contain: bool,
     pub fade_ms: f64,
     pub drag_events: bool,
+    /// Alt held when a move ends copies instead: the items stay put, ghosts show where the
+    /// copies land, and the commit is a `Copy`. Selectable items that cannot move join the
+    /// drag for the copy only.
+    pub alt_copy: bool,
     /// 0 none, 1 dots, 2 lines.
     pub grid_kind: u32,
     pub grid_spacing: f64,
@@ -129,6 +133,7 @@ impl Default for Options {
             marquee_contain: false,
             fade_ms: 160.0,
             drag_events: false,
+            alt_copy: false,
             grid_kind: 1,
             grid_spacing: 20.0,
             grid_major: 5.0,
@@ -154,7 +159,9 @@ pub enum Gesture {
     Pending { pid: i32, sx: f64, sy: f64, wx: f64, wy: f64, target: Option<u32>, drag: bool, deselect_to: Option<u32>, additive: bool },
     /// Pressed on something that cannot be dragged: swallow until release.
     Dead { pid: i32 },
-    Moving { pid: i32, wx: f64, wy: f64, ids: Vec<u32>, orig: Vec<crate::geom::Rect>, bbox: Rect, targets: Targets, dx: f64, dy: f64 },
+    /// `fixed` marks items that only come along for an Alt copy; `copy` is whether the
+    /// last update showed a copy (`alt_copy` with Alt held).
+    Moving { pid: i32, wx: f64, wy: f64, ids: Vec<u32>, orig: Vec<crate::geom::Rect>, fixed: Vec<bool>, bbox: Rect, free_bbox: Option<Rect>, targets: Targets, dx: f64, dy: f64, copy: bool },
     Resizing { pid: i32, id: u32, handle: u8, orig: Rect, rot: f64, grab: (f64, f64), targets: Targets, rect: Rect },
     Marquee { pid: i32, wx: f64, wy: f64, cur: (f64, f64), base: Vec<u32>, before: Vec<u32>, preview: Vec<u32> },
     Panning { pid: i32, sx: f64, sy: f64 },
@@ -173,6 +180,8 @@ pub struct Engine {
     pub hover: Option<u32>,
     pub gesture: Gesture,
     pub guides: Vec<Guide>,
+    /// Guides the host draws (say while it runs a gesture of its own), beside the engine's.
+    pub host_guides: Vec<Guide>,
     pub peers: Vec<Peer>,
     pub events: Vec<Event>,
     pub cursor: u32,
@@ -224,6 +233,7 @@ impl Engine {
             hover: None,
             gesture: Gesture::Idle,
             guides: Vec::new(),
+            host_guides: Vec::new(),
             peers: Vec::new(),
             events: Vec::new(),
             cursor: CUR_DEFAULT,
@@ -295,6 +305,7 @@ impl Engine {
             20 => o.grid_major = v.max(2.0),
             21 => o.grid_fade.0 = v.max(1.0),
             22 => o.grid_fade.1 = v,
+            23 => o.alt_copy = b,
             30 => o.theme.background = v as u32,
             31 => o.theme.grid = v as u32,
             32 => o.theme.selection = v as u32,
@@ -409,6 +420,13 @@ impl Engine {
             self.needs_render = true;
             self.emit(Event::Selection(ids, self.mods));
         }
+    }
+
+    /// Replaces the host's guides: four numbers each (vertical 0 or 1, at, lo, hi).
+    pub fn set_guides(&mut self, data: &[f64]) {
+        self.host_guides = data.chunks_exact(4).map(|c| Guide { vertical: c[0] != 0.0, at: c[1], lo: c[2], hi: c[3] }).collect();
+        self.rd.overlay_dirty = true;
+        self.needs_render = true;
     }
 
     pub fn set_peers(&mut self, data: &[f64]) {
@@ -717,9 +735,16 @@ impl Engine {
     }
 
     /// Items the selection drags when pressed on `target`.
+    /// With `alt_copy`, selectable items that cannot move come too (for a copy).
     fn drag_ids(&self, target: u32) -> Vec<u32> {
         let ids: Vec<u32> = if self.selection.contains(&target) { self.selection.clone() } else { vec![target] };
-        ids.into_iter().filter(|h| self.scene.get(*h).is_some_and(|i| i.visible() && i.has(F_MOVABLE))).collect()
+        let copyable = |i: &crate::scene::Item| self.opts.alt_copy && i.has(F_SELECTABLE);
+        ids.into_iter().filter(|h| self.scene.get(*h).is_some_and(|i| i.visible() && (i.has(F_MOVABLE) || copyable(i)))).collect()
+    }
+
+    /// Whether the move running now (or ending now) copies.
+    fn copying(&self) -> bool {
+        self.opts.alt_copy && self.mods & ALT != 0
     }
 
     fn snap_targets(&self, exclude: &[u32]) -> Targets {
@@ -763,16 +788,21 @@ impl Engine {
                             return true;
                         }
                         let orig: Vec<Rect> = ids.iter().map(|h| self.scene.get(*h).unwrap().rect).collect();
-                        let bbox = ids
-                            .iter()
-                            .map(|h| {
-                                let it = self.scene.get(*h).unwrap();
-                                it.rect.rotated_bounds(it.rot)
-                            })
-                            .reduce(|a, b| a.union(&b))
-                            .unwrap();
+                        let fixed: Vec<bool> = ids.iter().map(|h| !self.scene.get(*h).unwrap().has(F_MOVABLE)).collect();
+                        let bounds = |only_free: bool| {
+                            ids.iter()
+                                .zip(fixed.iter())
+                                .filter(|(_, f)| !(only_free && **f))
+                                .map(|(h, _)| {
+                                    let it = self.scene.get(*h).unwrap();
+                                    it.rect.rotated_bounds(it.rot)
+                                })
+                                .reduce(|a, b| a.union(&b))
+                        };
+                        let bbox = bounds(false).unwrap();
+                        let free_bbox = bounds(true);
                         let targets = self.snap_targets(&ids);
-                        self.gesture = Gesture::Moving { pid, wx, wy, ids, orig, bbox, targets, dx: 0.0, dy: 0.0 };
+                        self.gesture = Gesture::Moving { pid, wx, wy, ids, orig, fixed, bbox, free_bbox, targets, dx: 0.0, dy: 0.0, copy: false };
                         self.cursor = CUR_MOVE;
                         self.set_hover(None);
                         self.emit(Event::Gesture { kind: "move", phase: "start", mods: self.mods });
@@ -851,7 +881,10 @@ impl Engine {
     }
 
     fn update_move(&mut self, sx: f64, sy: f64) {
-        let Gesture::Moving { wx, wy, ids, orig, bbox, targets, .. } = &self.gesture else { return };
+        let copy = self.copying();
+        let Gesture::Moving { wx, wy, ids, orig, fixed, bbox, free_bbox, targets, .. } = &self.gesture else { return };
+        // A move snaps what moves; a copy, the copies (fixed items included).
+        let bbox = if copy { Some(*bbox) } else { *free_bbox };
         let (cx, cy) = self.world(sx, sy);
         let (mut dx, mut dy) = (cx - wx, cy - wy);
         let lock = self.mods & SHIFT != 0;
@@ -863,7 +896,9 @@ impl Engine {
             }
         }
         let mut guides = Vec::new();
-        if self.opts.snap && self.mods & (CTRL | META) == 0 {
+        if let Some(bbox) = bbox
+            && self.opts.snap
+            && self.mods & (CTRL | META) == 0 {
             let th = self.opts.snap_px / self.cam.zoom;
             let moved = bbox.translate(dx, dy);
             let (ax, ay, g) = snap::snap_box(targets, &moved, th, !(lock && dx == 0.0), !(lock && dy == 0.0));
@@ -873,21 +908,31 @@ impl Engine {
         }
         let ids = ids.clone();
         let orig = orig.clone();
-        for (h, r) in ids.iter().zip(orig.iter()) {
-            if let Some(it) = self.scene.get_mut(*h) {
-                it.rect = r.translate(dx, dy);
-            }
-            self.scene.dirty.push(*h);
-        }
-        if let Gesture::Moving { dx: gx, dy: gy, .. } = &mut self.gesture {
+        let fixed = fixed.clone();
+        self.place_moved(&ids, &orig, &fixed, dx, dy, copy);
+        if let Gesture::Moving { dx: gx, dy: gy, copy: gc, .. } = &mut self.gesture {
             *gx = dx;
             *gy = dy;
+            *gc = copy;
         }
         self.guides = guides;
         self.rd.overlay_dirty = true;
         self.needs_render = true;
         if self.opts.drag_events {
             self.emit(Event::Dragging { ids, dx, dy, mods: self.mods });
+        }
+    }
+
+    /// Puts the dragged items where a move by (dx, dy) leaves them: a copy leaves all of them
+    /// in place (its ghosts show the copies), a move leaves the fixed ones.
+    fn place_moved(&mut self, ids: &[u32], orig: &[Rect], fixed: &[bool], dx: f64, dy: f64, copy: bool) {
+        for ((h, r), f) in ids.iter().zip(orig.iter()).zip(fixed.iter()) {
+            let at = if copy || *f { *r } else { r.translate(dx, dy) };
+            if let Some(it) = self.scene.get_mut(*h)
+                && it.rect != at {
+                it.rect = at;
+                self.scene.dirty.push(*h);
+            }
         }
     }
 
@@ -916,14 +961,20 @@ impl Engine {
             b = qy.max(t + min);
         }
         let flags = self.scene.get(id).map_or(0, |i| i.flags);
-        let lock = self.mods & SHIFT != 0 || flags & F_LOCK_ASPECT != 0;
-        let mut guides = Vec::new();
+        let lock = (self.mods & SHIFT != 0 || flags & F_LOCK_ASPECT != 0) && orig.w > 0.0 && orig.h > 0.0;
+        let horiz = handle & (H_L | H_R) != 0;
+        let vert = handle & (H_T | H_B) != 0;
+        let corner = horiz && vert;
         let (ocx, ocy) = (orig.cx(), orig.cy());
-        if !lock && rot == 0.0 && self.opts.snap && self.mods & (CTRL | META) == 0 {
-            let th = self.opts.snap_px / self.cam.zoom;
-            if handle & (H_L | H_R) != 0 {
-                let v = ocx + if handle & H_L != 0 { l } else { r };
-                if let Some(d) = snap::snap_values(&targets.xs, &[v], th) {
+        let snapping = rot == 0.0 && self.opts.snap && self.mods & (CTRL | META) == 0;
+        let th = self.opts.snap_px / self.cam.zoom;
+        let mut snapped = false;
+        // Dragged edges snap one by one, except a corner keeping its aspect (below).
+        if snapping && !(lock && corner) {
+            if horiz {
+                let (v, dir) = if handle & H_L != 0 { (ocx + l, -1.0) } else { (ocx + r, 1.0) };
+                if let Some(d) = snap::snap_edge(&targets.xs, v, th, dir, r - l) {
+                    snapped = true;
                     if handle & H_L != 0 {
                         l = (l + d).min(r - min);
                     } else {
@@ -931,9 +982,10 @@ impl Engine {
                     }
                 }
             }
-            if handle & (H_T | H_B) != 0 {
-                let v = ocy + if handle & H_T != 0 { t } else { b };
-                if let Some(d) = snap::snap_values(&targets.ys, &[v], th) {
+            if vert {
+                let (v, dir) = if handle & H_T != 0 { (ocy + t, -1.0) } else { (ocy + b, 1.0) };
+                if let Some(d) = snap::snap_edge(&targets.ys, v, th, dir, b - t) {
+                    snapped = true;
                     if handle & H_T != 0 {
                         t = (t + d).min(b - min);
                     } else {
@@ -941,16 +993,11 @@ impl Engine {
                     }
                 }
             }
-            let nr = Rect::new(ocx + l, ocy + t, r - l, b - t);
-            let xs: Vec<f64> = [(H_L, nr.x), (H_R, nr.right())].iter().filter(|(e, _)| handle & e != 0).map(|(_, v)| *v).collect();
-            let ys: Vec<f64> = [(H_T, nr.y), (H_B, nr.bottom())].iter().filter(|(e, _)| handle & e != 0).map(|(_, v)| *v).collect();
-            guides = snap::guides_for(targets, &nr, &xs, &ys);
         }
-        if lock && orig.w > 0.0 && orig.h > 0.0 {
+        if lock {
             let aspect = orig.w / orig.h;
-            let horiz = handle & (H_L | H_R) != 0;
-            let vert = handle & (H_T | H_B) != 0;
-            if horiz && vert {
+            if corner {
+                // The pointer projected onto the diagonal: the larger of the two scales.
                 let s = ((r - l) / orig.w).max((b - t) / orig.h);
                 let (nw, nh) = (orig.w * s, orig.h * s);
                 if handle & H_L != 0 {
@@ -963,6 +1010,11 @@ impl Engine {
                 } else {
                     b = t + nh;
                 }
+                if snapping
+                    && let Some(edges) = diagonal_snap(targets, (ocx, ocy), handle, (l, t, r, b), aspect, th) {
+                    (l, t, r, b) = edges;
+                    snapped = true;
+                }
             } else if horiz {
                 let nh = (r - l) / aspect;
                 t = -nh * 0.5;
@@ -972,6 +1024,15 @@ impl Engine {
                 l = -nw * 0.5;
                 r = nw * 0.5;
             }
+        }
+        let mut guides = Vec::new();
+        if snapping && (snapped || !lock) {
+            let nr = Rect::new(ocx + l, ocy + t, r - l, b - t);
+            // Only the dragged edges: those an edge drag keeps centred show none.
+            let xs: Vec<f64> = [(H_L, nr.x), (H_R, nr.right())].iter().filter(|(e, _)| handle & e != 0).map(|(_, v)| *v).collect();
+            let ys: Vec<f64> = [(H_T, nr.y), (H_B, nr.bottom())].iter().filter(|(e, _)| handle & e != 0).map(|(_, v)| *v).collect();
+            // Sliding along the diagonal lands one edge on its line; the other shows its own when within half a unit.
+            guides = if lock && corner { snap::guides_near(targets, &nr, &xs, &ys, snap::MIN_EXTENT) } else { snap::guides_for(targets, &nr, &xs, &ys) };
         }
         let (w, h) = (r - l, b - t);
         let (cx, cy) = rotate((l + r) * 0.5, (t + b) * 0.5, rot);
@@ -1039,13 +1100,23 @@ impl Engine {
                 true
             }
             Gesture::Dead { pid: p } if p == pid => true,
-            Gesture::Moving { pid: p, ids, dx, dy, .. } if p == pid => {
+            Gesture::Moving { pid: p, ids, orig, fixed, dx, dy, .. } if p == pid => {
+                // Copy or move is decided by the keys held at release.
+                let copy = self.copying();
+                self.place_moved(&ids, &orig, &fixed, dx, dy, copy);
                 for h in &ids {
                     self.scene.reindex(*h);
                 }
                 self.guides.clear();
                 if dx != 0.0 || dy != 0.0 {
-                    self.emit(Event::Commit(Commit::Move { ids, dx, dy }, self.mods));
+                    if copy {
+                        self.emit(Event::Commit(Commit::Copy { ids, dx, dy }, self.mods));
+                    } else {
+                        let free: Vec<u32> = ids.iter().zip(fixed.iter()).filter(|(_, f)| !**f).map(|(h, _)| *h).collect();
+                        if !free.is_empty() {
+                            self.emit(Event::Commit(Commit::Move { ids: free, dx, dy }, self.mods));
+                        }
+                    }
                 }
                 self.emit(Event::Gesture { kind: "move", phase: "end", mods: self.mods });
                 true
@@ -1587,7 +1658,15 @@ impl Engine {
             let r = Rect::from_points((*wx, *wy), *cur);
             self.solid(r, 0.0, th.marquee, th.selection, 1.0, 0.0, MODE_BOX, &mut out);
         }
-        for g in &self.guides {
+        if let Gesture::Moving { ids, orig, dx, dy, copy: true, .. } = &self.gesture {
+            // Where the copies will land.
+            let fill = (th.selection & 0xffff_ff00) | 0x29;
+            for (h, r) in ids.iter().zip(orig.iter()) {
+                let rot = self.scene.get(*h).map_or(0.0, |i| i.rot);
+                self.solid(r.translate(*dx, *dy), rot, fill, th.selection, 1.0, 0.0, MODE_BOX, &mut out);
+            }
+        }
+        for g in self.guides.iter().chain(self.host_guides.iter()) {
             let w = 1.0 / z;
             let r = if g.vertical { Rect::new(g.at - w * 0.5, g.lo, w, g.hi - g.lo) } else { Rect::new(g.lo, g.at - w * 0.5, g.hi - g.lo, w) };
             self.solid(r, 0.0, th.guide, 0, 0.0, 0.0, MODE_BOX, &mut out);
@@ -1600,6 +1679,44 @@ impl Engine {
         }
         self.rd.overlay = out;
     }
+}
+
+/// Slides a box resized from a corner with its aspect kept along its diagonal onto the
+/// nearest line in front of the fixed corner. Each line's distance is scaled by how far the
+/// other axis moves with it (at least 1), so the nearest jump wins. Local edges
+/// (l, t, r, b) around `centre`; returns the new ones.
+fn diagonal_snap(targets: &Targets, centre: (f64, f64), handle: u8, (l, t, r, b): (f64, f64, f64, f64), aspect: f64, th: f64) -> Option<(f64, f64, f64, f64)> {
+    let left = handle & H_L != 0;
+    let top = handle & H_T != 0;
+    let (fx, fy) = (if left { r } else { l }, if top { b } else { t });
+    let (mx, my) = (if left { l } else { r }, if top { t } else { b });
+    let (dir_x, dir_y) = (if left { -1.0 } else { 1.0 }, if top { -1.0 } else { 1.0 });
+    // Moving x by d moves y by d / aspect, and the other way round.
+    let (kx, ky) = ((1.0 / aspect).max(1.0), aspect.max(1.0));
+    let mut best: Option<(bool, f64, f64)> = None;
+    for d in snap::edge_moves(&targets.xs, centre.0 + mx, th, dir_x, r - l) {
+        let cost = d.abs() * kx;
+        if cost <= th && best.is_none_or(|b| cost < b.2) {
+            best = Some((true, d, cost));
+        }
+    }
+    for d in snap::edge_moves(&targets.ys, centre.1 + my, th, dir_y, b - t) {
+        let cost = d.abs() * ky;
+        if cost <= th && best.is_none_or(|b| cost < b.2) {
+            best = Some((false, d, cost));
+        }
+    }
+    let (on_x, d, _) = best?;
+    let (w, h) = if on_x {
+        let w = (mx + d - fx).abs();
+        (w, w / aspect)
+    } else {
+        let h = (my + d - fy).abs();
+        (h * aspect, h)
+    };
+    let (l, r) = if left { (fx - w, r) } else { (l, fx + w) };
+    let (t, b) = if top { (fy - h, b) } else { (t, fy + h) };
+    Some((l, t, r, b))
 }
 
 #[cfg(test)]
@@ -2242,5 +2359,141 @@ mod tests {
         let (sp, fine) = e.grid_level();
         assert_eq!(sp, 96.0);
         assert!((fine - 0.5).abs() < 1e-6);
+    }
+
+    fn press_move(e: &mut Engine, from: (f64, f64), to: (f64, f64), mods: u32) {
+        e.pointer_down(1, from.0, from.1, 0, mods, PTR_MOUSE);
+        for k in 1..=10 {
+            let t = k as f64 / 10.0;
+            e.pointer_move(1, from.0 + (to.0 - from.0) * t, from.1 + (to.1 - from.1) * t, 1, mods);
+        }
+    }
+
+    #[test]
+    fn alt_drag_copies_with_alt_copy_and_leaves_items_in_place() {
+        let mut e = engine(&[(0, Rect::new(0.0, 0.0, 50.0, 50.0))]);
+        e.set_option(3, 0.0);
+        // Off by default: Alt is an ordinary move.
+        drag(&mut e, (25.0, 25.0), (125.0, 25.0), ALT);
+        assert_eq!(commits(&mut e), vec![Commit::Move { ids: vec![0], dx: 100.0, dy: 0.0 }]);
+        e.set_option(23, 1.0);
+        press_move(&mut e, (125.0, 25.0), (225.0, 75.0), ALT);
+        assert_eq!(e.scene.get(0).unwrap().rect, Rect::new(100.0, 0.0, 50.0, 50.0), "the original stays");
+        e.frame(1.0);
+        let fill = (e.opts.theme.selection & 0xffff_ff00) | 0x29;
+        assert!(e.rd.overlay.iter().any(|q| q.fill == render::rgba(fill) && q.rect == [200.0, 50.0, 50.0, 50.0]), "a ghost where the copy lands");
+        e.pointer_up(1, 225.0, 75.0, 0, ALT);
+        assert_eq!(commits(&mut e), vec![Commit::Copy { ids: vec![0], dx: 100.0, dy: 50.0 }]);
+        assert_eq!(e.scene.get(0).unwrap().rect, Rect::new(100.0, 0.0, 50.0, 50.0));
+    }
+
+    #[test]
+    fn alt_toggles_between_copy_and_move_mid_drag() {
+        let mut e = engine(&[(0, Rect::new(0.0, 0.0, 50.0, 50.0))]);
+        e.set_option(3, 0.0);
+        e.set_option(23, 1.0);
+        press_move(&mut e, (25.0, 25.0), (125.0, 25.0), 0);
+        assert_eq!(e.scene.get(0).unwrap().rect.x, 100.0, "moving");
+        e.key(KEY_MODIFIER, true, ALT);
+        assert_eq!(e.scene.get(0).unwrap().rect.x, 0.0, "pressing Alt puts it back and shows a copy");
+        e.key(KEY_MODIFIER, false, 0);
+        assert_eq!(e.scene.get(0).unwrap().rect.x, 100.0);
+        e.pointer_up(1, 125.0, 25.0, 0, 0);
+        assert_eq!(commits(&mut e), vec![Commit::Move { ids: vec![0], dx: 100.0, dy: 0.0 }]);
+        // Escape during a copy leaves everything as it was.
+        press_move(&mut e, (125.0, 25.0), (225.0, 25.0), ALT);
+        e.key(KEY_ESCAPE, true, ALT);
+        e.pointer_up(1, 225.0, 25.0, 0, ALT);
+        assert!(commits(&mut e).is_empty());
+        assert_eq!(e.scene.get(0).unwrap().rect.x, 100.0);
+    }
+
+    #[test]
+    fn items_that_cannot_move_still_copy() {
+        let mut e = engine(&[(1, Rect::new(200.0, 0.0, 50.0, 50.0))]);
+        e.apply(&record(0, 0, Rect::new(0.0, 0.0, 50.0, 50.0), F_VISIBLE | F_HITTABLE | F_SELECTABLE | F_SNAP), &[]);
+        e.set_option(3, 0.0);
+        e.set_option(23, 1.0);
+        e.set_selection(&[0, 1]);
+        drag(&mut e, (25.0, 25.0), (25.0, 125.0), 0);
+        assert_eq!(commits(&mut e), vec![Commit::Move { ids: vec![1], dx: 0.0, dy: 100.0 }], "a move leaves it behind");
+        assert_eq!(e.scene.get(0).unwrap().rect.y, 0.0);
+        drag(&mut e, (25.0, 25.0), (25.0, 225.0), ALT);
+        assert_eq!(commits(&mut e), vec![Commit::Copy { ids: vec![0, 1], dx: 0.0, dy: 200.0 }]);
+        e.set_selection(&[0]);
+        drag(&mut e, (25.0, 25.0), (125.0, 25.0), 0);
+        assert!(commits(&mut e).is_empty(), "alone, it does not move");
+        assert_eq!(e.scene.get(0).unwrap().rect.x, 0.0);
+    }
+
+    #[test]
+    fn host_guides_draw_beside_the_engines() {
+        let mut e = engine(&[]);
+        e.frame(1.0);
+        assert!(e.rd.overlay.is_empty());
+        e.set_guides(&[1.0, 10.0, 0.0, 100.0, 0.0, 20.0, 5.0, 50.0]);
+        e.frame(2.0);
+        assert_eq!(e.rd.overlay.len(), 2);
+        assert_eq!(e.rd.overlay[1].rect, [5.0, 19.5, 45.0, 1.0]);
+        e.set_guides(&[]);
+        e.frame(3.0);
+        assert!(e.rd.overlay.is_empty());
+    }
+
+    #[test]
+    fn corner_resize_keeping_aspect_slides_onto_the_nearest_line() {
+        // 100 x 50 (aspect 2) and a neighbour whose left edge is at x = 300.
+        let mut e = engine(&[(0, Rect::new(0.0, 0.0, 100.0, 50.0)), (1, Rect::new(300.0, 400.0, 50.0, 50.0))]);
+        e.set_selection(&[0]);
+        drag(&mut e, (100.0, 50.0), (296.0, 98.0), SHIFT);
+        assert_eq!(commits(&mut e), vec![Commit::Resize { id: 0, rect: Rect::new(0.0, 0.0, 300.0, 150.0) }]);
+        // ⌘ / Ctrl turns it off: the pointer projected onto the diagonal.
+        drag(&mut e, (300.0, 150.0), (296.0, 140.0), SHIFT | META);
+        assert_eq!(commits(&mut e), vec![Commit::Resize { id: 0, rect: Rect::new(0.0, 0.0, 296.0, 148.0) }]);
+    }
+
+    #[test]
+    fn corner_resize_keeping_aspect_weighs_lines_by_the_slope() {
+        // 50 x 100 (aspect 0.5): an x line 2.5 away moves y by 5, a y line 4 away moves x by 2.
+        let mut e = engine(&[(0, Rect::new(0.0, 0.0, 50.0, 100.0)), (1, Rect::new(102.5, 500.0, 10.0, 10.0)), (2, Rect::new(500.0, 204.0, 10.0, 10.0))]);
+        e.set_selection(&[0]);
+        e.pointer_down(1, 50.0, 100.0, 0, SHIFT, PTR_MOUSE);
+        e.pointer_move(1, 100.0, 200.0, 1, SHIFT);
+        assert_eq!(e.scene.get(0).unwrap().rect, Rect::new(0.0, 0.0, 102.0, 204.0), "the y line wins");
+        assert!(e.guides.iter().any(|g| !g.vertical && g.at == 204.0), "{:?}", e.guides);
+        assert!(!e.guides.iter().any(|g| g.vertical), "x is 0.5 off its line: {:?}", e.guides);
+        e.pointer_up(1, 100.0, 200.0, 0, SHIFT);
+        commits(&mut e);
+        // Lined up on both axes, both guides show.
+        let mut e = engine(&[(0, Rect::new(0.0, 0.0, 50.0, 100.0)), (1, Rect::new(102.2, 500.0, 10.0, 10.0)), (2, Rect::new(500.0, 204.0, 10.0, 10.0))]);
+        e.set_selection(&[0]);
+        e.pointer_down(1, 50.0, 100.0, 0, SHIFT, PTR_MOUSE);
+        e.pointer_move(1, 100.0, 200.0, 1, SHIFT);
+        assert!(e.guides.iter().any(|g| g.vertical && (g.at - 102.2).abs() < 1e-9), "{:?}", e.guides);
+        assert!(e.guides.iter().any(|g| !g.vertical && g.at == 204.0), "{:?}", e.guides);
+    }
+
+    #[test]
+    fn edge_resize_keeping_aspect_snaps_the_dragged_axis() {
+        let mut e = engine(&[(0, Rect::new(0.0, 0.0, 100.0, 50.0)), (1, Rect::new(300.0, 400.0, 50.0, 50.0))]);
+        e.set_selection(&[0]);
+        e.pointer_down(1, 100.0, 25.0, 0, SHIFT, PTR_MOUSE);
+        e.pointer_move(1, 297.0, 25.0, 1, SHIFT);
+        assert!(e.guides.iter().all(|g| g.vertical) && e.guides.len() == 1, "{:?}", e.guides);
+        e.pointer_up(1, 297.0, 25.0, 0, SHIFT);
+        assert_eq!(commits(&mut e), vec![Commit::Resize { id: 0, rect: Rect::new(0.0, -50.0, 300.0, 150.0) }]);
+    }
+
+    #[test]
+    fn resize_ignores_lines_behind_the_opposite_edge() {
+        // The neighbour's right edge is at x = 100, where the resized box's left edge is.
+        let mut e = engine(&[(0, Rect::new(100.0, 100.0, 100.0, 50.0)), (1, Rect::new(50.0, 300.0, 50.0, 50.0))]);
+        e.set_selection(&[0]);
+        e.pointer_down(1, 200.0, 125.0, 0, 0, PTR_MOUSE);
+        e.pointer_move(1, 150.0, 125.0, 1, 0);
+        e.pointer_move(1, 103.0, 125.0, 1, 0);
+        assert!(e.guides.is_empty(), "{:?}", e.guides);
+        e.pointer_up(1, 103.0, 125.0, 0, 0);
+        assert_eq!(commits(&mut e), vec![Commit::Resize { id: 0, rect: Rect::new(100.0, 100.0, 3.0, 50.0) }]);
     }
 }

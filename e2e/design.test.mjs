@@ -1606,6 +1606,169 @@ editorSuite({
       } finally { await page.close(); }
     });
 
+    // Mouse steps sent by hand, so a drag can hold Alt or Shift (`modifiers`: 1 Alt, 8 Shift) and change them on the way.
+    const pointer = page => ({
+      move: (x, y, modifiers = 0, buttons = 0) => page.cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, modifiers, ...(buttons ? { button: 'left', buttons } : {}) }),
+      down: (x, y, modifiers = 0) => page.cdp('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1, modifiers }),
+      up: (x, y, modifiers = 0) => page.cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1, modifiers }),
+      async drag(from, to, { modifiers = 0, release = modifiers, before } = {}) {
+        await this.move(from.x, from.y, modifiers);
+        await this.down(from.x, from.y, modifiers);
+        for (let n = 1; n <= 10; n++) await this.move(from.x + ((to.x - from.x) * n) / 10, from.y + ((to.y - from.y) * n) / 10, modifiers, 1);
+        if (before) await before();
+        if (release !== modifiers) await this.move(to.x, to.y, release, 1);
+        await this.up(to.x, to.y, release);
+      },
+    });
+    const noteBox = (page, id) => page.evaluate(`(() => { const r = document.querySelector('[data-note=${JSON.stringify(id)}]')?.getBoundingClientRect(); return r?.width ? { x: r.x, y: r.y, w: r.width, h: r.height } : null; })()`);
+    const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+    it('Alt-dragging a note leaves it and copies it as one undo step; Alt let go first moves it, Escape drops it, a locked note copies unlocked', T, async () => {
+      const { root, url } = await ctx.openNew('alt-drag-copy', (_ctx, root) => {
+        copyFixture('design', root);
+        const canvas = canvasOf(root);
+        canvas.notes = { ...canvas.notes, memo: { x: 0, y: 700, w: 240, text: 'Copy me' }, held: { x: 400, y: 700, w: 240, text: 'Held note', locked: true } };
+        fs.writeFileSync(path.join(root, 'project/canvas.json'), JSON.stringify(canvas));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('[data-note="memo"]') && document.querySelector('[data-note="held"]')`, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const mouse = pointer(page);
+      const notes = () => canvasOf(root).notes;
+      const others = () => Object.keys(notes()).filter(id => id !== 'memo' && id !== 'held');
+      try {
+        const box = await noteBox(page, 'memo');
+        const zoom = box.w / 240;
+        const middle = { x: box.x + box.w / 2, y: box.y + box.h / 2 };
+        await mouse.drag(middle, { x: middle.x + 150, y: middle.y }, { modifiers: 1 });
+        assert.ok(await until(() => others().length === 1, 10000), `Alt-drag made one copy: ${JSON.stringify(notes())}`);
+        const copy = notes()[others()[0]];
+        assert.ok(Math.abs(copy.x - 150 / zoom) <= 2 && copy.y === 700 && copy.text === 'Copy me', `the copy is where it was dropped: ${JSON.stringify(copy)}`);
+        assert.deepEqual([notes().memo.x, notes().memo.y], [0, 700], 'the original stayed');
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('z', mod);
+        assert.ok(await until(() => others().length === 0, 10000), `one ⌘Z took the copy away: ${JSON.stringify(notes())}`);
+
+        // Alt let go before the release: a plain move.
+        await mouse.drag(middle, { x: middle.x + 150, y: middle.y }, { modifiers: 1, release: 0 });
+        assert.ok(await until(() => Math.abs(notes().memo.x - 150 / zoom) <= 2, 10000), `letting go of Alt moved the note: ${JSON.stringify(notes().memo)}`);
+        assert.equal(others().length, 0, 'and made no copy');
+        await page.press('z', mod);
+        assert.ok(await until(() => notes().memo.x === 0, 10000), 'the move is undone');
+
+        // Escape during the drag: nothing happens.
+        await mouse.drag(middle, { x: middle.x + 150, y: middle.y }, { modifiers: 1, before: () => page.press('Escape', { alt: true }) });
+        await pause(800);
+        assert.equal(others().length, 0, `Escape left no copy: ${JSON.stringify(notes())}`);
+        assert.deepEqual([notes().memo.x, notes().memo.y], [0, 700], 'Escape left the note where it was');
+
+        // A locked note can't move, but copies, and its copy is not locked.
+        const held = await noteBox(page, 'held');
+        const from = { x: held.x + held.w / 2, y: held.y + held.h / 2 };
+        await mouse.drag(from, { x: from.x, y: from.y + 120 }, { modifiers: 1 });
+        assert.ok(await until(() => others().length === 1, 10000), `the locked note was copied: ${JSON.stringify(notes())}`);
+        const heldCopy = notes()[others()[0]];
+        assert.ok(!heldCopy.locked && Math.abs(heldCopy.y - (700 + 120 / zoom)) <= 2, `the copy is unlocked and below: ${JSON.stringify(heldCopy)}`);
+        assert.deepEqual([notes().held.x, notes().held.y, notes().held.locked], [400, 700, true], 'the locked note stayed');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('⌥A lines two positioned elements up on the left as one undo step; elements in the flow are refused', T, async () => {
+      const template = `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="position: relative; width: 880px; height: 560px">
+        <div id="a" style="position: absolute; left: 100px; top: 100px; width: 120px; height: 80px; background-color: rgb(200, 0, 0)"></div>
+        <div id="b" style="position: absolute; left: 300px; top: 260px; width: 60px; height: 40px; background-color: rgb(0, 0, 200)"></div>
+        <div style="padding-top: 400px"><p id="p1" style="margin: 0; width: 200px">First line</p><p id="p2" style="margin: 0; width: 200px">Second line</p></div>
+      </div></x-dc>`;
+      const { root, url } = await ctx.openNew('align-each-other', (_ctx, root) => {
+        copyFixture('design', root);
+        fs.writeFileSync(path.join(root, BOARD), fs.readFileSync(path.join(root, BOARD), 'utf8').replace(/<x-dc>[\s\S]*?<\/x-dc>/, template));
+      });
+      const ready = `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#p2')`;
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const text = () => fs.readFileSync(path.join(root, BOARD), 'utf8');
+      const left = id => Number(new RegExp(`id="${id}" style="[^"]*left: (-?[\\d.]+)px`).exec(text())?.[1]);
+      const status = phrase => `window === top && [...document.querySelectorAll('[role=status][aria-live]')].some(el => el.textContent.includes(${JSON.stringify(phrase)}))`;
+      try {
+        await page.click(...await page.evaluate(middleIn('Main.dc.html', '#a')));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the first box is selected');
+        await page.press('\\', mod);
+        // One box aligns in its parent (placed from the left: Align left reads pressed); two line up with each other (nothing pressed).
+        const alignButton = name => `document.querySelector('[role=group][aria-label="Align items"] [aria-label="${name}"]')`;
+        const alignLeft = alignButton('Align left');
+        assert.ok(await page.waitFor(`window === top && ${alignLeft}?.getAttribute('aria-pressed') === 'true'`, 5000), 'the panel shows the first box placed from the left');
+        await page.click(...await page.evaluate(middleIn('Main.dc.html', '#b')), { shift: true });
+        assert.ok(await page.waitFor(`window === top && ${alignLeft}?.getAttribute('aria-pressed') === 'false' && !${alignLeft}.disabled`, 5000), 'with both boxes selected the row lines them up with each other');
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('a', { alt: true });
+        assert.ok(await until(() => left('b') === 100, 10000), `⌥A moved the second box to the left edge: ${left('a')} ${left('b')}`);
+        assert.equal(left('a'), 100, 'the first box stayed');
+        assert.ok(await page.waitFor(status('Aligned left'), 5000), 'the alignment is announced');
+        await page.press('z', mod);
+        assert.ok(await until(() => left('b') === 300, 10000), `one ⌘Z put it back: ${left('b')}`);
+
+        await page.click(...await page.evaluate(middleIn('Main.dc.html', '#p1')));
+        assert.ok(await page.waitFor(`window === top && ${alignButton('Align top')}?.disabled === true && !${alignLeft}.disabled`, 5000), 'one line alone aligns in its parent, sideways only');
+        await page.click(...await page.evaluate(middleIn('Main.dc.html', '#p2')), { shift: true });
+        assert.ok(await page.waitFor(`window === top && ${alignLeft}?.disabled === true`, 5000), 'with both lines selected the row turns off');
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        const before = text();
+        await page.press('a', { alt: true });
+        assert.ok(await page.waitFor(textIn('Nothing moved. Set Position to Absolute on these elements to line them up.'), 5000), 'elements in the flow are refused');
+        assert.equal(text(), before, 'and nothing changed');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('drawing snaps: a rectangle starts on a note’s edge, Shift keeps a line on 45°, and the Rectangle tool shows the guide before the press', T, async () => {
+      const { root, url } = await ctx.openNew('draw-snap', (_ctx, root) => {
+        copyFixture('design', root);
+        const canvas = canvasOf(root);
+        canvas.notes = { ...canvas.notes, memo: { x: 0, y: 700, w: 240, text: 'Snap to me' } };
+        fs.writeFileSync(path.join(root, 'project/canvas.json'), JSON.stringify(canvas));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('[data-note="memo"]')`, settle: 800 });
+      const mouse = pointer(page);
+      const added = kind => Object.entries(canvasOf(root).notes).filter(([id, note]) => id !== 'memo' && note.kind === kind).map(([, note]) => note);
+      try {
+        const box = await noteBox(page, 'memo');
+        const zoom = box.w / 240;
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('r');
+        // 3 screen pixels right of the note's right edge, above it: the press snaps onto x = 240.
+        const start = { x: box.x + box.w + 3, y: box.y - 60 };
+        await mouse.drag(start, { x: start.x + 120, y: start.y - 80 });
+        assert.ok(await until(() => added('rect').length === 1, 10000), `a rectangle was drawn: ${JSON.stringify(canvasOf(root).notes)}`);
+        assert.equal(added('rect')[0].x, 240, `the rectangle starts on the note’s edge: ${JSON.stringify(added('rect')[0])}`);
+
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('l');
+        const from = { x: box.x + box.w + 300, y: box.y - 220 };
+        await mouse.drag(from, { x: from.x + 100, y: from.y + 80 }, { modifiers: 8 });
+        assert.ok(await until(() => added('line').length === 1, 10000), `a line was drawn: ${JSON.stringify(canvasOf(root).notes)}`);
+        const line = added('line')[0];
+        const [dx, dy] = [line.x2 - line.x, line.y2 - line.y];
+        const length = Math.hypot(100, 80) / zoom;
+        assert.ok(Math.abs(dx - dy) <= 1 && Math.abs(Math.hypot(dx, dy) - length) <= 2, `Shift kept the line on 45° and its length: ${dx}, ${dy} (length ${length})`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+
+      // The guides are DOM lines on the DOM canvas (the engine draws its own into its canvas).
+      const dom = await (await ctx.browser()).load(new URL('index.html?open_artifact_engine=off', url).href, { ready: `document.querySelector('[data-note="memo"]')`, settle: 800 });
+      try {
+        const box = await noteBox(dom, 'memo');
+        await dom.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await dom.press('r');
+        const hover = pointer(dom);
+        await hover.move(box.x + box.w + 3, box.y - 60);
+        await hover.move(box.x + box.w + 2, box.y - 60);
+        assert.ok(await dom.waitFor(`window === top && [...document.querySelectorAll('[data-snap-guide]')].some(line => line.dataset.at === '240')`, 5000), 'hovering by the note’s edge shows its guide');
+        await hover.move(box.x + box.w + 200, box.y - 200);
+        assert.ok(await dom.waitFor(`window === top && !document.querySelector('[data-snap-guide]')`, 5000), 'away from every line the guide goes');
+        assert.deepEqual(dom.problems, []);
+      } finally { await dom.close(); }
+    });
+
     it('⌘G on elements in a flex column makes a group laid out like it', T, async () => {
       const { root, url } = await ctx.openNew('group-flex', paintBoard);
       const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#box')`, settle: 800 });

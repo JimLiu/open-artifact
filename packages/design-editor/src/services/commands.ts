@@ -33,6 +33,7 @@ import {
   attributeValue,
   defaultProps,
   elementAtPath,
+  elementSource,
   elementChildren,
   elementPath,
   hasDynamicStyle,
@@ -41,6 +42,7 @@ import {
   resolveElement,
   styleMap,
   type HtmlElement,
+  type InsertPosition,
   type StylePatch,
   type TemplateModel,
 } from '@open-artifact/dc';
@@ -54,6 +56,7 @@ import { flipTransform } from '../lib/transform.ts';
 import { layerOf } from '../lib/lone-shape.ts';
 import { pinnedAxes } from '../lib/drag-axis.ts';
 import { stackMessage, stacksUp, type StackOrder } from '../lib/stacking.ts';
+import { ALREADY_ALIGNED, alignInfo, alignOffsets, isAligned, notPositionedMessage, parentAlign, TRANSFORMED_MESSAGE, type AlignAction, type AlignBox, type AlignSubject, type ParentAlign } from '../lib/align.ts';
 import { useDocument } from '../state/document.ts';
 import { NO_SELECTION, useView, type ElementSelection } from '../state/view.ts';
 import { selectionFrom, type BoardElements, type MixedSelection } from '../lib/selection.ts';
@@ -181,8 +184,11 @@ export function duplicateSelection(): void {
   view.select(duplicateObjects(doc, selection.boards, selection.notes));
 }
 
-/** Copies artboards and notes next to themselves; returns the copies. */
-function duplicateObjects(doc: ReturnType<typeof useDocument.getState>, boards: readonly string[], notes: readonly string[]): { kind: 'objects'; boards: string[]; notes: string[] } {
+/**
+ * Copies artboards and notes next to themselves, or `by` an offset; returns
+ * the copies. Locked ones copy too; the copies start unlocked.
+ */
+function duplicateObjects(doc: ReturnType<typeof useDocument.getState>, boards: readonly string[], notes: readonly string[], by?: { dx: number; dy: number }): { kind: 'objects'; boards: string[]; notes: string[] } {
   const selection = { boards, notes };
   const taken = new Set([...Object.keys(doc.boards), ...Object.keys(doc.canvas.boards)]);
   const newBoards: string[] = [];
@@ -192,7 +198,8 @@ function duplicateObjects(doc: ReturnType<typeof useDocument.getState>, boards: 
     if (!entry || !source) continue;
     const name = freeBoardName(path.replace(/\.dc\.html$/, '').replace(/^.*\//, ''), taken);
     taken.add(name);
-    useDocument.getState().createBoard(name, source, { ...withoutLock(entry), x: entry.x + entry.w + 80 });
+    const at = by ? { x: Math.round(entry.x + by.dx), y: Math.round(entry.y + by.dy) } : { x: entry.x + entry.w + 80 };
+    useDocument.getState().createBoard(name, source, { ...withoutLock(entry), ...at });
     newBoards.push(name);
   }
   let newNotes: string[] = [];
@@ -200,7 +207,7 @@ function duplicateObjects(doc: ReturnType<typeof useDocument.getState>, boards: 
     useDocument.getState().updateCanvas((canvas) => {
       // Copies of a group form a new group of their own; copies start unlocked.
       const sources = selection.notes.flatMap((id) => (canvas.notes[id] ? [canvas.notes[id]!] : []));
-      const copied = addNoteCopies(canvas, sources, (note) => ({ ...withoutLock(note), x: note.x + 24, y: note.y + 24 }));
+      const copied = addNoteCopies(canvas, sources, (note) => ({ ...withoutLock(note), ...(by ? { x: Math.round(note.x + by.dx), y: Math.round(note.y + by.dy) } : { x: note.x + 24, y: note.y + 24 }) }));
       newNotes = copied.ids;
       return copied.canvas;
     });
@@ -293,6 +300,124 @@ function duplicateMixed(selection: MixedSelection): void {
   if (failed) toast.add({ title: PARTLY_DUPLICATED });
   useView.getState().select(selectionFrom({ ...copies, elements: created }));
   announce('Duplicated');
+}
+
+/* ------------------------------ Alt-drag copies ------------------------------ */
+
+/** Toast when an Alt-drag could not make its copies. */
+export const copyFailedMessage = (reason: string): string => `Couldn’t copy: ${reason}`;
+/** Why: an artboard refused the duplicate. */
+const COPY_REFUSED = 'an artboard could not apply the duplicate.';
+/** Why: what was dragged is gone or not loaded. */
+const COPY_MISSING = 'what was dragged is no longer there.';
+
+/**
+ * An Alt-drag of artboards and notes: copies them by a world offset as one
+ * undo step and selects the copies. Locked ones copy too (the copies start
+ * unlocked). Returns false, with a toast, when nothing could be copied.
+ */
+export function copyObjects(boards: readonly string[], notes: readonly string[], dx: number, dy: number): boolean {
+  const doc = useDocument.getState();
+  if (doc.readOnly || (!boards.length && !notes.length)) return false;
+  const copies = doc.transact(() => duplicateObjects(useDocument.getState(), boards, notes, { dx, dy }));
+  if (!copies.boards.length && !copies.notes.length) {
+    toast.add({ title: copyFailedMessage(COPY_MISSING) });
+    return false;
+  }
+  useView.getState().select(copies);
+  announce('Copied');
+  return true;
+}
+
+/** Where an Alt-drag puts copies of elements: an offset (positioned ones), or a place in the flow. */
+export type ElementCopyPlace = { dx: number; dy: number } | { target: Address; position: InsertPosition; frozen: readonly { target: Address; patch: StylePatch }[] };
+
+/**
+ * Copies one artboard's elements and puts the copies at `place`, in the
+ * undo step `key` (the drag's own, so a drag that moved the originals
+ * first is undone in one step). An offset copies them right after
+ * themselves and moves the copies; a place in the flow inserts the copies
+ * there, with the `frozen` text styles the originals would keep moving
+ * there. Locked elements copy too. Returns the copies, or null when the
+ * artboard refused.
+ */
+function copyElementGroup(group: BoardElements, place: ElementCopyPlace, key: string): ElementSelection[] | null {
+  const resolved = resolveGroup(group);
+  if (!resolved) return null;
+  const { model, elements } = resolved;
+  if ('target' in place) {
+    const html = elements.map((element) => elementSource(model, element)).join('\n');
+    const inserted = tryEdit(group.board, { kind: 'insert', target: place.target, position: place.position, html }, { coalesce: key });
+    if (inserted.kind !== 'done' || inserted.created.length !== elements.length) return null;
+    const edits = place.frozen.flatMap((entry) => {
+      const index = elements.findIndex((element) => model.tidOf.get(element) === entry.target.tid);
+      return index < 0 ? [] : [{ target: inserted.created[index]!, patch: entry.patch }];
+    });
+    if (edits.length) tryEdit(group.board, { kind: 'styles', edits }, { coalesce: key });
+    return inserted.created.map((address) => ({ ...address, instance: 0 }));
+  }
+  const outcome = tryEdit(group.board, { kind: 'duplicate', targets: elements.map((element) => addressIn(model, element)) }, { coalesce: key });
+  if (outcome.kind !== 'done' || outcome.created.length !== elements.length) return null;
+  const created = outcome.created;
+  if (place.dx || place.dy) {
+    // A copy is its original's markup: the original's placement, moved, applies to it.
+    const plan = elementMoveEdits(resolved, place.dx, place.dy, { locked: true });
+    if (typeof plan !== 'string' && plan.length) {
+      tryEdit(group.board, { kind: 'styles', edits: plan.map((entry, index) => ({ target: created[index]!, patch: entry.patch })) }, { coalesce: key });
+    }
+  }
+  return created.map((address) => ({ ...address, instance: 0 }));
+}
+
+/**
+ * An Alt-drag of one artboard's selected elements: copies them to `place`
+ * as the drag's undo step and selects the copies.
+ */
+export function copySelectedElements(place: ElementCopyPlace, key: string): boolean {
+  const { selection } = useView.getState();
+  if (selection.kind !== 'elements' || useDocument.getState().readOnly) return false;
+  const copies = copyElementGroup(selection, place, key);
+  if (!copies) {
+    toast.add({ title: copyFailedMessage(COPY_REFUSED) });
+    return false;
+  }
+  useView.getState().select({ kind: 'elements', board: selection.board, items: copies });
+  announce('Copied');
+  return true;
+}
+
+/**
+ * An Alt-drag of a selection across files: one undo step that copies the
+ * artboards and notes by the offset and each artboard's elements after
+ * themselves, moving the positioned copies by it too (copies in the flow
+ * stay next to their originals). The copies are selected; nothing is
+ * made when any part fails.
+ */
+export function copyMixed(selection: MixedSelection, dx: number, dy: number, key: string): boolean {
+  const doc = useDocument.getState();
+  if (doc.readOnly) return false;
+  const copies = doc.transact((cancel) => {
+    const elements: BoardElements[] = [];
+    for (const group of selection.elements) {
+      const resolved = resolveGroup(group);
+      const flow = !resolved || elementMoveEdits(resolved, dx, dy, { locked: true }) === 'flow';
+      const items = copyElementGroup(group, flow ? { dx: 0, dy: 0 } : { dx, dy }, key);
+      if (!items) {
+        cancel();
+        return null;
+      }
+      elements.push({ board: group.board, items });
+    }
+    const objects = duplicateObjects(useDocument.getState(), selection.boards, selection.notes, { dx, dy });
+    return { ...objects, elements };
+  }, { key });
+  if (!copies) {
+    toast.add({ title: copyFailedMessage(COPY_REFUSED) });
+    return false;
+  }
+  useView.getState().select(selectionFrom(copies));
+  announce('Copied');
+  return true;
 }
 
 /** The selected elements not locked themselves, by artboard (artboards with none left are dropped). */
@@ -643,8 +768,9 @@ export function moveSelectedElements(dx: number, dy: number, options: { coalesce
  * The style edits that move one artboard's selected elements: `'locked'`
  * when all are locked, `'flow'` when one of the free ones is in the flow.
  */
-function elementMoveEdits(selected: ResolvedGroup, dx: number, dy: number): { target: Address; patch: StylePatch }[] | 'locked' | 'flow' {
-  const free = selected.elements.filter((element) => !isElementLocked(element));
+function elementMoveEdits(selected: ResolvedGroup, dx: number, dy: number, options: { locked?: boolean } = {}): { target: Address; patch: StylePatch }[] | 'locked' | 'flow' {
+  // A copy's placement comes from every original, locked ones included.
+  const free = options.locked ? selected.elements : selected.elements.filter((element) => !isElementLocked(element));
   if (!free.length) return 'locked';
   const api = boardApi(selected.board);
   const edits: { target: Address; patch: StylePatch }[] = [];
@@ -690,6 +816,110 @@ export function selectionIsPositioned(): boolean {
     const position = styleMap(attributeValue(element, 'style') ?? '').position || api?.inspect(selected.model.tidOf.get(element)!)?.computed.position || '';
     return position === 'absolute' || position === 'fixed';
   });
+}
+
+/* -------------------------------- aligning -------------------------------- */
+
+/** True inside a repeated template: its rows follow the data and do not move one by one. */
+function inRepeat(element: HtmlElement): boolean {
+  for (let up = element.parent; up; up = up.parent) if (up.tag === 'sc-for') return true;
+  return false;
+}
+
+/** The selected elements as the align row reads them. */
+function alignSubjects(selected: ResolvedGroup): AlignSubject[] {
+  const api = boardApi(selected.board);
+  return selected.elements.map((element) => {
+    const inline = styleMap(attributeValue(element, 'style') ?? '');
+    const inspection = api?.inspect(selected.model.tidOf.get(element)!) ?? null;
+    const computed = inspection?.computed ?? {};
+    const translate = inline.translate ?? computed.translate ?? 'none';
+    return {
+      inline,
+      position: inline.position ?? computed.position ?? 'static',
+      display: inline.display ?? computed.display ?? 'block',
+      parentDisplay: inspection?.parentDisplay ?? 'block',
+      translated: translate !== '' && translate !== 'none',
+    };
+  });
+}
+
+/**
+ * How the align row works for the selection: `each-other` when several
+ * elements are placed with offsets (inline or read `absolute` / `fixed`),
+ * so they line up with one another; otherwise each action lines the
+ * selection up inside its parent (`parent`, with why it is off).
+ */
+export function alignMode(blocked: string | null = null): { kind: 'each-other' } | { kind: 'parent'; actions: Record<AlignAction, ParentAlign> } | null {
+  const selected = selectedElements();
+  if (!selected) return null;
+  if (selected.elements.length > 1 && !selected.elements.some(inRepeat) && selectionIsPositioned()) return { kind: 'each-other' };
+  return { kind: 'parent', actions: parentAlign(alignSubjects(selected), { readOnly: useDocument.getState().readOnly, blocked }) };
+}
+
+/**
+ * An align action from the row or its ⌥-letter: several positioned
+ * elements line up with each other, anything else inside its parent.
+ */
+export function runAlign(action: AlignAction): boolean {
+  const selected = selectedElements();
+  if (!selected || useDocument.getState().readOnly) return false;
+  if (selected.elements.length > 1 && !selected.elements.some(inRepeat)) return alignSelection(action);
+  const mode = alignMode(selected.elements.some(isElementLocked) ? LOCKED_MESSAGE : null);
+  if (mode?.kind !== 'parent') return false;
+  const state = mode.actions[action];
+  if (state.reason) return false;
+  styleSelection(state.patch);
+  return true;
+}
+
+/**
+ * Lines the selected elements up on the box around them all (left to the
+ * leftmost edge, centres to its middle...): each moves by its own offset,
+ * rounded to 0.1px, as one undo step. Refuses a locked selection, elements
+ * not placed with offsets, and elements inside a rotated, flipped or
+ * stretched box; announces when nothing needs to move.
+ */
+export function alignSelection(action: AlignAction): boolean {
+  const selected = selectedElements();
+  if (!selected || useDocument.getState().readOnly) return false;
+  if (selected.elements.some(isElementLocked)) {
+    refuseLocked();
+    return false;
+  }
+  if (!selectionIsPositioned()) {
+    toast.add({ title: notPositionedMessage('Position', 'Absolute') });
+    return false;
+  }
+  const tids = selected.elements.map((element) => selected.model.tidOf.get(element)!);
+  const api = boardApi(selected.board);
+  const measured = api?.measure(tids, null);
+  if (!measured) return false;
+  const boxes = tids.map((tid) => measured.find((box) => box.tid === tid));
+  if (boxes.some((box) => !box)) return false;
+  if (boxes.some((box) => box!.transformed)) {
+    toast.add({ title: TRANSFORMED_MESSAGE });
+    return false;
+  }
+  const offsets = alignOffsets(boxes as AlignBox[], action);
+  if (isAligned(offsets)) {
+    announce(ALREADY_ALIGNED);
+    return false;
+  }
+  const edits = selected.elements.flatMap((element, index) => {
+    const { dx, dy } = offsets[index]!;
+    if (!dx && !dy) return [];
+    // Only left / top change, whichever sides the element was placed from.
+    const inline = styleMap(attributeValue(element, 'style') ?? '');
+    const computed = api?.inspect(tids[index]!)?.computed ?? {};
+    const patch: Record<string, string> = {};
+    if (dx) patch.left = round(px(inline.left || computed.left) + dx);
+    if (dy) patch.top = round(px(inline.top || computed.top) + dy);
+    return [{ target: addressIn(selected.model, element), patch }];
+  });
+  if (!edits.length || !edit(selected.board, { kind: 'styles', edits })) return false;
+  announce(alignInfo(action).done);
+  return true;
 }
 
 /** Selects the parent element, then the whole artboard. */

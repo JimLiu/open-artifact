@@ -466,10 +466,10 @@ export const PIconButton = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HT
 });
 
 /** {@link PIconButton} with a tooltip that also shows when it is disabled. */
-export function PTipButton({ tip, disabled, ...props }: Parameters<typeof PIconButton>[0] & { tip: ReactNode }) {
+export function PTipButton({ tip, shortcut, disabled, ...props }: Parameters<typeof PIconButton>[0] & { tip: ReactNode; shortcut?: string }) {
   // A disabled button gets no pointer events, so the tooltip hangs on a wrapper.
   return (
-    <Tip label={tip} side="top">
+    <Tip label={tip} shortcut={shortcut} side="top">
       <span className="inline-flex">
         <PIconButton {...props} disabled={disabled} />
       </span>

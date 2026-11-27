@@ -90,6 +90,11 @@ impl CanvasCore {
         self.e.set_peers(data);
     }
 
+    /// Guides the host draws: [vertical 0/1, at, lo, hi] per guide.
+    pub fn set_guides(&mut self, data: &[f64]) {
+        self.e.set_guides(data);
+    }
+
     pub fn pointer_down(&mut self, pid: i32, x: f64, y: f64, button: u32, mods: u32, ptype: u32) -> bool {
         self.e.pointer_down(pid, x, y, button, mods, ptype)
     }

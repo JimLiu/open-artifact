@@ -6,6 +6,9 @@ use std::fmt::Write;
 #[derive(Clone, Debug, PartialEq)]
 pub enum Commit {
     Move { ids: Vec<u32>, dx: f64, dy: f64 },
+    /// A move that ended with Alt held (with the `alt_copy` option): the items stay put and
+    /// the owner copies them by (dx, dy). Reported as a `move` with `copy: true`.
+    Copy { ids: Vec<u32>, dx: f64, dy: f64 },
     Resize { id: u32, rect: Rect },
     Select { ids: Vec<u32> },
 }
@@ -94,13 +97,16 @@ pub fn to_json(events: &[Event]) -> String {
             Event::Commit(c, mods) => {
                 let _ = write!(o, "{{\"type\":\"commit\",\"mods\":{mods},\"op\":");
                 match c {
-                    Commit::Move { ids: v, dx, dy } => {
+                    Commit::Move { ids: v, dx, dy } | Commit::Copy { ids: v, dx, dy } => {
                         o.push_str("\"move\",\"ids\":");
                         ids(&mut o, v);
                         o.push_str(",\"dx\":");
                         num(&mut o, *dx);
                         o.push_str(",\"dy\":");
                         num(&mut o, *dy);
+                        if matches!(c, Commit::Copy { .. }) {
+                            o.push_str(",\"copy\":true");
+                        }
                     }
                     Commit::Resize { id, rect: r } => {
                         let _ = write!(o, "\"resize\",\"id\":{id},\"rect\":");
@@ -184,5 +190,11 @@ mod tests {
             s,
             r#"[{"type":"resizing","id":2,"mods":0,"rect":[1,2,3,4]},{"type":"pointer","kind":"dblclick","mods":4,"id":5,"world":[1.5,2],"screen":[3,4]},{"type":"pointer","kind":"contextmenu","mods":0,"id":null,"world":[0,0],"screen":[0,0]}]"#
         );
+    }
+
+    #[test]
+    fn copies_serialize_as_moves_marked_copy() {
+        let s = to_json(&[Event::Commit(Commit::Copy { ids: vec![3, 4], dx: 10.0, dy: 0.0 }, 2)]);
+        assert_eq!(s, r#"[{"type":"commit","mods":2,"op":"move","ids":[3,4],"dx":10,"dy":0,"copy":true}]"#);
     }
 }

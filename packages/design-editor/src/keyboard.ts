@@ -16,6 +16,7 @@ import {
   nudgeSelection,
   pasteProperties,
   redo,
+  runAlign,
   selectAllSiblings,
   selectChild,
   selectParent,
@@ -36,6 +37,7 @@ import { copyAs } from './services/capture.ts';
 import { historyShortcutOf, isCopyPngKey, isSaveKey, paintKeyOf, zoomKeyOf } from './lib/physical-keys.ts';
 import { flush } from './services/sync.ts';
 import { stackOrderOf } from './lib/stacking.ts';
+import { alignActionOfKey } from './lib/align.ts';
 import { swapSelectionPaint, unfillSelection } from './services/paint.ts';
 import { isLockKey } from './lib/locks.ts';
 import { toggleSelectionLock } from './services/locks.ts';
@@ -249,6 +251,12 @@ export function runShortcut({ key, code, meta, shift, alt, repeat, ctrl }: KeyPr
     }
     default:
       break;
+  }
+  // ⌥A / H / D / W / V / S: align the selected elements (with each other, or one inside its parent).
+  const align = elements && !doc.readOnly ? alignActionOfKey({ key, code: code ?? '', alt, meta, ctrl: Boolean(ctrl), shift }) : null;
+  if (align) {
+    if (!repeat) runAlign(align);
+    return true;
   }
   if (runPaintKey({ key, code, meta, shift, alt })) return true;
   if (view.selection.kind === 'mixed' && anyElements && !alt && shift && !doc.readOnly && (letter === 'h' || letter === 'v')) {

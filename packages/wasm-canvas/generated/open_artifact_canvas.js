@@ -268,6 +268,15 @@ export class CanvasCore {
         wasm.canvascore_set_camera(this.__wbg_ptr, x, y, zoom);
     }
     /**
+     * Guides the host draws: [vertical 0/1, at, lo, hi] per guide.
+     * @param {Float64Array} data
+     */
+    set_guides(data) {
+        const ptr0 = passArrayF64ToWasm0(data, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.canvascore_set_guides(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
      * @param {number} key
      * @param {number} value
      */

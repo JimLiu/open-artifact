@@ -33,7 +33,7 @@ import { boardsOnPage, expandNotesToGroups, groupItems, isLockedObject, notesOnP
 import { boardItem, boardItemId, fromEngineCamera, imageKey, itemTarget, noteItem, noteItemId, smallSnapshot, SMALL_SNAPSHOT_WIDTH, toEngineCamera } from '../lib/scene.ts';
 import { useDocument } from '../state/document.ts';
 import { MAX_ZOOM, MIN_ZOOM, useView, type Camera, type Selection, type Tool } from '../state/view.ts';
-import { commitMove, commitResize } from './commands.ts';
+import { commitMove, commitResize, copyObjects } from './commands.ts';
 import { boardIsActive } from './locks.ts';
 import { isLive, useLive, type MotionSource } from './live.ts';
 import { cameraDriver, viewportSize } from './viewport.ts';
@@ -195,6 +195,8 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
     maxZoom: MAX_ZOOM,
     selection: 'controlled',
     snap: true,
+    // Alt held at the end of a drag copies (locked items too); see the `commit` handler.
+    altCopy: true,
     grid: 'dots',
     gridSpacing: 24,
     // Every frame: layers in the DOM follow the camera in the frame it is drawn.
@@ -410,7 +412,9 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
           if (target && 'board' in target) boards.push(target.board);
           else if (target) notes.push(target.note);
         }
-        commitMove(boards, notes, intent.dx, intent.dy);
+        // An Alt-drag left everything in place: the copies go where it ended.
+        if (intent.copy) copyObjects(boards, notes, intent.dx, intent.dy);
+        else commitMove(boards, notes, intent.dx, intent.dy);
       } else {
         const target = itemTarget(intent.id);
         if (target) commitResize(target, intent.rect);

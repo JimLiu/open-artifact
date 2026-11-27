@@ -28,6 +28,7 @@ import {
   groupItems,
   intersects,
   isLockedObject,
+  MAX_BOARD_SIZE,
   MIN_BOARD_SIZE,
   notesOnPage,
   pageOf,
@@ -41,10 +42,12 @@ import { toast } from '@open-artifact/ui';
 import { useDocument } from '../state/document.ts';
 import { NO_SELECTION, toWorld, useView, type Camera, type ElementSelection, type ViewState } from '../state/view.ts';
 import { boardApi } from '../services/frames.ts';
-import { addBoard, addNote, edit, moveMixed, moveObjects, moveSelectedElements, resizeObject, selectionIsPositioned, selectionPinnedAxes, startTextEdit, editTextAt, type ResizeTarget } from '../services/commands.ts';
+import { addBoard, addNote, copyMixed, copyObjects, copySelectedElements, edit, moveMixed, moveObjects, moveSelectedElements, resizeObject, selectionIsPositioned, selectionPinnedAxes, startTextEdit, editTextAt, type ResizeTarget } from '../services/commands.ts';
 import { combineSelection, flowDropAt, freezeInherited, marqueeCandidates, marqueeHits, rootAddress, templateRoot, type FlowDrop, type MarqueeCandidate } from '../services/gestures.ts';
 import { pickDepth, type PickMode } from '../lib/pick-depth.ts';
-import { staysTap } from '../lib/touch.ts';
+import { staysTap, TOUCH_TAP_SLOP } from '../lib/touch.ts';
+import { drawSpan, drawStart, drewShape, hoverGuides, snapTargets, spanBox, type DrawStart, type DrawTool, type SnapTargets } from '../lib/draw-snap.ts';
+import type { Guide } from '@open-artifact/canvas-engine';
 import { shiftDragDelta } from '../lib/drag-axis.ts';
 import { isElementLocked, lockedTids } from '../lib/locks.ts';
 import { boardPassesThrough, refuseLocked, selectionHasLock } from '../services/locks.ts';
@@ -63,7 +66,7 @@ import { PresenceLayer } from './Presence.tsx';
 import { CanvasMenu } from './CanvasMenu.tsx';
 import { setMenuPoint } from '../services/clipboard.ts';
 import { isLive, liveAll, startLive, useLive } from '../services/live.ts';
-import { activeEngine, engineEnabled, engineMotion, itemAt, liveCamera, onCameraFrame, registerLiveBoard, startEngine, startEngineMove } from '../services/engine.ts';
+import { activeEngine, engineEnabled, engineMotion, itemAt, liveCamera, measuredNoteSize, onCameraFrame, registerLiveBoard, startEngine, startEngineMove } from '../services/engine.ts';
 import { bezierPathData, relativeNodes, sampleBezier, type BezierNode } from '../lib/bezier.ts';
 import { CropOverlay } from './CropOverlay.tsx';
 import { NodeEditor } from './NodeEditor.tsx';
@@ -79,18 +82,89 @@ export type Handle = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw';
 /** A running pointer gesture. */
 type Drag =
   | { kind: 'pan'; startX: number; startY: number; camera: { x: number; y: number; zoom: number } }
-  | { kind: 'move'; startX: number; startY: number; base: CanvasModel; boards: string[]; notes: string[]; moved: boolean }
+  /**
+   * Dragging artboards and notes on the DOM canvas (the engine runs its own).
+   * Alt makes it a copy: the originals stay and ghosts follow (`all` is what
+   * copies, locked ones too; `boards`/`notes` what moves).
+   */
+  | { kind: 'move'; startX: number; startY: number; base: CanvasModel; boards: string[]; notes: string[]; all: { boards: string[]; notes: string[] }; ghostBase: Rect[]; moved: boolean; copy: boolean; offset: Offset }
   | { kind: 'marquee'; startX: number; startY: number; additive: boolean; initial: { boards: string[]; notes: string[] }; base: Selection }
-  | { kind: 'create'; tool: 'board' | 'rect' | 'oval' | 'line' | 'arrow' | 'pen'; startX: number; startY: number; points?: [number, number][] }
+  /** Drawing with a tool: the press point snapped (`start`) to the lines in `targets` (the Pen draws freehand). */
+  | { kind: 'create'; tool: DrawTool | 'pen'; startX: number; startY: number; points?: [number, number][]; start: DrawStart; targets: SnapTargets }
   | { kind: 'resize'; handle: Handle; target: ResizeTarget; startX: number; startY: number; base: CanvasModel; rect: Rect }
   /** A box dragged inside an artboard selects elements. `click` runs when it stays a click. */
   | { kind: 'elementMarquee'; board: string; startX: number; startY: number; deep: boolean; toggle: boolean; candidates: MarqueeCandidate[] | null; container: Address | null; initial: ElementSelection[]; base: Selection; click: () => void; moved: boolean }
   /** Dragging a selection that spans files: artboards, notes and positioned elements move together, live. */
-  | { kind: 'mixedMove'; startX: number; startY: number; moved: boolean; applied: { x: number; y: number }; key: string; click: (() => void) | null }
+  | { kind: 'mixedMove'; startX: number; startY: number; moved: boolean; applied: Offset; key: string; click: (() => void) | null; copy: boolean; offset: Offset; ghostBase: Rect[] | null }
   /** Dragging selected elements: positioned ones move live, flow ones land among their siblings. */
-  | { kind: 'elementMove'; board: string; startX: number; startY: number; moved: boolean; positioned: boolean; pinned?: { x: boolean; y: boolean }; applied: { x: number; y: number }; drop: FlowDrop | null; key: string; click: (() => void) | null }
+  | { kind: 'elementMove'; board: string; startX: number; startY: number; moved: boolean; positioned: boolean; pinned?: { x: boolean; y: boolean }; applied: Offset; drop: FlowDrop | null; key: string; click: (() => void) | null; copy: boolean; locked: boolean; offset: Offset; ghostBase: Rect[] | null }
   /** The Pen tool: dragging out the handles of the node just placed. */
   | { kind: 'pathHandle'; startX: number; startY: number };
+
+/** A world offset. */
+interface Offset {
+  x: number;
+  y: number;
+}
+
+/** The keys a drag step reads. */
+interface DragKeys {
+  shift: boolean;
+  alt: boolean;
+  /** ⌘ or Ctrl: no snapping while drawing. */
+  meta: boolean;
+}
+
+const keysOf = (event: { shiftKey: boolean; altKey: boolean; metaKey: boolean; ctrlKey: boolean }): DragKeys => ({ shift: event.shiftKey, alt: event.altKey, meta: event.metaKey || event.ctrlKey });
+
+/** Tools that draw by dragging and snap while they do. */
+const DRAW_TOOLS: ReadonlySet<string> = new Set<DrawTool>(['board', 'rect', 'oval', 'line', 'arrow']);
+const isDrawTool = (tool: string): tool is DrawTool => DRAW_TOOLS.has(tool);
+
+/** World distance within which a drawing snaps: the touch drag slop on screen. */
+const snapReach = (keys: DragKeys): number | null => (keys.meta ? null : TOUCH_TAP_SLOP / liveCamera().zoom);
+
+/** The lines drawings snap to: the edges and centres of the page's artboards and notes. */
+function drawTargets(): SnapTargets {
+  const { canvas } = useDocument.getState();
+  const { page } = useView.getState();
+  const rects = [
+    ...boardsOnPage(canvas, page).map((path) => canvas.boards[path]!),
+    ...notesOnPage(canvas, page).map((id) => noteRect(canvas.notes[id]!, measuredNoteSize(id))),
+  ];
+  return snapTargets(rects);
+}
+
+/** Where selected elements are on the canvas (world rects). */
+function elementWorldRects(board: string, items: readonly ElementSelection[]): Rect[] {
+  const entry = useDocument.getState().canvas.boards[board];
+  const api = boardApi(board);
+  if (!entry || !api || !items.length) return [];
+  try {
+    const rects = api.rects(items.map((item) => item.tid));
+    return items.flatMap((item) => (rects[item.tid] ?? []).slice(item.instance, item.instance + 1).map((r) => ({ x: entry.x + r.x, y: entry.y + r.y, w: r.width, h: r.height })));
+  } catch {
+    return [];
+  }
+}
+
+/** Where artboards and notes are on the canvas. */
+function objectRects(canvas: CanvasModel, boards: readonly string[], notes: readonly string[]): Rect[] {
+  return [
+    ...boards.flatMap((path) => (canvas.boards[path] ? [canvas.boards[path]!] : [])),
+    ...notes.flatMap((id) => (canvas.notes[id] ? [noteRect(canvas.notes[id]!, measuredNoteSize(id))] : [])),
+  ].map(({ x, y, w, h }) => ({ x, y, w, h }));
+}
+
+const shifted = (rects: readonly Rect[], by: Offset): Rect[] => rects.map((r) => ({ ...r, x: r.x + by.x, y: r.y + by.y }));
+
+/** An artboard drawn out from its snapped corner, kept within the artboard size limits. */
+function drawnBoard(from: Offset, to: Offset): Rect {
+  const clamp = (v: number) => Math.min(MAX_BOARD_SIZE, Math.max(MIN_BOARD_SIZE, Math.round(v)));
+  const w = clamp(Math.abs(to.x - from.x));
+  const h = clamp(Math.abs(to.y - from.y));
+  return { x: to.x < from.x ? from.x - w : from.x, y: to.y < from.y ? from.y - h : from.y, w, h };
+}
 
 /** Screen px within which a Pen-tool press on the first node closes the path. */
 const CLOSE_RADIUS = 8;
@@ -152,6 +226,12 @@ function domHit(target: HTMLElement): Hit {
   const board = target.closest<HTMLElement>('[data-board]')?.dataset.board;
   // A locked artboard nothing is selected in counts as empty canvas (its title still selects it).
   return board && !boardPassesThrough(board) ? { kind: 'board', board } : { kind: 'empty' };
+}
+
+/** Whether the pointer is over the canvas itself, not a control drawn on it or an artboard's page. */
+function overCanvas(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return target.tagName !== 'IFRAME' && !target.closest('button, a[href], input, textarea, select, [contenteditable="true"], [role="toolbar"], [role="menu"], [role="dialog"], [data-selection-bar]');
 }
 
 /** What the engine draws at a point of its canvas. */
@@ -326,6 +406,21 @@ export function Canvas() {
   const [marquee, setMarquee] = useState<Rect | null>(null);
   const [draft, setDraft] = useState<DraftShape | null>(null);
   const [dropLine, setDropLine] = useState<FlowDrop | null>(null);
+  /** Where Alt-dragged copies will land (the DOM's; the engine draws its own for artboards and notes). */
+  const [ghosts, setGhosts] = useState<Rect[] | null>(null);
+  /** Snap guides while drawing or hovering with a drawing tool, on the DOM canvas (the engine draws them on its own). */
+  const [domGuides, setDomGuides] = useState<Guide[]>([]);
+  const shownGuides = useRef<string>('[]');
+  const showGuides = (guides: Guide[]): void => {
+    const key = JSON.stringify(guides);
+    if (key === shownGuides.current) return;
+    shownGuides.current = key;
+    const engine = activeEngine();
+    if (engine) engine.setGuides(guides);
+    else setDomGuides(guides);
+  };
+  /** The world point of the last pointer move in a drag: a key that changes the drag replays it. */
+  const lastWorld = useRef<Offset | null>(null);
   const pathDraft = useRef<PathDraft | null>(null);
   const [pathShown, setPathShown] = useState<PathDraft | null>(null);
   const showPath = (next: PathDraft | null): void => {
@@ -688,7 +783,12 @@ export function Canvas() {
         drag.current = { kind: 'pathHandle', startX: world.x, startY: world.y };
         return;
       }
-      drag.current = { kind: 'create', tool: view.tool, startX: world.x, startY: world.y, ...(view.tool === 'pen' ? { points: [[0, 0]] as [number, number][] } : {}) };
+      // The press snaps to the artboards and notes around it (not the Pen, ⌘ / Ctrl not held).
+      const targets = view.tool === 'pen' ? { xs: [], ys: [] } : drawTargets();
+      const start = drawStart(targets, world, view.tool === 'pen' ? null : snapReach(keysOf(event)));
+      lastWorld.current = world;
+      drag.current = { kind: 'create', tool: view.tool, startX: world.x, startY: world.y, ...(view.tool === 'pen' ? { points: [[0, 0]] as [number, number][] } : {}), start, targets };
+      if (view.tool !== 'pen') showGuides(hoverGuides(targets, world, snapReach(keysOf(event))));
       return;
     }
 
@@ -729,13 +829,14 @@ export function Canvas() {
       }
       if (doc.readOnly) return;
       // A locked item is selected but stays put; locked items in the selection stay behind.
-      if (item.board ? isLockedObject(doc.canvas.boards[item.board]) : isLockedObject(doc.canvas.notes[item.note!])) {
+      // An Alt-drag copies them all, locked ones too.
+      if (!event.altKey && (item.board ? isLockedObject(doc.canvas.boards[item.board]) : isLockedObject(doc.canvas.notes[item.note!]))) {
         drag.current = null;
         return;
       }
       const after = useView.getState().selection;
       if (after.kind === 'mixed') {
-        drag.current = { kind: 'mixedMove', startX: world.x, startY: world.y, moved: false, applied: { x: 0, y: 0 }, key: `drag-${Date.now()}`, click: null };
+        drag.current = { kind: 'mixedMove', startX: world.x, startY: world.y, moved: false, applied: { x: 0, y: 0 }, key: `drag-${Date.now()}`, click: null, copy: false, offset: { x: 0, y: 0 }, ghostBase: null };
         return;
       }
       const next = selectedObjects(useView.getState());
@@ -743,7 +844,7 @@ export function Canvas() {
       // The engine moves what it draws (snapping, Shift locking the axis) and commits the move.
       const kept = item.board ? next.boards.includes(item.board) : next.notes.includes(item.note!);
       if (kept && startEngineMove(item.board ? { board: item.board } : { note: item.note! }, event.nativeEvent, point)) drag.current = null;
-      else drag.current = { kind: 'move', startX: world.x, startY: world.y, base: doc.canvas, boards: free.boards, notes: free.notes, moved: false };
+      else drag.current = { kind: 'move', startX: world.x, startY: world.y, base: doc.canvas, boards: free.boards, notes: free.notes, all: next, ghostBase: objectRects(doc.canvas, next.boards, next.notes), moved: false, copy: false, offset: { x: 0, y: 0 } };
     };
 
     if (hit.kind === 'title') {
@@ -815,12 +916,12 @@ export function Canvas() {
       if (inSelection && selection.kind === 'mixed') {
         // A press on one member moves them all; a click narrows to it.
         const only = (): void => view.select({ kind: 'elements', board: path, items: [picked] });
-        drag.current = { kind: 'mixedMove', startX: world.x, startY: world.y, moved: false, applied: { x: 0, y: 0 }, key: `drag-${Date.now()}`, click: only };
+        drag.current = { kind: 'mixedMove', startX: world.x, startY: world.y, moved: false, applied: { x: 0, y: 0 }, key: `drag-${Date.now()}`, click: only, copy: false, offset: { x: 0, y: 0 }, ghostBase: null };
         return;
       }
       // Pressing one of several selected elements narrows to it on release.
       const narrow = inSelection && current.length > 1 ? () => view.select({ kind: 'elements', board: path, items: [picked] }) : null;
-      drag.current = { kind: 'elementMove', board: path, startX: world.x, startY: world.y, moved: false, positioned: false, applied: { x: 0, y: 0 }, drop: null, key: `drag-${Date.now()}`, click: narrow };
+      drag.current = { kind: 'elementMove', board: path, startX: world.x, startY: world.y, moved: false, positioned: false, applied: { x: 0, y: 0 }, drop: null, key: `drag-${Date.now()}`, click: narrow, copy: false, locked: false, offset: { x: 0, y: 0 }, ghostBase: null };
       return;
     }
 
@@ -830,6 +931,183 @@ export function Canvas() {
   };
 
   const hoverFrame = useRef(0);
+  /**
+   * One step of a drag that follows the pointer and the keys: moves (Alt
+   * turning them into copies that land where the ghosts are), and drawing.
+   * Pointer moves run it, and so do the keys that change it.
+   */
+  const dragStep = (current: Extract<Drag, { kind: 'move' | 'mixedMove' | 'elementMove' | 'create' }>, world: Offset, keys: DragKeys): void => {
+    const view = useView.getState();
+    const doc = useDocument.getState();
+    const camera = liveCamera();
+    const far = (dx: number, dy: number) => Math.hypot(dx, dy) * camera.zoom >= DRAG_THRESHOLD;
+    switch (current.kind) {
+      case 'move': {
+        let dx = world.x - current.startX;
+        let dy = world.y - current.startY;
+        if (!current.moved && !far(dx, dy)) return;
+        if (!current.moved) {
+          current.moved = true;
+          doc.beginGesture();
+        }
+        // Shift keeps the move across, upright or on a diagonal.
+        if (keys.shift) ({ x: dx, y: dy } = shiftDragDelta(dx, dy));
+        current.offset = { x: Math.round(dx), y: Math.round(dy) };
+        current.copy = keys.alt;
+        if (keys.alt) {
+          doc.updateCanvas(() => current.base);
+          setGhosts(shifted(current.ghostBase, current.offset));
+        } else {
+          setGhosts(null);
+          doc.updateCanvas(() => moveObjects(current.base, current.boards, current.notes, dx, dy));
+        }
+        break;
+      }
+      case 'mixedMove': {
+        let dx = world.x - current.startX;
+        let dy = world.y - current.startY;
+        if (!current.moved && !far(dx, dy)) return;
+        const selection = view.selection;
+        if (selection.kind !== 'mixed') return;
+        if (!current.moved) {
+          current.moved = true;
+          current.click = null;
+          view.setHover(null);
+          current.ghostBase = [...objectRects(doc.canvas, selection.boards, selection.notes), ...selection.elements.flatMap((group) => elementWorldRects(group.board, group.items))];
+        }
+        if (keys.shift) ({ x: dx, y: dy } = shiftDragDelta(dx, dy));
+        const x = Math.round(dx);
+        const y = Math.round(dy);
+        current.offset = { x, y };
+        current.copy = keys.alt;
+        // Each step joins the drag's one undo step; a copy puts the originals back first.
+        const to = keys.alt ? { x: 0, y: 0 } : { x, y };
+        if ((to.x !== current.applied.x || to.y !== current.applied.y) && moveMixed(selection, to.x - current.applied.x, to.y - current.applied.y, { key: current.key })) current.applied = to;
+        setGhosts(keys.alt ? shifted(current.ghostBase ?? [], current.offset) : null);
+        break;
+      }
+      case 'elementMove': {
+        const dx = world.x - current.startX;
+        const dy = world.y - current.startY;
+        if (!current.moved && !far(dx, dy)) return;
+        const selection = view.selection;
+        if (selection.kind !== 'elements' || selection.board !== current.board) return;
+        if (!current.moved) {
+          current.moved = true;
+          current.click = null;
+          current.positioned = selectionIsPositioned();
+          current.pinned = current.positioned ? selectionPinnedAxes() : undefined;
+          current.ghostBase = elementWorldRects(current.board, selection.items);
+          view.setHover(null);
+          // Positioned elements move without the locked ones; in the flow nothing moves when any is locked.
+          // An Alt-drag copies them all.
+          current.locked = selectionHasLock() && (!current.positioned || !selectionHasUnlocked(current.board, selection.items));
+          if (current.locked && !keys.alt) {
+            drag.current = null;
+            refuseLocked();
+            return;
+          }
+        }
+        current.copy = keys.alt;
+        if (current.positioned) {
+          // Shift keeps the move on one of eight directions; an element set
+          // from both sides on an axis never moves along it.
+          let { x, y } = keys.shift ? shiftDragDelta(Math.round(dx), Math.round(dy)) : { x: Math.round(dx), y: Math.round(dy) };
+          if (current.pinned?.x) x = 0;
+          if (current.pinned?.y) y = 0;
+          current.offset = { x, y };
+          // A copy puts the originals back first; locked ones stay.
+          const to = keys.alt || current.locked ? { x: 0, y: 0 } : { x, y };
+          if (to.x !== current.applied.x || to.y !== current.applied.y) {
+            if (moveSelectedElements(to.x - current.applied.x, to.y - current.applied.y, { coalesce: current.key })) current.applied = to;
+          }
+        } else {
+          current.offset = { x: Math.round(dx), y: Math.round(dy) };
+          current.drop = flowDropAt(current.board, selection.items, world);
+          setDropLine(current.drop);
+        }
+        setGhosts(keys.alt ? shifted(current.ghostBase ?? [], current.offset) : null);
+        break;
+      }
+      case 'create': {
+        const from = { x: current.startX, y: current.startY };
+        if (current.points) {
+          const last = current.points[current.points.length - 1]!;
+          const dx = world.x - current.startX;
+          const dy = world.y - current.startY;
+          // Keep a point every couple of screen pixels.
+          if (Math.hypot(dx - last[0], dy - last[1]) * camera.zoom >= 2) current.points.push([Math.round(dx), Math.round(dy)]);
+          setDraft({ tool: current.tool, rect: spanRect(from, world), from, to: world, points: [...current.points] });
+          break;
+        }
+        if (current.tool === 'pen') break;
+        const span = drawSpan(current.targets, current.start, world, { tool: current.tool, shift: keys.shift, threshold: snapReach(keys) });
+        setDraft({ tool: current.tool, rect: current.tool === 'board' && drewShape(span, { tool: 'board', shift: keys.shift, zoom: camera.zoom }) ? drawnBoard(span.from, span.to) : spanBox(span), from: span.from, to: span.to });
+        showGuides(span.guides);
+        break;
+      }
+    }
+  };
+
+  /**
+   * Escape drops a drag that follows the pointer: what moved goes back, and
+   * nothing is drawn or copied. Returns whether there was one.
+   */
+  const cancelDrag = (): boolean => {
+    const current = drag.current;
+    if (!current || (current.kind !== 'move' && current.kind !== 'mixedMove' && current.kind !== 'elementMove' && current.kind !== 'create')) return false;
+    drag.current = null;
+    lastWorld.current = null;
+    const doc = useDocument.getState();
+    const { selection } = useView.getState();
+    if (current.kind === 'move' && current.moved) {
+      doc.updateCanvas(() => current.base);
+      doc.endGesture();
+    } else if (current.kind === 'mixedMove' && selection.kind === 'mixed' && (current.applied.x || current.applied.y)) {
+      moveMixed(selection, -current.applied.x, -current.applied.y, { key: current.key });
+    } else if (current.kind === 'elementMove' && current.positioned && (current.applied.x || current.applied.y)) {
+      moveSelectedElements(-current.applied.x, -current.applied.y, { coalesce: current.key });
+    }
+    setDraft(null);
+    setDropLine(null);
+    setGhosts(null);
+    showGuides([]);
+    useView.getState().tick();
+    return true;
+  };
+  const dragKeys = useRef({ step: dragStep, cancel: cancelDrag });
+  dragKeys.current = { step: dragStep, cancel: cancelDrag };
+
+  // While a drag runs: Escape drops it, and Alt, Shift and ⌘ / Ctrl change it without waiting for the pointer to move.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      const current = drag.current;
+      if (!current) return;
+      if (event.type === 'keydown' && event.key === 'Escape') {
+        if (!dragKeys.current.cancel()) return;
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      if (!['Alt', 'Shift', 'Meta', 'Control'].includes(event.key) || !lastWorld.current) return;
+      if (current.kind === 'move' || current.kind === 'mixedMove' || current.kind === 'elementMove' || current.kind === 'create') {
+        if (event.key === 'Alt') event.preventDefault();
+        dragKeys.current.step(current, lastWorld.current, keysOf(event));
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('keyup', onKey, true);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('keyup', onKey, true);
+    };
+  }, []);
+
+  // Hover guides belong to the drawing tool that showed them.
+  useEffect(() => {
+    if (!isDrawTool(tool)) showGuides([]);
+  }, [tool]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>): void => {
     const current = drag.current;
     const view = useView.getState();
@@ -852,6 +1130,9 @@ export function Canvas() {
     if (!current) {
       // The pointer carries Alt too: keys pressed while an artboard frame has focus don't reach this window.
       view.setAltHeld(event.altKey);
+      // A drawing tool shows the lines a press here would snap to (not over an artboard's page or the editor's controls).
+      if (isDrawTool(view.tool) && !event.buttons && !useDocument.getState().readOnly && overCanvas(event.target)) showGuides(hoverGuides(drawTargets(), worldOf(event), snapReach(keysOf(event))));
+      else showGuides([]);
       // Hover highlight inside artboards (throttled to one pick per frame); none while the engine drags.
       if (view.tool !== 'select' || view.textEdit || event.buttons) {
         view.setHoverObject(null);
@@ -884,19 +1165,13 @@ export function Canvas() {
       case 'pan':
         view.setCamera({ ...current.camera, x: current.camera.x + point.x - current.startX, y: current.camera.y + point.y - current.startY });
         break;
-      case 'move': {
-        let dx = world.x - current.startX;
-        let dy = world.y - current.startY;
-        if (!current.moved && Math.hypot(dx, dy) * camera.zoom < DRAG_THRESHOLD) return;
-        if (!current.moved) {
-          current.moved = true;
-          doc.beginGesture();
-        }
-        // Shift keeps the move across, upright or on a diagonal.
-        if (event.shiftKey) ({ x: dx, y: dy } = shiftDragDelta(dx, dy));
-        doc.updateCanvas(() => moveObjects(current.base, current.boards, current.notes, dx, dy));
+      case 'move':
+      case 'mixedMove':
+      case 'elementMove':
+      case 'create':
+        lastWorld.current = world;
+        dragStep(current, world, keysOf(event));
         break;
-      }
       case 'resize': {
         const dx = world.x - current.startX;
         const dy = world.y - current.startY;
@@ -931,83 +1206,29 @@ export function Canvas() {
         view.select(withBoardElements(current.base, current.board, items));
         break;
       }
-      case 'mixedMove': {
-        let dx = world.x - current.startX;
-        let dy = world.y - current.startY;
-        if (!current.moved && Math.hypot(dx, dy) * camera.zoom < DRAG_THRESHOLD) return;
-        const selection = view.selection;
-        if (selection.kind !== 'mixed') return;
-        if (!current.moved) {
-          current.moved = true;
-          current.click = null;
-          view.setHover(null);
-        }
-        if (event.shiftKey) ({ x: dx, y: dy } = shiftDragDelta(dx, dy));
-        const x = Math.round(dx);
-        const y = Math.round(dy);
-        // Each step joins the drag's one undo step.
-        if ((x !== current.applied.x || y !== current.applied.y) && moveMixed(selection, x - current.applied.x, y - current.applied.y, { key: current.key })) current.applied = { x, y };
-        break;
-      }
-      case 'elementMove': {
-        const dx = world.x - current.startX;
-        const dy = world.y - current.startY;
-        if (!current.moved && Math.hypot(dx, dy) * camera.zoom < DRAG_THRESHOLD) return;
-        const selection = view.selection;
-        if (selection.kind !== 'elements' || selection.board !== current.board) return;
-        if (!current.moved) {
-          current.moved = true;
-          current.click = null;
-          current.positioned = selectionIsPositioned();
-          current.pinned = current.positioned ? selectionPinnedAxes() : undefined;
-          view.setHover(null);
-          // Positioned elements move without the locked ones; in the flow nothing moves when any is locked.
-          if (selectionHasLock() && (!current.positioned || !selectionHasUnlocked(current.board, selection.items))) {
-            drag.current = null;
-            refuseLocked();
-            return;
-          }
-        }
-        if (current.positioned) {
-          // Shift keeps the move on one of eight directions; an element set
-          // from both sides on an axis never moves along it.
-          let { x, y } = event.shiftKey ? shiftDragDelta(Math.round(dx), Math.round(dy)) : { x: Math.round(dx), y: Math.round(dy) };
-          if (current.pinned?.x) x = 0;
-          if (current.pinned?.y) y = 0;
-          if (x !== current.applied.x || y !== current.applied.y) {
-            if (moveSelectedElements(x - current.applied.x, y - current.applied.y, { coalesce: current.key })) current.applied = { x, y };
-          }
-        } else {
-          current.drop = flowDropAt(current.board, selection.items, world);
-          setDropLine(current.drop);
-        }
-        break;
-      }
-      case 'create': {
-        const from = { x: current.startX, y: current.startY };
-        if (current.points) {
-          const last = current.points[current.points.length - 1]!;
-          const dx = world.x - current.startX;
-          const dy = world.y - current.startY;
-          // Keep a point every couple of screen pixels.
-          if (Math.hypot(dx - last[0], dy - last[1]) * camera.zoom >= 2) current.points.push([Math.round(dx), Math.round(dy)]);
-        }
-        setDraft({ tool: current.tool, rect: spanRect(from, world), from, to: world, points: current.points ? [...current.points] : undefined });
-        break;
-      }
     }
   };
 
   const onPointerUp = (event: ReactPointerEvent<HTMLDivElement>): void => {
     const current = drag.current;
+    // The keys held at release decide: a last step with them (Alt let go just before is a move).
+    if (current && (current.kind === 'move' || current.kind === 'mixedMove' || current.kind === 'elementMove') && current.moved) dragStep(current, worldOf(event), keysOf(event));
     drag.current = null;
+    lastWorld.current = null;
     if (root.current?.hasPointerCapture(event.pointerId)) root.current.releasePointerCapture(event.pointerId);
     setMarquee(null);
     setDraft(null);
     setDropLine(null);
-    if (!current) return;
+    setGhosts(null);
+    showGuides([]);
+    // A step at release can end the drag (a locked selection let go without Alt).
+    if (!current || (current.kind === 'elementMove' && current.moved && current.locked && !current.copy)) {
+      if (current?.kind === 'elementMove') refuseLocked();
+      return;
+    }
     const doc = useDocument.getState();
     const view = useView.getState();
+    const offsetSet = (offset: Offset) => offset.x !== 0 || offset.y !== 0;
     if (current.kind === 'pathHandle') return;
     if (current.kind === 'elementMarquee') {
       if (!current.moved) current.click();
@@ -1015,52 +1236,83 @@ export function Canvas() {
     }
     if (current.kind === 'mixedMove') {
       if (!current.moved) current.click?.();
+      else if (current.copy && view.selection.kind === 'mixed' && offsetSet(current.offset)) copyMixed(view.selection, current.offset.x, current.offset.y, current.key);
       else view.tick();
       return;
     }
     if (current.kind === 'elementMove') {
-      if (!current.moved) current.click?.();
-      else if (current.drop) {
-        const selection = view.selection;
-        if (selection.kind === 'elements' && selection.board === current.board) {
-          // Moving to another parent keeps the inherited text styles (one undo step with the move).
-          const frozen = freezeInherited(current.board, selection.items, current.drop);
-          if (frozen.length) edit(current.board, { kind: 'styles', edits: frozen }, { coalesce: current.key });
-          edit(current.board, { kind: 'move', targets: selection.items.map(({ tid, path }) => ({ tid, path })), target: current.drop.target, position: current.drop.position }, { selectCreated: true, coalesce: frozen.length ? current.key : undefined });
+      if (!current.moved) {
+        current.click?.();
+        return;
+      }
+      const selection = view.selection;
+      if (selection.kind !== 'elements' || selection.board !== current.board) return;
+      if (current.drop) {
+        // Moving to another parent keeps the inherited text styles (one undo step with the move).
+        const frozen = freezeInherited(current.board, selection.items, current.drop);
+        if (current.copy) {
+          copySelectedElements({ target: current.drop.target, position: current.drop.position, frozen }, current.key);
+          return;
         }
+        if (frozen.length) edit(current.board, { kind: 'styles', edits: frozen }, { coalesce: current.key });
+        edit(current.board, { kind: 'move', targets: selection.items.map(({ tid, path }) => ({ tid, path })), target: current.drop.target, position: current.drop.position }, { selectCreated: true, coalesce: frozen.length ? current.key : undefined });
+      } else if (current.copy && current.positioned && offsetSet(current.offset)) {
+        copySelectedElements({ dx: current.offset.x, dy: current.offset.y }, current.key);
       }
       return;
     }
-    if (current.kind === 'move' || current.kind === 'resize') {
+    if (current.kind === 'move') {
+      doc.endGesture();
+      if (current.moved && current.copy && offsetSet(current.offset)) copyObjects(current.all.boards, current.all.notes, current.offset.x, current.offset.y);
+      view.tick();
+      return;
+    }
+    if (current.kind === 'resize') {
       doc.endGesture();
       view.tick();
       return;
     }
     if (current.kind !== 'create') return;
     const world = worldOf(event);
-    const rect = spanRect({ x: current.startX, y: current.startY }, world);
     const { zoom } = liveCamera();
-    const dragged = rect.w * zoom > DRAG_THRESHOLD * 2 || rect.h * zoom > DRAG_THRESHOLD * 2;
+    if (current.tool === 'pen') {
+      if (current.points && current.points.length > 1) {
+        const { stroke, dash } = useView.getState().pen;
+        addNote('pen', { x: current.startX, y: current.startY }, { points: current.points, ...(stroke !== 3 ? { stroke } : {}), ...(dash !== 'solid' ? { dash } : {}) });
+      }
+      // The pen stays armed for the next stroke.
+      return;
+    }
+    const keys = keysOf(event);
+    const span = drawSpan(current.targets, current.start, world, { tool: current.tool, shift: keys.shift, threshold: snapReach(keys) });
+    const drew = drewShape(span, { tool: current.tool, shift: keys.shift, zoom });
+    // A click puts the default size at the (snapped) press point.
+    const at = current.start.at;
     switch (current.tool) {
       case 'board':
-        if (dragged) addBoard({ x: rect.x, y: rect.y }, { w: Math.max(MIN_BOARD_SIZE, Math.round(rect.w)), h: Math.max(MIN_BOARD_SIZE, Math.round(rect.h)) });
-        else addBoard({ x: current.startX, y: current.startY });
+        if (drew) {
+          const box = drawnBoard(span.from, span.to);
+          addBoard({ x: box.x, y: box.y }, { w: box.w, h: box.h });
+        } else addBoard(at);
         break;
       case 'rect':
-      case 'oval':
-        addNote(current.tool, dragged ? rect : { x: current.startX, y: current.startY }, dragged ? { w: Math.round(rect.w), h: Math.round(rect.h) } : { w: 160, h: 100 });
-        break;
-      case 'pen':
-        if (current.points && current.points.length > 1) {
-          const { stroke, dash } = useView.getState().pen;
-          addNote('pen', { x: current.startX, y: current.startY }, { points: current.points, ...(stroke !== 3 ? { stroke } : {}), ...(dash !== 'solid' ? { dash } : {}) });
+      case 'oval': {
+        if (!drew) {
+          addNote(current.tool, at, { w: 160, h: 100 });
+          break;
         }
-        // The pen stays armed for the next stroke.
-        return;
+        // Rounded edges, so a snapped edge stays on its line.
+        const box = spanBox(span);
+        const x = Math.round(box.x);
+        const y = Math.round(box.y);
+        addNote(current.tool, { x, y }, { w: Math.max(1, Math.round(box.x + box.w) - x), h: Math.max(1, Math.round(box.y + box.h) - y) });
+        break;
+      }
       case 'line':
       case 'arrow': {
-        const end = dragged ? world : { x: current.startX + 160, y: current.startY };
-        addNote(current.tool, { x: current.startX, y: current.startY }, { points: [[0, 0], [Math.round(end.x - current.startX), Math.round(end.y - current.startY)]] });
+        const end = drew ? span.to : { x: at.x + 160, y: at.y };
+        const from = { x: Math.round(at.x), y: Math.round(at.y) };
+        addNote(current.tool, from, { points: [[0, 0], [Math.round(end.x) - from.x, Math.round(end.y) - from.y]] });
         break;
       }
     }
@@ -1159,6 +1411,11 @@ export function Canvas() {
       onPointerLeave={() => {
         useView.getState().setHover(null);
         useView.getState().setHoverObject(null);
+        if (!drag.current) showGuides([]);
+      }}
+      onPointerOut={(event) => {
+        // Into an artboard's page: its events no longer reach the canvas.
+        if (!drag.current && (event.relatedTarget === null || (event.relatedTarget instanceof Element && event.relatedTarget.tagName === 'IFRAME'))) showGuides([]);
       }}
       onDoubleClick={onDoubleClick}
       onDragOver={(event) => {
@@ -1183,6 +1440,8 @@ export function Canvas() {
         {marquee ? <ScreenRect rect={marquee} className="border border-accent bg-accent/10" /> : null}
         {dropLine ? <DropLine drop={dropLine} /> : null}
         {draft ? <Draft draft={draft} /> : null}
+        {ghosts ? <Ghosts rects={ghosts} /> : null}
+        {renderer === 'dom' && domGuides.length ? <SnapGuides guides={domGuides} /> : null}
         {pathShown ? <PathDraftView draft={pathShown} /> : null}
         <NodeEditor />
         <CropOverlay />
@@ -1378,6 +1637,43 @@ function ScreenRect({ rect, className }: { rect: Rect; className?: string }) {
       className={`pointer-events-none absolute ${className ?? ''}`}
       style={{ left: rect.x * camera.zoom + camera.x, top: rect.y * camera.zoom + camera.y, width: rect.w * camera.zoom, height: rect.h * camera.zoom }}
     />
+  );
+}
+
+/** Where Alt-dragged copies will land. */
+function Ghosts({ rects }: { rects: readonly Rect[] }) {
+  const camera = useView((s) => s.camera);
+  return (
+    <>
+      {rects.map((rect, i) => (
+        <div
+          key={i}
+          data-drag-ghost=""
+          className="pointer-events-none absolute border border-accent bg-accent/15"
+          style={{ left: rect.x * camera.zoom + camera.x, top: rect.y * camera.zoom + camera.y, width: rect.w * camera.zoom, height: rect.h * camera.zoom }}
+        />
+      ))}
+    </>
+  );
+}
+
+/** The engine's guide colour (services/engine.ts). */
+const GUIDE_COLOR = '#f43f5e';
+
+/** Snap guides on the DOM canvas (the engine draws its own). */
+function SnapGuides({ guides }: { guides: readonly Guide[] }) {
+  const camera = useView((s) => s.camera);
+  const at = (v: number, axis: 'x' | 'y') => v * camera.zoom + camera[axis];
+  return (
+    <svg className="pointer-events-none absolute inset-0 size-full" aria-hidden="true">
+      {guides.map((g, i) =>
+        g.vertical ? (
+          <line key={i} data-snap-guide="" data-at={g.at} x1={at(g.at, 'x')} y1={at(g.from, 'y')} x2={at(g.at, 'x')} y2={at(g.to, 'y')} stroke={GUIDE_COLOR} strokeWidth={1} />
+        ) : (
+          <line key={i} data-snap-guide="" data-at={g.at} x1={at(g.from, 'x')} y1={at(g.at, 'y')} x2={at(g.to, 'x')} y2={at(g.at, 'y')} stroke={GUIDE_COLOR} strokeWidth={1} />
+        ),
+      )}
+    </svg>
   );
 }
 

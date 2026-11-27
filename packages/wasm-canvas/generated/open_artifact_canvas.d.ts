@@ -66,6 +66,10 @@ export class CanvasCore {
     resize(width: number, height: number, dpr: number): void;
     selection(): Uint32Array;
     set_camera(x: number, y: number, zoom: number): void;
+    /**
+     * Guides the host draws: [vertical 0/1, at, lo, hi] per guide.
+     */
+    set_guides(data: Float64Array): void;
     set_option(key: number, value: number): void;
     /**
      * Peers: [color, hasCursor, x, y, n, ...n ids] per peer.
@@ -128,6 +132,7 @@ export interface InitOutput {
     readonly canvascore_resize: (a: number, b: number, c: number, d: number) => void;
     readonly canvascore_selection: (a: number) => [number, number];
     readonly canvascore_set_camera: (a: number, b: number, c: number, d: number) => void;
+    readonly canvascore_set_guides: (a: number, b: number, c: number) => void;
     readonly canvascore_set_option: (a: number, b: number, c: number) => void;
     readonly canvascore_set_peers: (a: number, b: number, c: number) => void;
     readonly canvascore_set_selection: (a: number, b: number, c: number) => void;

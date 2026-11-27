@@ -38,6 +38,7 @@ import type {
   EngineOptions,
   EngineStats,
   GlideOptions,
+  Guide,
   Handle,
   HoleRect,
   Modifiers,
@@ -59,7 +60,7 @@ type CoreEvent =
   | { type: 'selection'; ids: number[]; mods: number }
   | { type: 'camera'; x: number; y: number; zoom: number; settled: boolean }
   | { type: 'moving'; moving: boolean }
-  | { type: 'commit'; mods: number; op: 'move'; ids: number[]; dx: number; dy: number }
+  | { type: 'commit'; mods: number; op: 'move'; ids: number[]; dx: number; dy: number; copy?: boolean }
   | { type: 'commit'; mods: number; op: 'resize'; id: number; rect: RawRect }
   | { type: 'commit'; mods: number; op: 'select'; ids: number[] }
   | { type: 'textureNeeded'; keys: number[] }
@@ -205,7 +206,7 @@ export class CanvasEngine {
           break;
         case 'commit': {
           const m = modifiers(e.mods);
-          if (e.op === 'move') this.#emit('commit', { op: 'move', ids: items.ids(e.ids), dx: e.dx, dy: e.dy, modifiers: m });
+          if (e.op === 'move') this.#emit('commit', { op: 'move', ids: items.ids(e.ids), dx: e.dx, dy: e.dy, ...(e.copy ? { copy: true as const } : {}), modifiers: m });
           else if (e.op === 'resize') {
             const id = items.id(e.id);
             if (id !== undefined) this.#emit('commit', { op: 'resize', id, rect: rectOf(e.rect), modifiers: m });
@@ -386,6 +387,7 @@ export class CanvasEngine {
     if (o.marquee !== undefined) set(OPTION.marquee, b(o.marquee === 'contain'));
     if (o.fadeMs !== undefined) set(OPTION.fadeMs, o.fadeMs);
     if (o.dragEvents !== undefined) set(OPTION.dragEvents, b(o.dragEvents));
+    if (o.altCopy !== undefined) set(OPTION.altCopy, b(o.altCopy));
     if (o.grid !== undefined) set(OPTION.grid, { none: 0, dots: 1, lines: 2 }[o.grid]);
     if (o.gridSpacing !== undefined) set(OPTION.gridSpacing, o.gridSpacing);
     if (o.gridMajor !== undefined) set(OPTION.gridMajor, o.gridMajor);
@@ -428,6 +430,12 @@ export class CanvasEngine {
       data.push(parseColor(p.color), p.cursor ? 1 : 0, p.cursor?.x ?? 0, p.cursor?.y ?? 0, sel.length, ...sel);
     }
     this.#core.set_peers(new Float64Array(data));
+    this.#touch();
+  }
+
+  /** Guides drawn with the engine's own snap guides (say while the host runs a gesture of its own); `[]` clears them. */
+  setGuides(guides: readonly Guide[]): void {
+    this.#core.set_guides(new Float64Array(guides.flatMap(g => [g.vertical ? 1 : 0, g.at, g.from, g.to])));
     this.#touch();
   }
 

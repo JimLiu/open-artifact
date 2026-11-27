@@ -228,3 +228,31 @@ test('path cuts, multiply blending and no-hover items encode and batch apart', a
   assert.equal(e.stats().batches, 2);
   e.destroy();
 });
+
+test('altCopy: an Alt drag commits a copy and leaves the item; off, it moves', async () => {
+  const e = await engine([rect('a', 0, 0)]);
+  const commits = record(e, 'commit');
+  const drag = (from: number, by: number) => {
+    e.input.pointerDown({ x: from, y: 50, alt: true });
+    for (let k = 1; k <= 4; k++) e.input.pointerMove({ x: from + (by * k) / 4, y: 50, buttons: 1, alt: true });
+    e.input.pointerUp({ x: from + by, y: 50, alt: true });
+  };
+  drag(50, 100);
+  assert.deepEqual(commits.pop(), { op: 'move', ids: ['a'], dx: 100, dy: 0, modifiers: { ...NO_MODS, alt: true } }, 'no copy unless asked for');
+  e.setOptions({ altCopy: true });
+  drag(150, 100);
+  assert.deepEqual(commits.pop(), { op: 'move', ids: ['a'], dx: 100, dy: 0, copy: true, modifiers: { ...NO_MODS, alt: true } });
+  assert.equal(e.hitTest({ x: 150, y: 50 }), 'a', 'still where it was');
+  e.destroy();
+});
+
+test('setGuides takes guides from the host', async () => {
+  const e = await engine([]);
+  e.setGuides([{ vertical: true, at: 10, from: 0, to: 100 }]);
+  e.tick(1);
+  assert.equal(e.stats().quads, 1);
+  e.setGuides([]);
+  e.tick(2);
+  assert.equal(e.stats().quads, 0);
+  e.destroy();
+});

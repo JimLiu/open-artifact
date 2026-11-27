@@ -67,7 +67,8 @@ import { useDocument } from '../state/document.ts';
 import { useView } from '../state/view.ts';
 import { boardApi } from '../services/frames.ts';
 import { templateOf } from '../services/agent.ts';
-import { deleteSelection, edit, styleSelection } from '../services/commands.ts';
+import { alignMode, deleteSelection, edit, runAlign, styleSelection } from '../services/commands.ts';
+import { ALIGN_ACTIONS, alignShortcut, alignTip, type AlignAction } from '../lib/align.ts';
 import { mixedElementKinds, mixedPaintValues, paintMixed } from '../services/paint.ts';
 import { MIXED, inspectorRoute, mergedValue, selectionCounts, sharedPaintRoles, type MixedSelection, type PaintRole } from '../lib/selection.ts';
 import { zoomToBoards } from '../services/viewport.ts';
@@ -337,59 +338,46 @@ const ALIGN_ITEMS: POption[] = [
 ];
 const normalAlign = (value: string | undefined) => (value === 'normal' ? 'stretch' : value === 'start' ? 'flex-start' : value === 'end' ? 'flex-end' : value ?? null);
 
-/** Align buttons: offsets for positioned elements, auto margins in flow. */
+const ALIGN_ICONS: Record<AlignAction, ReactNode> = {
+  left: <AlignStartVertical {...ICON} />,
+  hcenter: <AlignCenterVertical {...ICON} />,
+  right: <AlignEndVertical {...ICON} />,
+  top: <AlignStartHorizontal {...ICON} />,
+  vcenter: <AlignCenterHorizontal {...ICON} />,
+  bottom: <AlignEndHorizontal {...ICON} />,
+};
+
+/**
+ * The align row: several positioned elements line up with each other;
+ * otherwise offsets (positioned) or auto margins (in the flow) line the
+ * selection up inside its parent. Each action also has its ⌥-letter.
+ */
 function AlignRow({ ctx }: { ctx: ElementContext }) {
-  const position = ctx.inline.position ?? ctx.computed.position ?? 'static';
-  const positioned = position === 'absolute' || position === 'fixed';
-  const parent = ctx.inspection?.parentDisplay ?? 'block';
-  const placedByParent = parent.includes('flex') || parent.includes('grid');
-  const display = ctx.inline.display ?? ctx.computed.display ?? 'block';
-  const fixedWidth = sizingOf(ctx.inline.width) === 'fixed' || Boolean(ctx.inline['max-width']);
-  const i = ctx.inline;
-
-  const hReason = ctx.locked
-    ? 'This element’s style comes from code'
-    : positioned
-      ? null
-      : placedByParent
-        ? 'Placed by its parent — select the parent and use its Align'
-        : display !== 'block'
-          ? 'Only block elements can be aligned this way'
-          : !fixedWidth
-            ? 'Give it a fixed width first'
-            : null;
-  const vReason = ctx.locked ? 'This element’s style comes from code' : positioned ? null : placedByParent ? 'Placed by its parent — select the parent and use its Align' : 'Only positioned elements can be aligned vertically';
-
-  type AlignState = { on: boolean; patch: StylePatch };
-  const h: Record<"left" | "center" | "right", AlignState> = positioned
-    ? {
-        left: { on: i.left !== undefined && i.right === undefined, patch: { left: '0', right: null, 'margin-left': null, 'margin-right': null } },
-        center: { on: i['margin-left'] === 'auto' && i['margin-right'] === 'auto', patch: { left: '0', right: '0', 'margin-left': 'auto', 'margin-right': 'auto' } },
-        right: { on: i.right !== undefined && i.left === undefined, patch: { left: null, right: '0', 'margin-left': null, 'margin-right': null } },
-      }
-    : {
-        left: { on: i['margin-right'] === 'auto' && i['margin-left'] !== 'auto', patch: { 'margin-left': '0', 'margin-right': 'auto' } },
-        center: { on: i['margin-left'] === 'auto' && i['margin-right'] === 'auto', patch: { 'margin-left': 'auto', 'margin-right': 'auto' } },
-        right: { on: i['margin-left'] === 'auto' && i['margin-right'] !== 'auto', patch: { 'margin-left': 'auto', 'margin-right': '0' } },
-      };
-  const v = {
-    top: { on: positioned && i.top !== undefined && i.bottom === undefined, patch: { top: '0', bottom: null, 'margin-top': null, 'margin-bottom': null } },
-    middle: { on: positioned && i['margin-top'] === 'auto' && i['margin-bottom'] === 'auto', patch: { top: '0', bottom: '0', 'margin-top': 'auto', 'margin-bottom': 'auto' } },
-    bottom: { on: positioned && i.bottom !== undefined && i.top === undefined, patch: { top: null, bottom: '0', 'margin-top': null, 'margin-bottom': null } },
-  };
-  const button = (label: string, icon: ReactNode, state: { on: boolean; patch: StylePatch }, reason: string | null) => (
-    <PTipButton key={label} tip={reason ?? label} label={label} pressed={state.on} disabled={reason !== null} onClick={() => ctx.set(state.patch)}>
-      {icon}
-    </PTipButton>
-  );
+  useView((s) => s.selection);
+  useView((s) => s.layoutTick);
+  useDocument((s) => s.boards[ctx.board]?.source);
+  const blocked = ctx.lockedWhy ?? (ctx.locked && !useDocument.getState().readOnly ? 'This element’s style comes from code' : null);
+  const mode = alignMode(blocked);
+  if (!mode) return null;
   return (
-    <div className="flex h-7 items-center justify-between pl-3 pr-2">
-      {button('Align left', <AlignStartVertical {...ICON} />, h.left, hReason)}
-      {button('Align center', <AlignCenterVertical {...ICON} />, h.center, hReason)}
-      {button('Align right', <AlignEndVertical {...ICON} />, h.right, hReason)}
-      {button('Align top', <AlignStartHorizontal {...ICON} />, v.top, vReason)}
-      {button('Align middle', <AlignCenterHorizontal {...ICON} />, v.middle, vReason)}
-      {button('Align bottom', <AlignEndHorizontal {...ICON} />, v.bottom, vReason)}
+    <div role="group" aria-label="Align items" className="flex h-7 items-center justify-between pl-3 pr-2">
+      {ALIGN_ACTIONS.map(({ action, label }) => {
+        const state = mode.kind === 'parent' ? mode.actions[action] : null;
+        const reason = state?.reason ?? null;
+        return (
+          <PTipButton
+            key={action}
+            tip={reason ? alignTip(action, reason) : label}
+            shortcut={reason ? undefined : alignShortcut(action)}
+            label={label}
+            pressed={state?.on ?? false}
+            disabled={reason !== null}
+            onClick={() => runAlign(action)}
+          >
+            {ALIGN_ICONS[action]}
+          </PTipButton>
+        );
+      })}
     </div>
   );
 }

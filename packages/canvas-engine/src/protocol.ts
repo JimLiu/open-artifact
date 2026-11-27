@@ -72,6 +72,7 @@ export const OPTION = {
   gridMajor: 20,
   gridFadeStart: 21,
   gridFadeEnd: 22,
+  altCopy: 23,
 } as const;
 
 export const THEME_OPTION = {
