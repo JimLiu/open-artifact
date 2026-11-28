@@ -141,6 +141,8 @@ CLI 可以看到完整列表。
 
 ## 开发
 
+怎么准备环境、要跑什么、PR 要写什么，见 [CONTRIBUTING.zh-CN.md](CONTRIBUTING.zh-CN.md)。
+
 ### 从源码构建
 
 在源码目录里安装依赖，构建工作区和插件。

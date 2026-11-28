@@ -1,0 +1,82 @@
+name: Bug report
+description: Something in an artifact, a page, an export or a plugin does not work as it should.
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did and what you saw. Paste the exact text of an error message.
+      placeholder: Export to PDF stops at slide 4 with "…".
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The shortest way to get there, with the commands or prompts you used.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: artifact-type
+    attributes:
+      label: Artifact type
+      options:
+        - slides
+        - design
+        - design-system
+        - whiteboard
+        - sheets
+        - data
+        - docs
+        - motion
+        - page
+        - Not about one type (home page, install, plugin, daemon)
+    validations:
+      required: true
+
+  - type: input
+    id: client
+    attributes:
+      label: Agent app and versions
+      description: The agent app or the desktop app you use, its version, and the Open Artifact version.
+      placeholder: Codex 0.159.0, Open Artifact 0.18.0
+    validations:
+      required: true
+
+  - type: input
+    id: system
+    attributes:
+      label: Operating system and Node.js version
+      placeholder: macOS 15.3 (arm64), Node 24.1.0
+    validations:
+      required: false
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: open-artifact doctor
+      description: Optional. If you can run `open-artifact doctor --harness <name>` (the name is the plugin's folder under `plugins/`), paste what it prints.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots or logs
+      description: Optional. Drag a screenshot in, or paste the log around the failure.
+    validations:
+      required: false

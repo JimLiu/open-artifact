@@ -55,13 +55,13 @@ documentation in the same change—both English (`*.md`) and Simplified Chinese 
 | If you change… | Update these docs |
 | --- | --- |
 | An artifact type's features, commands, format, imports, or exports | `artifact-types/<type>/SKILL.md` (+ `reference/`), `artifact-types/<type>/artifact-type.json`, `docs/types/<type>.md` & `.zh-CN.md`, and `docs/artifact-types.md` & `.zh-CN.md` (plus `README.md` & `README.zh-CN.md` if summary/exports change). |
-| Add or remove an artifact type | All of the above, plus `skills/open-artifact/SKILL.md`, `docs/README.md` & `.zh-CN.md`, `README.md` & `README.zh-CN.md`, `plugins/README.md`, and `docs/references/artifact-types.md`. |
+| Add or remove an artifact type | All of the above, plus `skills/open-artifact/SKILL.md`, `docs/README.md` & `.zh-CN.md`, `README.md` & `README.zh-CN.md`, `plugins/README.md`, `docs/references/artifact-types.md`, and the type lists in `.github/ISSUE_TEMPLATE/bug.yml` & `feature.yml`. |
 | MCP tools, CLI commands, hooks, or comment/wake behavior | `skills/open-artifact/SKILL.md`, `docs/agent-guide.md` & `.zh-CN.md`, `plugins/README.md`, and `docs/references/architecture.md`. |
 | The Harness API, `harness-kit`, the Shell embed protocol, harness profiles, or `examples/harness-*` | `docs/integrating*.md` and `docs/integrating/` (EN & zh-CN), `docs/spec/` (EN & zh-CN), `packages/harness-kit/README.md`, the example's README. |
 | Agent app plugins or install steps | `plugins/<app>/README.md`, `plugins/README.md`, `README.md` & `README.zh-CN.md`. |
 | Where new artifacts go, a settings key, `open-artifact config`, or a shipped profile's `policy.artifacts` | `docs/settings.md` & `.zh-CN.md`, `plugins/README.md` and the app's `plugins/<app>/README.md`, `docs/spec/profile.md` & `.zh-CN.md`, `docs/references/architecture.md`. |
 | Self-hosting, remotes, or host plugins | `docs/hosting*.md`, `docs/connecting-agents*.md`, `docs/plugins*.md` (both EN & zh-CN), `packages/host/README.md`. |
-| Build scripts, workspace packages, or release workflow | `AGENTS.md`, `docs/references/build-test-release.md`, `docs/references/architecture.md`. |
+| Build scripts, workspace packages, or release workflow | `AGENTS.md`, `docs/references/build-test-release.md`, `docs/references/architecture.md` (and `CONTRIBUTING.md` & `.zh-CN.md` when setup, the Check workflow or what a pull request needs changes). |
 
 See [docs/references/docs-maintenance.md](docs/references/docs-maintenance.md) for the full checklist and writing conventions.
 

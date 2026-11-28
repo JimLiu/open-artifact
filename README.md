@@ -153,6 +153,8 @@ with them, edit and comment together, and your agents publish to it. The guides 
 
 ## Development
 
+How to set up, what to run and what a pull request needs: [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ### Build from source
 
 From a source checkout, install dependencies and build the workspace and plugin folders.

@@ -1,0 +1,37 @@
+name: Feature request
+description: Something you keep wanting to do with an artifact, a page or a plugin.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: What you were making, where it stopped working for you, and what you did instead.
+      placeholder: I keep rebuilding the same intro slides in every deck, and …
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would help
+      description: Optional. How you picture it working.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: artifact-type
+    attributes:
+      label: Artifact type
+      options:
+        - slides
+        - design
+        - design-system
+        - whiteboard
+        - sheets
+        - data
+        - docs
+        - motion
+        - page
+        - Not about one type (home page, install, plugin, daemon)
+    validations:
+      required: true
