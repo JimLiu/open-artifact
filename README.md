@@ -12,7 +12,7 @@ your agent for a slide deck, a UI design, a design system, a whiteboard, a sprea
 A local page opens it in a real editor, where you can fix a title, move a sticky note, leave comments, and export. Then
 "Send to agent" sends your comments back to the agent's session.
 
-https://github.com/user-attachments/assets/9f34dc69-2e90-4118-92fd-63f36d7bc5f9
+https://github.com/user-attachments/assets/0d141d5a-5176-4ddd-af0d-51c0df259363
 
 Everything runs on your machine. No account, no upload, no specific model or vendor.
 
