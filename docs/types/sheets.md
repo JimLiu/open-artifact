@@ -13,7 +13,7 @@
 - **Data controls & rules**: Dropdown validation menus, checkboxes, and conditional formatting rules.
 - **Charts & interactive panels**: Embed charts drawn directly from cell ranges, plus custom **interactive panels** (sliders, buttons, and inputs on their own tab wired to live assumption cells and formulas).
 - **Real-time collaboration & history**: Live cursors, cell/range-anchored comments, full version history, and per-cell edit history.
-- **Connected tables**: A tab whose rows come from a connector call the agent makes. The owner's **Refresh** (or **Load data** before the first rows) asks the agent, which makes the call with its own tool and hands the records back with `refresh`, or says why there are none; the table's bar shows that reason. The first refresh of a call asks the owner to confirm.
+- **Connected tables**: A tab whose rows come from a connector call the agent makes. The owner's **Refresh** (or **Load data** before the first rows) asks the agent, which makes the call with its own tool and hands the records back with `refresh`, or says why there are none; the table's bar shows that reason. The first refresh of a call asks the owner to confirm. While the agent works on a refresh, another press is turned away for up to a minute; if the agent ends without records or a reason, the owner can press again after that.
 - **Imports & exports**: Import **CSV** files; export to **Excel (`.xlsx`)** or **CSV** (per worksheet) from **Share → Export** or CLI, plus portable `.zip` archives.
 
 ## How to use (for users)

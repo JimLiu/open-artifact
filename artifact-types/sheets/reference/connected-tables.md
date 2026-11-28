@@ -94,7 +94,8 @@ Under a host it is `Artifact {action: "call", url, name: "refresh", args: {paylo
 not return records), `callNotWellFormed` (the tool did not take the arguments), `notConnected` (the connector is
 not connected), `reconnect` (its sign-in lapsed), `connectorNotServed` (you have no connector of that name),
 `toolNotAllowedHere`, `notAllowed`, or `failed`. The page shows the person a sentence for each: send one every
-time a refresh brings no rows, or after a while the page tells them none came.
+time a refresh brings no rows, or after a while the page tells them none came. Until then, a minute after the
+request reached you, the person's next press is turned away; after that it asks you again.
 
 Only the owner of the Sheet, in their own page, can ask for a refresh: the call runs with your access, which is
 theirs. The first time they refresh a call, the page shows it to them and runs it only when they say so. Others

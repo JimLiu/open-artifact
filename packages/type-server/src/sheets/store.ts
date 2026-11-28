@@ -115,8 +115,12 @@ const MAX_REMEMBERED = 200;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const CLOCK_MS = 60_000;
 const RESCAN_MS = 1_000;
-/** How long a refresh the agent was asked for keeps another of the same call from being asked. */
-const REFRESH_WAIT_MS = 15 * 60_000;
+/**
+ * How long a refresh the agent was asked for keeps another of the same call from being asked: long enough to turn
+ * away a second press or another tab's, short enough that an agent that ended its turn without the records (and
+ * without saying why) holds Refresh back for a minute, not a quarter of an hour. A press after it asks again.
+ */
+export const REFRESH_WAIT_MS = 60_000;
 /** How long the agent's read waits for the formulas to be worked out. */
 const CALCULATION_MS = 20_000;
 const COLORS = ['#3987e5', '#d95926', '#0ca30c', '#8173e3', '#d55181', '#199e70', '#b77700', '#e34948'];

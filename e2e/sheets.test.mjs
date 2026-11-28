@@ -963,6 +963,59 @@ describe(TYPE, { skip: skip() }, () => {
     }
   });
 
+  it('a refresh the agent took and never answered holds Refresh back for a minute only', { timeout: 150000, skip: browserOff }, async () => {
+    const root = path.join(tmpDir('sheets-connected-silent'), 'book');
+    const opened = await ctx.cli.json(['open', root, '--type', 'sheets', '--json']);
+    await ctx.cli.json(['update', root, edits(1, [{
+      kind: 'addConnectedTable',
+      name: 'Orders',
+      call: { title: 'All orders', connector: 'Shop', tool: 'list_orders', arguments: { limit: 10 }, transform: '({ answer }) => ({ records: JSON.parse(answer.content[0].text).orders })' },
+      columns: [{ name: 'Id', field: 'id' }],
+    }])]);
+    const orders = (await ctx.cli.json(['read', root])).sheets.find(sheet => sheet.name === 'Orders');
+    const { callDigest } = await ctx.cli.json(['read', root, JSON.stringify({ kind: 'readConnectedTable', sheet: 'Orders' })]);
+    const bar = "document.querySelector('.sheet-connected-table-bar')";
+    const barButton = label => `[...(${bar}?.querySelectorAll('button') ?? [])].find(b => b.textContent.trim() === ${JSON.stringify(label)})`;
+    const run = "[...document.querySelectorAll('[role=dialog] button, [role=alertdialog] button')].find(b => b.textContent.trim() === 'Run')";
+    const listen = async () => {
+      fs.rmSync(path.join(root, '_agent', 'waiting'), { force: true });
+      const waiter = await ctx.cli.start(['wait', root, '--timeout', '90'], { firstLine: false });
+      assert.ok(await until(() => fs.existsSync(path.join(root, '_agent', 'waiting'))), 'the agent did not start listening');
+      return waiter;
+    };
+    const url = `${opened.url}#${orders.linkFragment}`;
+    let waiter = await listen();
+    const first = await openSheet(url, `Boolean(${barButton('Load data')})`);
+    let second = null;
+    try {
+      await clickOnSheet(first, barButton('Load data'));
+      await clickOnSheet(first, run);
+      assert.equal((await waiter.exited).code, 0, waiter.stdout());
+      assert.ok(waiter.stdout().includes(callDigest), waiter.stdout());
+      const asked = Date.now();
+      // The agent took the request and ends its turn with no records and no `failed`. Another tab's press is turned away.
+      second = await openSheet(url, `Boolean(${barButton('Load data')})`);
+      await clickOnSheet(second, barButton('Load data'));
+      if (await second.waitFor(run, 2000)) await clickOnSheet(second, run);
+      assert.ok(await second.waitFor(`${bar}?.textContent.includes('Couldn’t refresh right now')`, 10000), `a second press was not turned away: ${await second.evaluate(`${bar}?.textContent`)}`);
+      // A minute on, the press asks the agent again. Before, the server held it back for 15 minutes.
+      await new Promise(resolve => setTimeout(resolve, Math.max(0, asked + 61_000 - Date.now())));
+      waiter = await listen();
+      const again = `${barButton('Load data')} ?? ${barButton('Try again')} ?? ${barButton('Refresh')}`;
+      assert.ok(await second.waitFor(`Boolean(${again})`, 5000), `no button to press again: ${await second.evaluate(`${bar}?.textContent`)}`);
+      await clickOnSheet(second, again);
+      if (await second.waitFor(run, 2000)) await clickOnSheet(second, run);
+      assert.equal((await waiter.exited).code, 0, waiter.stdout());
+      assert.ok(waiter.stdout().includes(callDigest), `the second press did not reach the agent: ${waiter.stdout()}`);
+      assert.deepEqual(first.problems, []);
+      assert.deepEqual(second.problems, []);
+    } finally {
+      waiter.child.kill();
+      await first.close();
+      await second?.close();
+    }
+  });
+
   it('comments lists no threads on a new Sheet, and stop stops the server', T, async () => {
     const comments = await ctx.cli.json(['comments', ctx.root, '--json']);
     assert.deepEqual(comments.threads, []);

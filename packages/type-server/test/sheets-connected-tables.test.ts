@@ -3,12 +3,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { gunzipSync } from 'node:zlib';
-import { after, describe, it } from 'node:test';
+import { after, describe, it, mock } from 'node:test';
 import { type AgentRequest } from '@open-artifact/runtime/capabilities';
 import { engineOf, isObject, type Json, SheetRefusalError, type SheetFrame, tableFileOf } from '@open-artifact/sheets-core';
 import { sheetsEngine } from '@open-artifact/wasm-sheets/node';
 import { runSheetsCommand } from '../src/sheets/cli.ts';
-import { SHEET_DIR, SheetStore, type Viewer } from '../src/sheets/store.ts';
+import { REFRESH_WAIT_MS, SHEET_DIR, SheetStore, type Viewer } from '../src/sheets/store.ts';
 
 const folders: string[] = [];
 const stores: SheetStore[] = [];
@@ -274,6 +274,25 @@ describe('connected tables in the store', () => {
     const answers = await Promise.all([press(), press()]);
     assert.deepEqual(answers, [{ kind: 'refreshAsked' }, { kind: 'refused', refusal: 'refreshUnderWay' }]);
     assert.equal(asked.length, 1);
+  });
+
+  it('asks again after a minute when the agent gave up without a word', async () => {
+    const asked: AgentRequest[] = [];
+    const { store, callDigest, sheetId } = withTable(asked);
+    const press = () => store.refreshConnectedTable({ kind: 'refreshConnectedTable', sheetId, callDigest }, owner);
+    assert.ok(REFRESH_WAIT_MS <= 60_000, `Refresh is held back for ${REFRESH_WAIT_MS} ms`);
+    mock.timers.enable({ apis: ['Date'], now: Date.now() });
+    try {
+      assert.deepEqual(await press(), { kind: 'refreshAsked' });
+      // The agent's turn ends with no records and no `failed`: the next press is turned away for a while only.
+      mock.timers.tick(REFRESH_WAIT_MS - 1_000);
+      assert.deepEqual(await press(), { kind: 'refused', refusal: 'refreshUnderWay' });
+      mock.timers.tick(2_000);
+      assert.deepEqual(await press(), { kind: 'refreshAsked' });
+      assert.equal(asked.length, 2);
+    } finally {
+      mock.timers.reset();
+    }
   });
 
   it('turns away a refresh from anyone but the owner, of a call that changed, of a sheet that is no table, or with no agent', async () => {

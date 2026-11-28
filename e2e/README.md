@@ -200,6 +200,8 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - `check` passes the Sheet. `export` writes an Excel file, and `--csv --sheet` the shown values of one sheet.
 - A Sheet with a named range, default values with limits and a protected range: `export` lists what Excel loses in words (cells can't be reset to their defaults, protected cells are locked with no password), never an engine code such as `defaultValues`. After the named cells' column is deleted, `readNamedRanges` and `readSheets` give the name with a `null` address, not `#REF!`.
 - `open` serves the page and reuses the address. In Chrome, the grid shows the sheet, and an `update` sent while it is open reaches the formula bar at once.
+- A connected table the agent fetches when the owner presses **Load data** (after **Run**): the records sent with `refresh` reach the grid and the bar counts them; a `refresh` with `failed` shows its reason on the bar.
+- A refresh the agent took and never answered (Chrome only, about a minute): a second tab's press is turned away with "Couldn’t refresh right now", and 61 s after the first request a press reaches the agent again. Before, the server held every press back for 15 minutes after an agent that ended its turn without records or `failed`.
 - `comments` lists no threads on a new Sheet; `stop` stops the server.
 
 **Docs: writing in a second tab** (`docs.test.mjs`, one case, Chrome only)
