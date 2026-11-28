@@ -274,7 +274,9 @@ in a tabbed stage and plays the replay of the one on show. See `website/README.m
 - **Starting without an agent** (`libraryCall` in `packages/daemon/src/daemon.ts`): `artifacts.create` makes an
   artifact as `open-artifact-home`, then clears `owner` and `createdBy`; it writes only `.artifact.json`, so `bootOf`
   says `empty` (no `detect` file) and `shellBoot` returns before opening the page, and the Shell shows `EmptyArtifact`
-  with the hand-over prompt. The type server's `open` writes its type's starting files when the marker is missing
+  with the hand-over prompt (`takeOverPrompt`: adopt, build, and ask the person what it should be when neither the
+  message nor the title says). What the person types in its "What should it be?" goes before the prompt
+  (`withBrief` in `packages/shell/src/shell/model.ts`), as `artifacts.create`'s `prompt` does. The type server's `open` writes its type's starting files when the marker is missing
   (`TYPES[type].scaffold` in `packages/type-server/src/server.ts`): `startBlank` opens the page (`openPage`) for that
   and refuses with `unsupported` when the artifact is still empty after it. `artifacts.create { blank: true }` uses it
   (a refused one leaves no record, and no folder that holds only its marker), and so does `artifacts.blank { id }`, the

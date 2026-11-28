@@ -244,7 +244,10 @@ const EN = {
 
   // ---- empty and problem pages
   emptyTitle: 'This artifact is empty',
-  emptyBody: 'Nothing of {type} has been written to {root} yet. An agent writes it: send it this.',
+  emptyBody: 'Nothing of {type} has been written to {root} yet. An agent writes it: say what it should be, then send it this.',
+  emptyBrief: 'What should it be?',
+  emptyBriefPlaceholder: 'Its subject and what goes in it: the content, who it is for, the brand… It goes before the prompt below.',
+  emptyPrompt: 'The prompt for the agent',
   startSession: 'Start a session with {agent}',
   startBlank: 'Start blank',
   startingBlank: 'Starting…',
@@ -414,7 +417,7 @@ const EN = {
   ownedBy: 'Owned by {name}',
   yourRole: 'Your role: {role}',
   onlyOwnerShares: 'Only the owner can change who has access.',
-  emptyBodyCloud: 'Nothing of {type} has been written yet. An agent writes it: send it this.',
+  emptyBodyCloud: 'Nothing of {type} has been written yet. An agent writes it: say what it should be, then send it this.',
   homeSubCloud: 'Your artifacts and the ones shared with you.',
   noArtifactsCloud: 'No artifacts yet. Publish one from an agent with the Artifact tool, or ask someone to share one with you.',
 
@@ -834,7 +837,10 @@ const ZH: Partial<Record<MessageKey, string>> = {
   statusConnected: '已连接',
   statusNoAgent: '无 Agent',
   emptyTitle: '这个作品还是空的',
-  emptyBody: '{root} 里还没有写入 {type} 的内容。由 Agent 来写：把下面这段发给它。',
+  emptyBody: '{root} 里还没有写入 {type} 的内容。由 Agent 来写：先说说要做什么，再把下面这段发给它。',
+  emptyBrief: '要做什么？',
+  emptyBriefPlaceholder: '主题和要放进去的东西：内容、给谁看、品牌……会写在下面这段提示前面。',
+  emptyPrompt: '发给 Agent 的提示',
   startSession: '和 {agent} 开个新会话',
   startBlank: '从空白开始',
   startingBlank: '正在准备…',
@@ -1000,7 +1006,7 @@ const ZH: Partial<Record<MessageKey, string>> = {
   ownedBy: '所有者：{name}',
   yourRole: '你的角色：{role}',
   onlyOwnerShares: '只有所有者能更改谁可以访问。',
-  emptyBodyCloud: '还没有写入任何 {type} 内容。由 Agent 来写：把下面这段发给它。',
+  emptyBodyCloud: '还没有写入任何 {type} 内容。由 Agent 来写：先说说要做什么，再把下面这段发给它。',
   homeSubCloud: '你的作品，以及别人分享给你的。',
   noArtifactsCloud: '还没有作品。让 Agent 用 Artifact 工具发布一个，或者请别人分享给你。',
 

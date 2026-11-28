@@ -2325,7 +2325,7 @@ describe('slides', { skip: skipFor('slides') }, () => {
     }
   });
 
-  it('keeps each element on its own tag when it is edited after a save that moved elements in the file', { skip: browserSkip }, async () => {
+  it('keeps each element on its own tag when it is edited or undone after a save that moved elements in the file', { skip: browserSkip }, async () => {
     // A source deck whose boxes take their size and first colour from deck.css. Each save after a restack or a delete
     // moves the elements in the file; the next edit must still land on the element it was made on.
     const deck = tmpDir('slides-edit-after-save');
@@ -2371,6 +2371,13 @@ describe('slides', { skip: skipFor('slides') }, () => {
       await tab.press('ArrowRight');
       const nudged = new RegExp(`^${TWO.replace(/[.|]/g, '\\$&')} Three:div\\.box\\|left:12(?!00)\\d\\dpx;top:300px;background:#26a070$`);
       assert.ok(await until(() => nudged.test(boxes())), boxes());
+      // The nudge and the delete undone, both after their saves: One comes back on its own tag. Before the fix, it
+      // came back as a <p> with every style inline and no class.
+      await chord(tab, 'z', 'KeyZ', 90, { mod: true, mac });
+      assert.ok(await until(() => boxes() === `${TWO} ${THREE}`), boxes());
+      await chord(tab, 'z', 'KeyZ', 90, { mod: true, mac });
+      assert.ok(await until(() => boxes() === `${ONE} ${TWO} ${THREE}`), boxes());
+      assert.equal(fs.readFileSync(slideFile, 'utf8').replace(/\s*\n\s*/g, ''), written);
       assert.deepEqual(tab.problems, []);
     } finally {
       // Not stopped: the deck under test shares its server (the suite stops it at the end).

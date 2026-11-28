@@ -25,6 +25,9 @@ Slides, Design System) makes the artifact with its type's starting files and ope
 it yourself; on a Design System's welcome page, **Start by hand** goes to its sections to add colors, type and
 spacing. **Make with an agent** (Design, Data, Motion, Page) makes the artifact for an agent to build, because
 building these by hand is not there yet: Design, Data and Motion open empty, with the prompt to hand them to an agent.
+Write what it should be in **What should it be?** above that prompt (its subject, content, audience, brand): it goes
+before the prompt you copy or send, so the agent has something to build. With nothing written and nothing in the
+title, the agent asks you what it should be first.
 An empty artifact of a "start right away" type also shows **Start blank** in the Shell, which keeps the artifact's
 owner. Types made on this computer are listed after these, as before. Whatever you make on the home page belongs to
 no agent session until one takes it over.

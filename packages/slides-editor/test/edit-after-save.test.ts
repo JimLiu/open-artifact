@@ -100,4 +100,37 @@ describe('editing a source slide after a save that moved its elements', () => {
     save();
     assert.deepEqual(boxes(), ['Two|left:700px;top:500px;background:#000000', 'Three|left:1200px;top:300px;background:#26a070']);
   });
+
+  it('brings an element deleted and saved back on its own tag when the delete is undone', () => {
+    load();
+    edit('Delete', removeNodes(slide(), [[0]]));
+    save();
+    assert.equal(useDeck.getState().undoStep().done, true);
+    save();
+    assert.equal(isFlatSlideHtml(file()), false);
+    assert.equal(file().replace(/\s*\n\s*/g, ''), BOXES);
+  });
+
+  it('writes a change made to an element brought back by an undo onto its tag', () => {
+    load();
+    edit('Delete', removeNodes(slide(), [[1]]));
+    save();
+    assert.equal(useDeck.getState().undoStep().done, true);
+    save();
+    edit('Fill', recolored(slide(), 1, '#000000'));
+    save();
+    assert.deepEqual(boxes(), ['One|left:200px;top:300px', 'Two|left:700px;top:500px;background:#000000', 'Three|left:1200px;top:300px;background:#26a070']);
+  });
+
+  it('brings back an element deleted two saves ago', () => {
+    load();
+    edit('Delete', removeNodes(slide(), [[0]]));
+    save();
+    edit('Fill', recolored(slide(), 0, '#000000'));
+    save();
+    assert.equal(useDeck.getState().undoStep().done, true);
+    assert.equal(useDeck.getState().undoStep().done, true);
+    save();
+    assert.equal(file().replace(/\s*\n\s*/g, ''), BOXES);
+  });
 });

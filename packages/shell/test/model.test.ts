@@ -18,6 +18,7 @@ import {
   shownAddresses,
   sortedGuests,
   takeOverText,
+  withBrief,
   ownerState,
   pageAddress,
   pageOriginOf,
@@ -566,6 +567,13 @@ describe('the Ask pane for an artifact no session owns', () => {
     assert.ok(text.includes('Artifact {action: "adopt", url: "open-artifact://artifact/art_1"}'));
     assert.match(text, /Docs "Notes", folder \/w\/notes/);
     assert.match(text, /read it before you change it/);
+  });
+
+  it('what the person says an empty artifact should be goes before its hand-over prompt', () => {
+    const prompt = 'Take over artifact open-artifact://artifact/art_1 (Design (canvas) "Untitled design", folder /w/d): …';
+    assert.equal(withBrief('  A landing page for a note app\n', prompt), `A landing page for a note app\n\n${prompt}`);
+    assert.equal(withBrief('', prompt), prompt);
+    assert.equal(withBrief(' \n ', prompt), prompt);
   });
 });
 

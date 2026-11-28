@@ -1337,15 +1337,47 @@ function flatElement(node: SlideNode, classOf?: HtmlElement): HtmlElement | unde
   return el;
 }
 
+/**
+ * Places from here on are in {@link PatchOptions.restore}'s file: place `RESTORED_PLACE + n` is its element `n`. No
+ * slide file holds this many elements (a file is at most 1 MB).
+ */
+export const RESTORED_PLACE = 1 << 24;
+
+/** Elements of an earlier file, at their places past {@link RESTORED_PLACE}, and the nodes read from them. */
+interface Restorable {
+  elements: HtmlElement[];
+  nodes: Map<number, SlideNode>;
+}
+
+/** The earlier file of a patch, made ready for elements to be taken from it. */
+function restorable(restore: { text: string; slide: Slide } | undefined): Restorable | undefined {
+  if (!restore) return undefined;
+  // Created nodes: serialized from their attributes, not sliced from a text they are not in.
+  const section = findSection(createdNodes(restore.text));
+  if (!section) return undefined;
+  const nodes = new Map<number, SlideNode>();
+  const shift = (node: SlideNode): SlideNode => {
+    const copy = { ...node } as SlideNode;
+    if (copy.origin !== undefined && copy.origin >= 0) copy.origin += RESTORED_PLACE;
+    if (copy.kind === 'box') copy.children = copy.children.map(shift);
+    if (copy.origin !== undefined && copy.origin >= RESTORED_PLACE) nodes.set(copy.origin, copy);
+    return copy;
+  };
+  restore.slide.children.forEach(shift);
+  return { elements: numberSourceElements(section), nodes };
+}
+
 class Patcher {
   private readonly elements: HtmlElement[];
+  private readonly restored: Restorable | undefined;
   /** Changed declarations the tag writes itself are taken off it, for the sheet to give back. */
   private readonly unwrite: boolean;
   /** A list's new type or colour is written on its items too, over the rules that style them. */
   private readonly items: boolean;
 
-  constructor(section: HtmlElement, mode: PatchMode) {
+  constructor(section: HtmlElement, mode: PatchMode, restored?: Restorable) {
     this.elements = numberSourceElements(section);
+    this.restored = restored;
     this.unwrite = mode === 'unwrite';
     this.items = mode === 'items';
   }
@@ -1366,7 +1398,16 @@ class Patcher {
   }
 
   private at(src: number | undefined): HtmlElement | undefined {
-    return src === undefined || src < 0 ? undefined : this.elements[src];
+    if (src === undefined || src < 0) return undefined;
+    // The section itself is never taken from an earlier file.
+    if (src >= RESTORED_PLACE) return src > RESTORED_PLACE ? this.restored?.elements[src - RESTORED_PLACE] : undefined;
+    return this.elements[src];
+  }
+
+  /** The node read from the element at `src`, in `saved` or in the earlier file. */
+  private before(src: number | undefined, saved: ReadonlyMap<number, SlideNode>): SlideNode | undefined {
+    if (src === undefined) return undefined;
+    return src >= RESTORED_PLACE ? this.restored?.nodes.get(src) : saved.get(src);
   }
 
   /** Writes the style difference of a node into its element's inline style. */
@@ -1473,7 +1514,7 @@ class Patcher {
       if (node.origin === -1) continue;
       next.push(...createdNodes(indent));
       const target = this.at(node.origin);
-      const before = node.origin !== undefined ? savedBySrc.get(node.origin) : undefined;
+      const before = this.before(node.origin, savedBySrc);
       if (target && before) {
         const old = target.parent;
         if (old && old !== el) {
@@ -1540,7 +1581,14 @@ function contentOf(node: SlideNode): unknown {
 }
 
 /** Options of {@link patchSourceSlide}. */
-export interface PatchOptions extends SourceReadOptions {}
+export interface PatchOptions extends SourceReadOptions {
+  /**
+   * An earlier file of the slide and the slide read from it. A node of the edited slide whose place is
+   * `RESTORED_PLACE + n` is that file's element `n` brought back (an element deleted from the file and then
+   * restored): it is written as that element, with its tag and classes, and the edit's difference from it.
+   */
+  restore?: { text: string; slide: Slide };
+}
 
 /**
  * Writes an edit into a source slide's own markup: a style on that one tag,
@@ -1567,7 +1615,7 @@ function patchOnce(source: string, saved: Slide, edited: Slide, deck: SourceDeck
   const nodes = parseHtml(source);
   const section = findSection(nodes);
   if (!section || saved.id !== edited.id || edited.flat) return undefined;
-  const patcher = new Patcher(section, mode);
+  const patcher = new Patcher(section, mode, restorable(options.restore));
   if (saved.hidden !== edited.hidden) {
     setAttribute(section, 'hidden', edited.hidden ? null : undefined);
     if (!edited.hidden) setAttribute(section, 'data-deck-skip', undefined);

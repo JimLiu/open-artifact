@@ -360,10 +360,14 @@ function listenOn(server: Server, port: number, host: string): Promise<number> {
   });
 }
 
-/** The prompt that hands an empty artifact to an agent. */
+/**
+ * The prompt that hands an empty artifact to an agent. What goes in it comes from the person: a request written before
+ * the prompt (the Shell's "What should it be?", `artifacts.create`'s `prompt`), else its title. With neither, the agent
+ * asks them what it should be, rather than stopping with nothing to build from.
+ */
 export function takeOverPrompt(record: Pick<ArtifactRecord, 'id' | 'title' | 'root'>, typeTitle: string): string {
   const url = artifactUrl(record.id);
-  return `Take over artifact ${url} (${typeTitle} "${record.title}", folder ${record.root}): call Artifact {action: "adopt", url: "${url}"} for the type's instructions, then build it as they say.`;
+  return `Take over artifact ${url} (${typeTitle} "${record.title}", folder ${record.root}): call Artifact {action: "adopt", url: "${url}"} for the type's instructions, then build it as they say. What goes in it is what this message asks for; if neither this message nor the title says, ask the person in one short question what it should be, and build it once they answer.`;
 }
 
 /** The Shell used when the built one is missing: the artifact page, framed full-screen. */

@@ -1,7 +1,7 @@
 // End-to-end test of making an artifact without an agent, in Chrome: a real daemon (in this process, from source, in a
 // temporary home) and no agent session at all. The home page's "New" makes a blank doc, which opens in its editor
 // rather than the empty state with the hand-over prompt; an empty whiteboard made earlier opens on the empty state,
-// and its "Start blank" opens the editor. A blank Design System's "Start by hand" goes to its Colors section. Design stays
+// and its "Start blank" opens the editor. An empty design's hand-over prompt carries what the person types it should be. A blank Design System's "Start by hand" goes to its Colors section. Design stays
 // in the "make with an agent" group. What is sent from a blank doc no session owns waits, and a session that adopts it
 // later gets it; with a session online, the Ask pane hands the artifact to it and it gets the message at once. A message
 // the Ask pane shows as waiting for the session shows as delivered once the session has it.
@@ -298,7 +298,7 @@ describe('making an artifact without an agent', { skip: skip() }, () => {
     const page = await ctx.browser.load(`${ctx.daemon.origin}/a/${made.id}`, { ready: "!!document.querySelector('[data-testid=start-blank]')", ignore: [/favicon\.ico/] });
     try {
       assert.deepEqual(page.problems, []);
-      assert.equal(await page.evaluate("!!document.querySelector('[data-testid=empty-artifact] textarea')?.value"), true, 'the hand-over prompt is there too');
+      assert.equal(await page.evaluate("!!document.querySelector('[data-testid=empty-artifact-prompt]')?.value"), true, 'the hand-over prompt is there too');
       await clickOn(page, '[data-testid=start-blank]');
       assert.ok(await page.waitFor(IN_EDITOR, 30000), `not in the editor: ${await page.evaluate("document.querySelector('[data-testid=empty-artifact] [role=status]')?.textContent ?? ''")}`);
       const record = ctx.daemon.store.require(made.id);
@@ -460,7 +460,7 @@ describe('making an artifact without an agent', { skip: skip() }, () => {
     }
   });
 
-  it('an empty design shows no Start blank: an agent builds it', T, async () => {
+  it('an empty design shows no Start blank: an agent builds it from what the person says it should be', T, async () => {
     const made = await fetch(`${ctx.daemon.origin}/api/open-artifact.artifacts.create`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Origin: ctx.daemon.origin },
@@ -469,6 +469,16 @@ describe('making an artifact without an agent', { skip: skip() }, () => {
     const page = await ctx.browser.load(`${ctx.daemon.origin}/a/${made.id}`, { ready: "!!document.querySelector('[data-testid=empty-artifact]')", ignore: [/favicon\.ico/] });
     try {
       assert.equal(await page.evaluate("!!document.querySelector('[data-testid=start-blank]')"), false);
+      // The prompt alone tells the agent to ask what it should be: a pasted one with no subject is not a dead end.
+      const PROMPT = "document.querySelector('[data-testid=empty-artifact-prompt]').value";
+      const bare = await page.evaluate(PROMPT);
+      assert.match(bare, /^Take over artifact open-artifact:\/\/artifact\//);
+      assert.match(bare, /ask the person in one short question what it should be, and build it once they answer\.$/);
+      // What the person types it should be goes before it, in what Copy and a new session send.
+      await clickOn(page, '[data-testid=empty-artifact-brief]');
+      await page.type('A landing page for a note-taking app');
+      assert.ok(await page.waitFor(`${PROMPT}.startsWith('A landing page for a note-taking app\\n\\nTake over artifact ')`, 5000), `the prompt is ${await page.evaluate(PROMPT)}`);
+      assert.ok((await page.evaluate(PROMPT)).endsWith(bare), 'the hand-over prompt follows it unchanged');
     } finally {
       await page.close();
     }

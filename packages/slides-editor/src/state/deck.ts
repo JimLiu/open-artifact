@@ -22,6 +22,7 @@ import {
   isFlatSlideHtml,
   patchSourceSlide,
   readSourceSlide,
+  RESTORED_PLACE,
   setSlideSize,
   slidePath,
   stripSourcePlaces,
@@ -80,6 +81,12 @@ export interface SlideEntry {
    * file (`origin`), which an edit is written back against. Absent: `saved`.
    */
   source?: Slide;
+  /**
+   * In a source deck, once this tab has written the file: the file the models here were read from (their places
+   * point into it) and the slide read from it, so that an element deleted since and brought back by an undo is
+   * written as it was there. Absent while the models' places are those of `savedText`.
+   */
+  base?: { text: string; slide: Slide };
   /**
    * In a source deck: the place in the deck (0-based) the saved file was read at, which is the page number its
    * `counter()` lines show. Absent for a slide that was not read through the sheet.
@@ -334,9 +341,11 @@ function numbered(state: DeckState, partial: Partial<DeckState>): Partial<DeckSt
       if (canReread(entry)) {
         // A slide that shows no number reads the same: it stays the slide it was.
         const same = !read.held && !entry.held && sameSlide(read.slide, entry.slide);
-        put(id, same ? { ...entry, place: read.place } : { ...entry, ...read, saved: read.slide, source: undefined }, entry);
+        put(id, same ? { ...entry, place: read.place } : { ...entry, ...read, saved: read.slide, source: undefined, base: undefined }, entry);
       } else if (!read.held) {
-        put(id, { ...entry, slide: withGeneratedLines(entry.slide, read.slide), saved: read.slide, source: undefined, place: read.place }, entry);
+        // The edits kept take the places of the file read now, as the slide read from it has them.
+        const kept = entry.source && entry.saved ? withSourcePlaces(entry.slide, entry.saved, entry.source) : entry.slide;
+        put(id, { ...entry, slide: withGeneratedLines(kept, read.slide), saved: read.slide, source: undefined, base: undefined, place: read.place }, entry);
       }
       continue;
     }
@@ -422,7 +431,7 @@ export function deckOrder(state: Pick<DeckState, 'index' | 'slides'>): string[] 
  * into the slide's own markup when it can be; otherwise, and for a slide a
  * person added, the slide is saved flat (`data-flat`, inline styles).
  */
-export function slideText(slide: Slide, entry?: Pick<SlideEntry, 'saved' | 'savedText' | 'source' | 'place'>): string {
+export function slideText(slide: Slide, entry?: Pick<SlideEntry, 'saved' | 'savedText' | 'source' | 'base' | 'place'>): string {
   if (!sourceDeck) return serializeSlide(slide);
   if (slide.flat) return flattenSlide(slide);
   const savedText = entry?.savedText;
@@ -430,18 +439,22 @@ export function slideText(slide: Slide, entry?: Pick<SlideEntry, 'saved' | 'save
   if (!savedText || !saved || isFlatSlideHtml(savedText)) return flattenSlide(slide);
   if (sameSlide(slide, saved)) return savedText;
   // The models here still carry the places of the file they were first read from; `source` has those of the file
-  // this tab wrote last, which differ once that save moved, added or removed elements.
-  const edited = entry?.source && entry.saved ? withSourcePlaces(slide, entry.saved, entry.source) : slide;
+  // this tab wrote last, which differ once that save moved, added or removed elements. An element deleted since
+  // (brought back by an undo) is taken from the file they were read from.
+  const edited = entry?.source && entry.saved ? withSourcePlaces(slide, entry.saved, entry.source, Boolean(entry.base)) : slide;
   // The patch is checked against the slide as read, page number included: at the place it was read at.
-  return patchSourceSlide(savedText, saved, edited, sourceDeck, { id: slide.id, index: entry?.place ?? sourcePlaces.get(slide.id) ?? 0 }) ?? flattenSlide(slide);
+  const options = { id: slide.id, index: entry?.place ?? sourcePlaces.get(slide.id) ?? 0, restore: entry?.base };
+  return patchSourceSlide(savedText, saved, edited, sourceDeck, options) ?? flattenSlide(slide);
 }
 
 /**
  * `slide` with the places (`origin`) of the file `source` was read from. `saved` is the model that file was written
  * from: it has the places `slide` has and the shape of `source`, node for node. A node left as it was saved takes its
- * twin's place; one changed since takes the place of the saved node it had the place of; one with neither is new.
+ * twin's place; one changed since takes the place of the saved node it had the place of. One with neither is new;
+ * with `restore`, one that has a place `saved` does not know (an element deleted before that save) keeps it, past
+ * {@link RESTORED_PLACE}, to be taken from the file its place points into.
  */
-export function withSourcePlaces(slide: Slide, saved: Slide, source: Slide): Slide {
+export function withSourcePlaces(slide: Slide, saved: Slide, source: Slide, restore = false): Slide {
   const byNode = new Map<SlideNode, number | undefined>();
   const byPlace = new Map<number, number | undefined>();
   const twice = new Set<number>();
@@ -462,7 +475,8 @@ export function withSourcePlaces(slide: Slide, saved: Slide, source: Slide): Sli
   const place = (node: SlideNode): number | undefined => {
     if (byNode.has(node)) return byNode.get(node);
     if (node.origin === undefined || node.origin < 0) return node.origin;
-    return byPlace.get(node.origin);
+    if (byPlace.has(node.origin)) return byPlace.get(node.origin);
+    return restore && !twice.has(node.origin) && node.origin > 0 ? RESTORED_PLACE + node.origin : undefined;
   };
   const rebase = (node: SlideNode): SlideNode => {
     const origin = place(node);
@@ -653,7 +667,7 @@ export const useDeck = create<DeckState>()(keepingPageNumbers((set, get) => ({
     for (const [id, entry] of Object.entries(slides)) {
       if (!canReread(entry)) continue;
       const read = readSlide(id, entry.savedText, faces);
-      slides[id] = { ...entry, ...read, saved: read.slide, source: undefined };
+      slides[id] = { ...entry, ...read, saved: read.slide, source: undefined, base: undefined };
       changed = true;
     }
     if (changed) set({ slides });
@@ -683,7 +697,10 @@ export const useDeck = create<DeckState>()(keepingPageNumbers((set, get) => ({
             if (sameSlide(read.slide, saved)) source = read.slide;
           }
         }
-        slides[id] = { ...entry, saved, savedText: text, hash, source, writtenAt: Date.now(), gone: undefined };
+        // The first file this tab writes over is the one the models were read from: kept while they point into it.
+        const was = entry.source ?? entry.saved;
+        const base = entry.base ?? (entry.savedText !== null && was && !isFlatSlideHtml(entry.savedText) ? { text: entry.savedText, slide: was } : undefined);
+        slides[id] = { ...entry, saved, savedText: text, hash, source, base, writtenAt: Date.now(), gone: undefined };
       } else if (trash[id]) trash[id] = { ...trash[id]!, saved: slide, savedText: text, hash };
     }
     for (const id of sent.deleted) {

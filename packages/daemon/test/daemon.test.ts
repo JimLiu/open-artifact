@@ -355,6 +355,8 @@ test('GET /a/<id> injects the boot object into the Shell', async () => {
   assert.equal(boot.page, null);
   assert.match(String(boot.prompt), new RegExp(`^Take over artifact open-artifact://artifact/${id} \\(Design \\(canvas\\) "`));
   assert.match(String(boot.prompt), /call Artifact \{action: "adopt", url: "open-artifact:\/\/artifact\//);
+  // Nothing says what it should be: the agent asks the person rather than stopping with nothing to build.
+  assert.match(String(boot.prompt), /if neither this message nor the title says, ask the person in one short question what it should be, and build it once they answer\.$/);
   assert.equal(boot.agentName, 'Agent');
   assert.equal((await fetch(`${state.url}/a/art_nothere`)).status, 404);
   assert.equal((await fetch(`${state.url}/_open-artifact/shell/../daemon.json`)).status, 404);

@@ -12,7 +12,7 @@ import { t } from '../../lib/i18n.ts';
 import { attachFrame, embedded, frameLoaded } from '../bridge.ts';
 import { ask, frameShown, markPhase, newSession, retryBoot, startBlank } from '../actions.ts';
 import { useAgentName, useCloud, useMayAsk } from '../hooks.ts';
-import { COVER_FADE_MS, addressWithoutThread, pageAddress, pageOriginOf } from '../model.ts';
+import { COVER_FADE_MS, addressWithoutThread, pageAddress, pageOriginOf, withBrief } from '../model.ts';
 import { alignSpin } from '../preboot.ts';
 import { useBoot, useShell } from '../store.ts';
 
@@ -111,15 +111,29 @@ export function EmptyArtifact() {
   const blank = !cloud && !boot.read_only && builtinStartOf(boot.type) === 'blank';
   const [status, setStatus] = useState('');
   const [starting, setStarting] = useState(false);
-  const prompt = boot.prompt ?? '';
+  // What the person says it should be goes before the hand-over prompt, so the agent has something to build.
+  const [brief, setBrief] = useState('');
+  const prompt = withBrief(brief, boot.prompt ?? '');
   return (
     <div data-testid="empty-artifact" className="max-w-2xl px-8 py-10">
       <h2 className="mb-2 mt-0 text-base font-semibold">{t('emptyTitle')}</h2>
       <p className="mb-3 mt-0 text-fg-muted">{cloud ? t('emptyBodyCloud', { type: boot.typeTitle }) : t('emptyBody', { type: boot.typeTitle, root: boot.root })}</p>
+      <label htmlFor="empty-artifact-brief" className="mb-1.5 block text-sm font-medium">
+        {t('emptyBrief')}
+      </label>
+      <textarea
+        id="empty-artifact-brief"
+        data-testid="empty-artifact-brief"
+        value={brief}
+        onChange={(event) => setBrief(event.target.value)}
+        placeholder={t('emptyBriefPlaceholder')}
+        className="mb-3 block min-h-20 w-full resize-y rounded-lg border border-line bg-surface px-3 py-2.5 text-sm leading-relaxed text-fg outline-none placeholder:text-fg-muted focus:border-accent"
+      />
       <textarea
         readOnly
+        data-testid="empty-artifact-prompt"
         value={prompt}
-        aria-label={t('emptyTitle')}
+        aria-label={t('emptyPrompt')}
         className="block min-h-28 w-full resize-y rounded-lg border border-line bg-surface-2 px-3 py-2.5 font-mono text-xs leading-relaxed text-fg outline-none focus:border-accent"
       />
       <div className="mt-2.5 flex flex-wrap gap-2">

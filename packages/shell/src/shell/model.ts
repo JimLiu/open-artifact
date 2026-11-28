@@ -57,6 +57,15 @@ export function takeOverText(boot: Pick<ShellBoot, 'url' | 'title' | 'typeTitle'
   return `Take over artifact ${boot.url} (${boot.typeTitle} "${boot.title}", folder ${boot.root}): call Artifact {action: "adopt", url: "${boot.url}"} for the type's instructions and the messages sent from its page, then read it before you change it.`;
 }
 
+/**
+ * The empty artifact's hand-over prompt with what the person wrote it should be, before it (as `artifacts.create` puts
+ * a `prompt` before it): the agent then has something to build. Nothing written: the prompt as it is.
+ */
+export function withBrief(brief: string, prompt: string): string {
+  const said = brief.trim();
+  return said ? `${said}\n\n${prompt}` : prompt;
+}
+
 /** The owner session as the library reports it. */
 export type Owner = NonNullable<ArtifactView['owner']>;
 
