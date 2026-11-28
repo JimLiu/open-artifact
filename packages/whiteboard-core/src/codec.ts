@@ -8,7 +8,6 @@
  * board/claim-<key>     an agent claim: {x, y, w, h} and/or {ids}
  * board/timer           the shared timer (always replaced whole)
  * board/inks            custom ink colors {colors: {"rrggbb": at}}
- * board/shapes          shape libraries {libs: {<id>: {name, file, count, at, …}}}
  * ```
  *
  * One document per element lets people edit different elements at once
@@ -16,11 +15,10 @@
  */
 
 import type { DocumentMap, DocumentValue } from '@open-artifact/live-store/engine';
-import { ELEMENT_ID_PATTERN, MAX_BOARD_ELEMENTS, type Board, type BoardContent, type BoardElement, type BoardInk, type BoardShapeLibrary, type ClaimedArea, type ElementId, type HexColor, type StoredElement, type TimerFields } from './schema.ts';
+import { ELEMENT_ID_PATTERN, MAX_BOARD_ELEMENTS, type Board, type BoardContent, type BoardElement, type BoardInk, type ClaimedArea, type ElementId, type HexColor, type StoredElement, type TimerFields } from './schema.ts';
 import { persistedElementOf } from './derived.ts';
 import { EMPTY_SVG_DATA_URL, normalizeImageSource, svgBase64ToTextDataUrl } from './image-source.ts';
 import { canonicalValuesEqual, escapedJsonByteLength, jsonValueDepth } from './json.ts';
-import { BOARD_SHAPES_PATH, shapeLibrariesOfRecord, shapeLibrariesToRecord } from './shape-library/board-shapes.ts';
 
 /** The meta document: title and drawing order. */
 export const BOARD_META_PATH = 'board/meta';
@@ -146,7 +144,7 @@ function reuseUnchanged(previous: DocumentMap | undefined, path: string, data: D
 
 /**
  * Splits a board into documents. `previous` is the last known document map
- * (its unchanged values are reused, its timer, inks, shape libraries and claims are kept when
+ * (its unchanged values are reused, its timer, inks and claims are kept when
  * the board does not carry them); `carry` puts dangling order ids back.
  */
 export function decomposeBoard(board: Board, previous?: DocumentMap, carry?: OrderCarry): Map<string, DocumentValue> {
@@ -170,11 +168,6 @@ export function decomposeBoard(board: Board, previous?: DocumentMap, carry?: Ord
       ? reuseUnchanged(previous, BOARD_INKS_PATH, inksToRecord(board.content.inks) as unknown as DocumentValue)
       : (previous?.get(BOARD_INKS_PATH) ?? (EMPTY_INKS_RECORD as unknown as DocumentValue)),
   );
-  const shapes =
-    board.content.shapes !== undefined
-      ? reuseUnchanged(previous, BOARD_SHAPES_PATH, shapeLibrariesToRecord(board.content.shapes) as unknown as DocumentValue)
-      : previous?.get(BOARD_SHAPES_PATH);
-  if (shapes !== undefined) documents.set(BOARD_SHAPES_PATH, shapes);
   if (board.content.claimed !== undefined) {
     for (const { key, ...area } of board.content.claimed) documents.set(claimPath(key), reuseUnchanged(previous, claimPath(key), area));
   } else {
@@ -227,7 +220,6 @@ export function composeBoard(documents: DocumentMap): ComposedBoard {
     typeof colors === 'object' && colors !== null
       ? Object.entries(colors).flatMap(([hex, at]): BoardInk[] => (INK_HEX_KEY_PATTERN.test(hex) ? [{ color: `#${hex}` as HexColor, at: at as number }] : []))
       : undefined;
-  const shapes = shapeLibrariesOfRecord(documents.get(BOARD_SHAPES_PATH));
   const claimed = [...documents].flatMap(([path, value]): ClaimedArea[] =>
     path.startsWith(BOARD_CLAIM_PREFIX) ? [{ ...value, key: path.slice(BOARD_CLAIM_PREFIX.length) } as ClaimedArea] : [],
   );
@@ -235,7 +227,6 @@ export function composeBoard(documents: DocumentMap): ComposedBoard {
     elements: ordered,
     ...(timer !== undefined ? { timer } : {}),
     ...(inks !== undefined ? { inks } : {}),
-    ...(shapes !== undefined ? { shapes: shapes as BoardShapeLibrary[] } : {}),
     claimed,
   };
   return { title: typeof meta?.title === 'string' ? meta.title : '', content, carry: { after }, dangling };

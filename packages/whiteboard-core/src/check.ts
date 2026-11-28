@@ -25,7 +25,6 @@ import { UNKNOWN_SVG_PART, unknownSvgParts } from './drawn-svg/vetting.ts';
 import { savedIdeaPath, VERSION_OPTION_LIMITS } from './ideas.ts';
 import { MAX_SVG_DATA_URL_CHARS, MAX_SVG_SOURCE_CHARS, UPLOADED_BLOB_PATH_PATTERN, normalizeImageSource } from './image-source.ts';
 import { escapedJsonByteLength } from './json.ts';
-import { BOARD_SHAPES_PATH, MAX_BOARD_SHAPE_LIBRARIES, normalizeBoardShapeLibraries, normalizeBoardShapeLibrary, shapeLibrariesOfRecord } from './shape-library/board-shapes.ts';
 import { normalizeClaimedAreas, normalizeElement } from './normalize.ts';
 import { DRAWING_STYLES, ELEMENT_ID_PATTERN, MAX_BOARD_ELEMENTS, NOTE_COLORS, arrowEndIds, isBoxElement, type BoardElement, type ElementId, type TableElement } from './schema.ts';
 import { COLUMN_WIDTH_GUIDE, COLUMN_WIDTH_LIMITS, suggestedColumnWidth, tableRowIds, tableTintColor, toFiniteNumber, type TableData } from './table.ts';
@@ -291,7 +290,6 @@ function isKnownPath(path: string): boolean {
     path === BOARD_META_PATH ||
     path === BOARD_TIMER_PATH ||
     path === BOARD_INKS_PATH ||
-    path === BOARD_SHAPES_PATH ||
     path.startsWith(BOARD_CLAIM_PREFIX) ||
     path.startsWith(`${ELEMENTS_COLLECTION}/`) ||
     IDEA_DOCUMENT_PATTERN.test(path)
@@ -301,7 +299,7 @@ function isKnownPath(path: string): boolean {
 /**
  * Checks a board's documents (path → parsed value). Covers the meta
  * document, sync limits, element validity, drawing order, the element cap,
- * arrow ends, inks, shape libraries and agent claims.
+ * arrow ends, inks and agent claims.
  */
 export function checkBoardDocuments(
   documents: ReadonlyMap<string, DocumentValue>,
@@ -424,22 +422,6 @@ export function checkBoardDocuments(
         if (!INK_KEY_PATTERN.test(key) || typeof at !== 'number' || !Number.isFinite(at)) {
           add(BOARD_INKS_PATH, 'warning', `The ink ${JSON.stringify(key)} is not a lower-case "rrggbb" key with a time: it is skipped.`);
         }
-      }
-    }
-  }
-
-  // Shape libraries (the page writes this list; agents leave it alone).
-  if (documents.has(BOARD_SHAPES_PATH)) {
-    const libraries = shapeLibrariesOfRecord(documents.get(BOARD_SHAPES_PATH));
-    if (libraries === undefined) {
-      add(BOARD_SHAPES_PATH, 'warning', '"libs" must map library ids to {name, file, count, at}: the board shows no shape libraries.');
-    } else {
-      for (const entry of libraries) {
-        const id = typeof entry === 'object' && entry !== null ? (entry as { id?: unknown }).id : undefined;
-        if (normalizeBoardShapeLibrary(entry) === undefined) add(BOARD_SHAPES_PATH, 'warning', `The library ${JSON.stringify(id)} needs a name and a "file" of "/_blob/<id>": it is skipped.`);
-      }
-      if (normalizeBoardShapeLibraries(libraries).length < libraries.filter((entry) => normalizeBoardShapeLibrary(entry) !== undefined).length) {
-        add(BOARD_SHAPES_PATH, 'warning', `A board keeps at most ${MAX_BOARD_SHAPE_LIBRARIES} shape libraries: the newest past that are skipped.`);
       }
     }
   }

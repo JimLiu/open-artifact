@@ -7,7 +7,6 @@
 import {
   Frame,
   Hand,
-  LibraryBig,
   MousePointer2,
   MoveUpRight,
   PenLine,
@@ -62,7 +61,6 @@ export const TOOL_ICONS: Readonly<Record<Exclude<ToolName, 'shape'>, LucideIcon>
   sticker: Sticker,
   container: Frame,
   table: Table,
-  library: LibraryBig,
 };
 
 /** The icon of a tool pick. */

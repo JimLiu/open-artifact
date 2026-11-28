@@ -2,7 +2,7 @@
  * The place ghost: what a placing tool would drop, drawn faintly under the
  * pointer. The Note, Shape and Text tools show the new item
  * at its real size and zoom; the Sticker tool shows its sticker in place of
- * the pointer, and the Library tool the picked shape at the size it lands at. The Note and Sticker tools hide the system cursor while the
+ * the pointer. The Note and Sticker tools hide the system cursor while the
  * ghost shows, so the pointer becomes the note or sticker; the others keep
  * their crosshair (or text caret) in the ghost's middle.
  *
@@ -11,7 +11,7 @@
  */
 
 import { ShapeFace } from '../elements/ShapeFace.tsx';
-import { useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import {
   DEFAULT_STICKER_SIZE,
   FACE_STICKER_ART,
@@ -21,13 +21,9 @@ import {
   defaultShapeSize,
   inkColorOnFill,
   noteColorForAuthor,
-  placedShapeSize,
-  svgToBase64DataUrl,
-  type LibraryShape,
   type ShapeElement,
   type ShapeKind,
 } from '@open-artifact/whiteboard-core';
-import { drawnImagePen, drawnImageSrcForPen } from '../export/drawn-svg.ts';
 import { FACE_STICKER_SIZE } from '../lib/votes.ts';
 import { canEditBoard, viewerAuthor } from '../services/actions.ts';
 import { useCamera } from '../state/camera.ts';
@@ -41,8 +37,7 @@ type Ghost =
   | { kind: 'note'; tilt: number }
   | { kind: 'shape'; shape: ShapeKind }
   | { kind: 'text' }
-  | { kind: 'sticker'; choice: StickerChoice }
-  | { kind: 'library'; shape: LibraryShape };
+  | { kind: 'sticker'; choice: StickerChoice };
 
 /** The ghost of the active tool, if it has one. */
 function useGhost(): Ghost | undefined {
@@ -51,7 +46,6 @@ function useGhost(): Ghost | undefined {
   const shape = useTool((state) => state.shapeKind);
   const tilt = useTool((state) => state.noteTilt);
   const sticker = useTool((state) => state.sticker);
-  const libraryShape = useTool((state) => state.libraryShape);
   if (commenting || !canEditBoard()) return undefined;
   switch (tool) {
     case 'note':
@@ -62,8 +56,6 @@ function useGhost(): Ghost | undefined {
       return { kind: 'text' };
     case 'sticker':
       return sticker ? { kind: 'sticker', choice: sticker } : undefined;
-    case 'library':
-      return libraryShape ? { kind: 'library', shape: libraryShape } : undefined;
     default:
       return undefined;
   }
@@ -135,19 +127,13 @@ export function PlaceGhost({ surface }: { surface: React.RefObject<HTMLDivElemen
   if (!ghost) return null;
   return (
     <div ref={root} className="wb-ghost" aria-hidden="true" style={{ visibility: 'hidden' }}>
-      {ghost.kind === 'sticker' ? (
-        <StickerGhost choice={ghost.choice} zoom={zoom} />
-      ) : ghost.kind === 'library' ? (
-        <LibraryGhost shape={ghost.shape} zoom={zoom} />
-      ) : (
-        <div style={{ scale: String(zoom), transformOrigin: '0 0' }}>{<BlockGhost ghost={ghost} />}</div>
-      )}
+      {ghost.kind === 'sticker' ? <StickerGhost choice={ghost.choice} zoom={zoom} /> : <div style={{ scale: String(zoom), transformOrigin: '0 0' }}>{<BlockGhost ghost={ghost} />}</div>}
     </div>
   );
 }
 
 /** A note, shape or text centered on the pointer, in board units. */
-function BlockGhost({ ghost }: { ghost: Exclude<Ghost, { kind: 'sticker' } | { kind: 'library' }> }): ReactNode {
+function BlockGhost({ ghost }: { ghost: Exclude<Ghost, { kind: 'sticker' }> }): ReactNode {
   const scheme = useColorScheme();
   if (ghost.kind === 'text') {
     return (
@@ -186,14 +172,4 @@ function StickerGhost({ choice, zoom }: { choice: StickerChoice; zoom: number })
       <StickerGlyph {...(choice.art !== undefined ? { art: choice.art } : {})} {...(choice.glyph !== undefined ? { glyph: choice.glyph } : {})} {...(who ? { who } : {})} size={side * 0.78} />
     </div>
   );
-}
-
-/** The picked library shape centered on the pointer, at the size it lands at (drawn as an image, never as markup). */
-function LibraryGhost({ shape, zoom }: { shape: LibraryShape; zoom: number }): ReactNode {
-  const scheme = useColorScheme();
-  const src = useMemo(() => drawnImageSrcForPen(svgToBase64DataUrl(shape.svg), drawnImagePen(scheme)), [shape, scheme]);
-  const size = placedShapeSize(shape);
-  const w = size.w * zoom;
-  const h = size.h * zoom;
-  return <img src={src} alt="" draggable={false} style={{ position: 'absolute', left: -w / 2, top: -h / 2, width: w, height: h, opacity: 0.6 }} />;
 }

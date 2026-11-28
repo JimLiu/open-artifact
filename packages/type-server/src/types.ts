@@ -20,7 +20,7 @@ import { DOC_MARKER, checkDoc, scaffoldDocType, validateDocContext } from './doc
 import { DATA_MARKER, checkData, dataCommenterWrites, dataHistoryIgnoresPath, dataWritesProblem, scaffoldData, validateDataContext } from './data.ts';
 import { MOTION_MARKER, checkMotion, motionHistoryIgnores, motionTypeWritesProblem, scaffoldMotion, validateMotionContext } from './motion.ts';
 import { SHEET_MARKER, checkSheet, scaffoldSheet, validateSheetContext } from './sheets/type.ts';
-import { WHITEBOARD_MARKER, checkWhiteboard, scaffoldWhiteboard, validateWhiteboardContext, whiteboardAgentContext, whiteboardHistoryIgnores } from './whiteboard.ts';
+import { WHITEBOARD_MARKER, checkWhiteboard, scaffoldWhiteboard, validateWhiteboardContext, whiteboardHistoryIgnores } from './whiteboard.ts';
 
 /** True when `dir` holds at least one slide file (`<id>.html`). */
 function hasSlideFiles(dir: string): boolean {
@@ -117,12 +117,6 @@ export interface TypeDefinition {
    * per-person data. A type without it lets a commenter write nothing to the store.
    */
   commenterWrites?(path: string, guestId: string): boolean;
-  /**
-   * What the `context` action adds for agents beside the page's view
-   * context, read from the folder (so it is there while no page is open).
-   * `readBlob` gives an upload's text by id, or `null`.
-   */
-  agentContext?(root: string, readBlob: (id: string) => Promise<string | null>): Promise<Record<string, unknown>>;
 }
 
 export type TypeName = 'design' | 'design-system' | 'slides' | 'whiteboard' | 'data' | 'sheets' | 'docs' | 'motion';
@@ -186,7 +180,6 @@ export const TYPES: Record<TypeName, TypeDefinition> = {
     store: 'db',
     comments: true,
     historyIgnores: whiteboardHistoryIgnores,
-    agentContext: whiteboardAgentContext,
   },
   data: {
     name: 'data',

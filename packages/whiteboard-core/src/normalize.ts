@@ -74,7 +74,6 @@ import { normalizeStrokeWidths } from './stroke-widths.ts';
 import { normalizeImageHref, normalizeLinkFields, sanitizeShortLabel } from './links.ts';
 import { isStickerArt, normalizeStickerGlyph, stickerGlyphForArt } from './stickers.ts';
 import { normalizeTable } from './table.ts';
-import { normalizeBoardShapeLibraries } from './shape-library/board-shapes.ts';
 import { sliceChars, truncateAuthorName } from './text-limits.ts';
 
 /** Anything read from JSON. */
@@ -508,7 +507,6 @@ export function parseBoardContent(raw: unknown): BoardContent {
     elements: elements.filter((element) => element.type !== 'arrow' || arrowEndIds(element).every((id) => boxIds.has(id))),
     ...(typeof content.timer === 'object' && content.timer !== null ? { timer: normalizeTimerFields(content.timer as Loose) } : {}),
     ...(Array.isArray(content.inks) ? { inks: normalizeBoardInks(content.inks) } : {}),
-    ...(Array.isArray(content.shapes) ? { shapes: normalizeBoardShapeLibraries(content.shapes) } : {}),
     ...(Array.isArray(content.claimed) ? { claimed: normalizeClaimedAreas(content.claimed) } : {}),
   };
 }
