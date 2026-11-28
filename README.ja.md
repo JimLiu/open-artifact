@@ -12,7 +12,7 @@
 ローカルのページがそれを本物のエディターで開き、タイトルを直したり、付箋を動かしたり、コメントを残したり、エクスポートしたりできます。そして
 「Send to agent」で、コメントがエージェントのセッションに送り返されます。
 
-https://github.com/user-attachments/assets/9f34dc69-2e90-4118-92fd-63f36d7bc5f9
+https://github.com/user-attachments/assets/0d141d5a-5176-4ddd-af0d-51c0df259363
 
 すべてはあなたのコンピューター上で動きます。アカウントもアップロードも不要で、特定のモデルやベンダーにも依存しません。
 

@@ -29,7 +29,7 @@ export const VERSION = (() => {
 export const GITHUB = 'https://github.com/JimLiu/open-artifact';
 export const RELEASES = `${GITHUB}/releases`;
 export const NPM = 'https://www.npmjs.com/package/@open-artifact/cli';
-export const DEMO_VIDEO = 'https://github.com/user-attachments/assets/9f34dc69-2e90-4118-92fd-63f36d7bc5f9';
+export const DEMO_VIDEO = 'https://github.com/user-attachments/assets/0d141d5a-5176-4ddd-af0d-51c0df259363';
 
 /** A site route ("/docs/overview/") with the base path in front. */
 export const url = (route) => BASE + String(route).replace(/^\/+/, '');
