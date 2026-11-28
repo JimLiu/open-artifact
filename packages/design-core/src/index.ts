@@ -6,6 +6,7 @@
 
 export * from './canvas.ts';
 export * from './note-css.ts';
+export * from './note-media.ts';
 export * from './note-groups.ts';
 export * from './locks.ts';
 export * from './merge.ts';

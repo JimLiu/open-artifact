@@ -40,6 +40,7 @@ import {
   Save,
   Scan,
   Square,
+  Upload,
   X,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -88,6 +89,8 @@ import { isFontAvailable } from '../lib/fonts.ts';
 import { matchSystemStyle, systemStylePatch, styleById, useDesignSystems, useSystemSwatches, useSystemTextStyles } from '../services/design-systems.ts';
 import { ThemePanel } from './ThemePanel.tsx';
 import { MediaSection } from './MediaSection.tsx';
+import { NoteMediaSection } from './NoteMediaSection.tsx';
+import { pickFile, replacePicture } from '../services/video-note.ts';
 import { BorderAlignButton } from './BorderAlign.tsx';
 import { readAlignment, SIDES_NEED_INSIDE, type BorderLook } from '../lib/border-align.ts';
 import { editSelectedAlignedBorder } from '../services/border-align.ts';
@@ -1399,7 +1402,7 @@ function NoteInspector({ id }: { id: string }) {
   const stroked = note.kind === 'title1' || note.kind === 'arrow' || note.kind === 'line' || note.kind === 'pen';
   const sticky = !note.kind || note.kind === 'sticky';
   const colorKey = shape || sticky ? 'fill' : 'color';
-  const title = note.kind === 'title1' ? 'Text' : note.kind === 'pen' ? 'Drawing' : note.kind ? note.kind[0]!.toUpperCase() + note.kind.slice(1) : 'Sticky note';
+  const title = note.kind === 'title1' ? 'Text' : note.kind === 'pen' ? 'Drawing' : note.video ? 'Video' : note.kind ? note.kind[0]!.toUpperCase() + note.kind.slice(1) : 'Sticky note';
   return (
     <>
     <PSection title={title}>
@@ -1452,7 +1455,7 @@ function NoteInspector({ id }: { id: string }) {
       ) : null}
     </PSection>
     <NoteSizeSection id={id} note={note} readOnly={readOnly} />
-    {note.kind === 'image' ? <NoteImageSection id={id} note={note} readOnly={readOnly} /> : null}
+    {note.kind === 'image' ? note.video ? <NoteMediaSection id={id} note={note} readOnly={readOnly} /> : <NoteImageSection id={id} note={note} readOnly={readOnly} /> : null}
     {shape || note.kind === 'image' || (stroked && note.kind !== 'title1') ? <NoteStyleSection id={id} note={note} readOnly={readOnly} /> : null}
     </>
   );
@@ -1568,6 +1571,11 @@ function NoteImageSection({ id, note, readOnly }: { id: string; note: CanvasNote
             if (next) updateNote(id, { src: next });
           }}
         />
+      </PRow>
+      <PRow label="" title={off}>
+        <PButton disabled={readOnly} onClick={() => pickFile('image/*', (file) => void replacePicture(id, file))}>
+          <Upload className="size-3.5" /> Replace…
+        </PButton>
       </PRow>
       <PRow label="Fit" title={off}>
         <PSelect aria-label="Object fit" value={css['object-fit'] ?? 'fill'} options={OBJECT_FITS} disabled={readOnly} onChange={(value) => setNoteCss(id, note, { 'object-fit': value === 'fill' ? null : value })} />

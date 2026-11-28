@@ -92,6 +92,25 @@ describe('a note as artboard HTML', () => {
     assert.equal(noteHtml({ x: 0, y: 0, kind: 'image', src: 'a.png', alt: '{{x}}' }, ids()), null);
   });
 
+  it('writes a cropped picture as a clipping frame with the picture in percent inside', () => {
+    const layer = noteHtml({ x: 0, y: 0, kind: 'image', src: '/_blob/aa', alt: 'Team', w: 400, h: 200, crop: { zoom: 2, x: 0.25, y: 1 }, css: { 'object-fit': 'cover', 'border-width': '2px', 'border-radius': '12px' } }, ids());
+    assert.equal(
+      layer?.html,
+      '<div style="box-sizing: border-box; position: relative; contain: layout; overflow: hidden; width: 400px; height: 200px; border-width: 2px; border-style: solid; border-radius: 12px;">' +
+        '<img src="/_blob/aa" alt="Team" style="position: absolute; width: 200%; height: 200%; left: -25%; top: -100%; max-width: none; max-height: none; object-fit: cover; object-position: 25% 100%;"></div>',
+    );
+    const plain = noteHtml({ x: 0, y: 0, kind: 'image', src: '/_blob/aa', w: 100, h: 100, crop: { zoom: 1.5, x: 0.5, y: 0.5 }, rotate: 10 }, ids());
+    assert.match(plain!.html, /^<div style="position: relative; contain: layout; overflow: hidden; width: 100px; height: 100px; transform: rotate\(10deg\);">/);
+  });
+
+  it('writes a video note as a video with only the play attributes it needs', () => {
+    const autoplay = noteHtml({ x: 0, y: 0, kind: 'image', src: '/_blob/c', video: '/_blob/v', alt: 'Demo', w: 320, h: 180 }, ids());
+    assert.equal(autoplay?.html, '<video src="/_blob/v" poster="/_blob/c" aria-label="Demo" autoplay loop muted playsinline style="width: 320px; height: 180px; object-fit: fill;"></video>');
+    const click = noteHtml({ x: 0, y: 0, kind: 'image', src: '/_blob/c', video: '/_blob/v', videoStart: 'click', videoLoop: 'off', videoSound: 'on', videoCover: 'custom', w: 320, h: 180 }, ids());
+    assert.equal(click?.html, '<video src="/_blob/v" poster="/_blob/c" playsinline style="width: 320px; height: 180px; object-fit: cover;"></video>');
+    assert.ok(!click!.html.includes('autoplay'));
+  });
+
   it('never lets an expression into the template', () => {
     for (const note of [
       { x: 0, y: 0, text: 'see [x](https://a.com/{{b}})' },

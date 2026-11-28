@@ -26,6 +26,8 @@ import { create } from 'zustand';
 import { clipboardData, joinedPayload, payloadFromHtml, remapBoardReferences, type ClipboardPayload, type ElementsPayload, type MixedPayload, type ObjectsPayload } from '../lib/clipboard-data.ts';
 import { toast } from '@open-artifact/ui';
 import { placeImages } from './images.ts';
+import { placeVideos } from './videos.ts';
+import { looksLikeVideo, VIDEO_MESSAGES } from '../lib/video-files.ts';
 import { freeBoardName } from '../lib/frame.ts';
 import { looksLikeHtml, sanitizeHtml, textParagraphs } from '../lib/sanitize.ts';
 import { pasteRoute, type PasteContext, type PasteField } from '../lib/paste-route.ts';
@@ -480,6 +482,12 @@ export async function pasteFromSystem(fromMenu = false): Promise<void> {
     }
     for (const item of items) {
       const type = item.types.find(t => t.startsWith('image/'));
+      const video = item.types.find(t => t.startsWith('video/'));
+      if (video) {
+        const blob = await item.getType(video);
+        await placeVideos([new File([blob], `Pasted video.${video.slice(6).replace('quicktime', 'mov')}`, { type: video })], menuPoint?.world ?? viewportCenter(), 'pasted', menuPoint?.board);
+        return;
+      }
       if (!type) continue;
       const blob = await item.getType(type);
       const file = new File([blob], `Pasted image.${type.slice(6).replace('jpeg', 'jpg')}`, { type });
@@ -688,8 +696,13 @@ export function installClipboard(onFiles: (files: File[]) => void): () => void {
       toast.add({ title: route.message });
       return;
     }
+    if (useDocument.getState().readOnly && data && [...data.files].some(looksLikeVideo)) {
+      event.preventDefault();
+      toast.add({ title: VIDEO_MESSAGES.readOnly });
+      return;
+    }
     if (useDocument.getState().readOnly || !data) return;
-    const files = [...data.files].filter((file) => file.type.startsWith('image/'));
+    const files = [...data.files].filter((file) => file.type.startsWith('image/') || looksLikeVideo(file));
     if (files.length) {
       event.preventDefault();
       onFiles(files);

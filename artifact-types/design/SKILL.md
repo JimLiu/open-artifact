@@ -86,8 +86,9 @@ whole page at that width, as tall as its content. Point them there; you take no 
     longer text shrinks. ≥223 px above its row, off name strips, nothing over it. No `kind` = a sticky: set `w`; up
     to 4/3 `w` tall (keep that clear), taller in empty canvas, then scrolls. Both take `size` px|s|m|l|xl|xxl,
     `bold`, `italic`, `page`, `color`/sticky `fill` gray|red|orange|green|teal|blue|purple|pink. `kind`
-    rect|oval|pen|line|arrow|image is the person's; leave it (its `css` holds only the style keys a note takes). The
-    rest: `reference/canvas.md`.
+    rect|oval|pen|line|arrow|image is the person's; leave it (its `css` holds only the style keys a note takes). An
+    `image` note may carry `crop`, `video`, `videoStart`, `videoLoop`, `videoSound` and `videoCover`: set in the editor,
+    never by you; its `src` and `video` are only `/_blob/<id>` addresses from an upload. The rest: `reference/canvas.md`.
   - `designSystems`, and the files under `project/ds/<folder>/`: only step 4's install writes them.
   - An index that exists: keep every key and entry you are not changing, ones not named here too.
   - A `boards` or `notes` entry with `locked: true`, like an element with `data-locked="true"` in an artboard file, is

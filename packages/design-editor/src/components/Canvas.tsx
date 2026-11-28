@@ -74,6 +74,12 @@ import { useLiveCamera } from '../services/camera-frame.ts';
 import { projectBox } from '../lib/overlay.ts';
 import { bezierPathData, relativeNodes, sampleBezier, type BezierNode } from '../lib/bezier.ts';
 import { CropOverlay } from './CropOverlay.tsx';
+import { NoteCropOverlay } from './NoteCropOverlay.tsx';
+import { UploadBoxes } from './UploadBoxes.tsx';
+import { placeVideos } from '../services/videos.ts';
+import { looksLikeVideo, VIDEO_MESSAGES } from '../lib/video-files.ts';
+import { startNoteCrop } from '../services/note-crop.ts';
+import { toggleVideoNote } from '../services/video-play.ts';
 import { JoinPreview } from './JoinPreview.tsx';
 import { PathPoints } from './PathPoints.tsx';
 import { startPathEdit } from '../services/path-edit.ts';
@@ -784,6 +790,33 @@ export function Canvas() {
    * ones it takes (with the selection a press makes in place first, so a
    * drag moves what was pressed); the others are stopped and handled here.
    */
+  /** Until when a double-click does not crop: its first click played or paused a video. */
+  const videoClickUntil = useRef(0);
+
+  /** A click (press and release within 4px) on the video note that is already the selection plays or pauses it. */
+  const watchVideoClick = (event: ReactPointerEvent<HTMLDivElement>, hit: Hit | null): void => {
+    if (hit?.kind !== 'note' || event.button !== 0 || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return;
+    const view = useView.getState();
+    const doc = useDocument.getState();
+    if (doc.readOnly || view.tool !== 'select' || view.spacePan || view.noteCrop || !doc.canvas.notes[hit.note]?.video) return;
+    const { selection } = view;
+    if (selection.kind !== 'objects' || selection.boards.length || selection.notes.length !== 1 || selection.notes[0] !== hit.note) return;
+    const { clientX: x0, clientY: y0, pointerId } = event;
+    const off = (): void => {
+      window.removeEventListener('pointerup', up, true);
+      window.removeEventListener('pointercancel', off, true);
+    };
+    const up = (e: PointerEvent): void => {
+      if (e.pointerId !== pointerId) return;
+      off();
+      if (Math.hypot(e.clientX - x0, e.clientY - y0) > 4) return;
+      videoClickUntil.current = Date.now() + 500;
+      toggleVideoNote(hit.note);
+    };
+    window.addEventListener('pointerup', up, true);
+    window.addEventListener('pointercancel', off, true);
+  };
+
   const onPointerDownCapture = (event: ReactPointerEvent<HTMLDivElement>): void => {
     if (startTouch(event)) return;
     const engine = activeEngine();
@@ -792,6 +825,7 @@ export function Canvas() {
     const view = useView.getState();
     // On the selected item's resize handles the engine resizes, whatever lies beneath.
     const hit = event.button === 0 && view.tool === 'select' && !view.spacePan && engine.hitHandle(point) ? null : engineHit(point);
+    watchVideoClick(event, hit);
     pressed.current = engine.canvas;
     if (hit && !engineTakes(event, hit, toWorld(liveCamera(), point.x, point.y))) {
       event.stopPropagation();
@@ -816,7 +850,9 @@ export function Canvas() {
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
     // Presses on the engine's canvas were routed before it saw them.
     if (event.target === activeEngine()?.canvas) return;
-    begin(event, domHit(event.target as HTMLElement));
+    const hit = domHit(event.target as HTMLElement);
+    watchVideoClick(event, hit);
+    begin(event, hit);
   };
 
   /** Starts what a press does here, given what it landed on. */
@@ -1493,7 +1529,12 @@ export function Canvas() {
         view.select({ kind: 'objects', boards: [], notes: inside });
         return;
       }
-      if (note && note.kind !== 'image' && note.kind !== 'pen' && note.kind !== 'line' && note.kind !== 'arrow') view.setNoteEdit(id);
+      // A picture crops, unless this double-click's first click played or paused its video.
+      if (note?.kind === 'image') {
+        if (Date.now() > videoClickUntil.current && view.tool === 'select') startNoteCrop(id);
+        return;
+      }
+      if (note && note.kind !== 'pen' && note.kind !== 'line' && note.kind !== 'arrow') view.setNoteEdit(id);
       return;
     }
     if (hit.kind === 'board') {
@@ -1529,14 +1570,20 @@ export function Canvas() {
 
   const onDrop = (event: DragEvent<HTMLDivElement>): void => {
     event.preventDefault();
-    if (useDocument.getState().readOnly) return;
-    const files = [...event.dataTransfer.files].filter((file) => file.type.startsWith('image/'));
+    const dropped = [...event.dataTransfer.files];
+    const videos = dropped.filter(looksLikeVideo);
+    if (useDocument.getState().readOnly) {
+      if (videos.length) toast.add({ title: VIDEO_MESSAGES.readOnly });
+      return;
+    }
+    const files = dropped.filter((file) => file.type.startsWith('image/'));
     const world = worldOf(event);
     const hit = [...boards].reverse().find(path => {
       const b = canvas.boards[path]!;
       return world.x >= b.x && world.y >= b.y && world.x < b.x + b.w && world.y < b.y + b.h;
     });
     if (files.length) void placeImages(files, world, hit);
+    if (videos.length) void placeVideos(videos, world, 'dropped', hit);
   };
 
   const cursor = spacePan || tool === 'hand' ? (drag.current?.kind === 'pan' ? 'grabbing' : 'grab') : tool === 'select' ? 'default' : 'crosshair';
@@ -1601,6 +1648,8 @@ export function Canvas() {
         <NodeEditor />
         <PathPoints />
         <CropOverlay />
+        <NoteCropOverlay />
+        <UploadBoxes />
       </div>
       {boards.length === 0 && notes.length === 0 ? (
         <div className="pointer-events-none absolute inset-0 z-[3] flex items-center justify-center text-[13px] text-fg-subtle">

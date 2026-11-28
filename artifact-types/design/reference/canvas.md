@@ -128,7 +128,21 @@ functions are colours (`rgb()`, `hsl()`, `oklch()`, `color-mix()`, …), gradien
 An `image` note takes the same look: its picture fills the box (`object-fit` defaults to `fill`), corners square and no
 border until given; a width without a style is solid, and `background-color` shows behind a transparent picture.
 A border at `center` or `outside` with a style, one width on all four sides and one colour is drawn as an outline;
-any other border stays inside the box. An older
+any other border stays inside the box.
+
+An `image` note can be cropped and can hold a video; people set both in the editor, so leave the keys as they are and
+don't write them yourself:
+
+- `crop` `{"zoom":1.4,"x":0.3,"y":0.5}`: the picture scaled `zoom` times (1–50) over the box, `x`/`y` (0–1) which part
+  shows, read as `object-position` reads a percentage (0.5 the middle). It only applies with `css` `object-fit: cover`; a crop on any other fit is dropped when the canvas is
+  read, and `check` warns.
+- `video` `/_blob/<id>`: the uploaded video; `src` is then its cover image (a frame of it, or with
+  `videoCover: "custom"` one the person chose). Only uploaded `/_blob/` addresses are kept.
+- `videoStart: "click"` (doesn't start on its own), `videoLoop: "off"`, `videoSound: "on"` (only when it doesn't start
+  on its own): each is written only when it differs from the default — start by itself, loop, no sound. Any other
+  value is dropped.
+
+An older
 `css.fill` on a `rect` or `oval` moves to the note's `fill`. A dashed or dotted `pen` stroke is also written as
 `stroke-dasharray` for whoever reads the file (the editor draws from `dash`).
 

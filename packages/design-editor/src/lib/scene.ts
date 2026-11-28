@@ -129,6 +129,8 @@ export interface NoteLook {
   locked?: boolean;
   /** Size of its rendered text box (stickies grow with their text, titles and link cards fit it). */
   measured?: { w: number; h: number };
+  /** Drawn elsewhere for now (a picture being cropped): only its box to hit. */
+  hidden?: boolean;
 }
 
 /**
@@ -199,7 +201,7 @@ export function noteItem(id: string, note: CanvasNote, look: NoteLook): CanvasIt
   switch (note.kind) {
     case 'image':
       // A look only the DOM draws (note-look.ts): the scene keeps a clear box to hit.
-      if (!imageLook(note).engine) return { ...base, kind: 'rect', fill: 'transparent' };
+      if (look.hidden || !imageLook(note).engine) return { ...base, kind: 'rect', fill: 'transparent' };
       return { ...base, kind: 'image', fill: note.src ? '#00000010' : IMAGE_PLACEHOLDER, ...(note.src ? { texture: imageKey(note.src) } : {}) };
     case 'rect':
     case 'oval': {

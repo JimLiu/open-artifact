@@ -11,6 +11,7 @@
  */
 
 import { cleanNoteCss, type NoteCss } from './note-css.ts';
+import { cleanNoteMedia, type NoteCrop } from './note-media.ts';
 
 /** Current index version. */
 export const CANVAS_VERSION = 3;
@@ -134,8 +135,20 @@ export interface CanvasNote {
   stroke?: number;
   /** Pen notes: dash pattern (default solid). */
   dash?: 'dashed' | 'dotted';
-  /** Image notes: the uploaded blob url. */
+  /** Image notes: the uploaded blob url (a video note's cover). */
   src?: string;
+  /** Image and video notes: how the picture is zoomed and placed in the note (see note-media.ts). */
+  crop?: NoteCrop;
+  /** Video notes: the uploaded video (`/_blob/<id>`); `src` is its cover. */
+  video?: string;
+  /** Video notes: `"click"` waits for a click instead of playing on its own. */
+  videoStart?: 'click';
+  /** Video notes: `"off"` plays once instead of looping. */
+  videoLoop?: 'off';
+  /** Video notes: `"on"` plays with sound (only when it waits for a click). */
+  videoSound?: 'on';
+  /** Video notes: `"custom"`, the cover is one the user set rather than a frame of the video. */
+  videoCover?: 'custom';
   /** Link notes: the target. */
   href?: string;
   /** Groups this note belongs to, innermost first (see `note-groups.ts`). */
@@ -253,6 +266,7 @@ export function normalizeCanvas(input: unknown): Canvas {
         else delete item.points;
       }
       for (const key of ['title', 'href', 'alt', 'd'] as const) if (typeof item[key] !== 'string') delete item[key];
+      cleanNoteMedia(item);
       if (typeof item.text !== 'string') delete item.text;
       if ((item.kind === 'line' || item.kind === 'arrow') && Number.isFinite(note.x2) && Number.isFinite(note.y2) && !item.points?.length) {
         item.points = [[0, 0], [Number(note.x2) - x, Number(note.y2) - y]];

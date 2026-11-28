@@ -17,6 +17,7 @@ import {
   noteFontSize,
 } from './canvas.ts';
 import { droppedNoteCss } from './note-css.ts';
+import { droppedNoteMedia } from './note-media.ts';
 
 /** A finding tied to a file. */
 export interface ProjectDiagnostic extends Diagnostic {
@@ -159,6 +160,11 @@ export function checkDesignProject(files: ReadonlyMap<string, string>, options: 
     if (note.css !== undefined) {
       if (!note.css || typeof note.css !== 'object' || Array.isArray(note.css)) add('canvas.json', 'warning', `Note "${id}" css must be an object of style keys; it is ignored.`);
       else for (const { key, why } of droppedNoteCss(note.css)) add('canvas.json', 'warning', `Note "${id}" css "${key}" is ignored: ${why}.`);
+    }
+    for (const drop of droppedNoteMedia(note)) {
+      if (drop.kind === 'crop') add('canvas.json', 'warning', `Note "${id}" crop is ignored: object-fit is not cover.`);
+      else if (drop.kind === 'video') add('canvas.json', 'warning', `Note "${id}" video must be an uploaded /_blob/ address; it is ignored.`);
+      else add('canvas.json', 'warning', `Note "${id}" ${drop.key} "${drop.value}" is not a value it takes; it is ignored.`);
     }
     if (note?.groups !== undefined) {
       const groups = note.groups;

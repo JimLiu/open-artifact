@@ -68,6 +68,8 @@ import { artifactPath, session } from './session.ts';
 import { boardTitleRect, revealRect, visibleRect, zoomToBoards } from './viewport.ts';
 import { announce } from './announce.ts';
 import { refuseLocked } from './locks.ts';
+import { refuseWhileCropping } from './note-crop.ts';
+import { CROP_MESSAGES } from '../lib/note-crop.ts';
 
 /**
  * Applies an edit to the selected artboard and selects what it created.
@@ -135,6 +137,7 @@ export function attributeSelection(name: string, value: string | null): void {
 
 /** Deletes whatever is selected. */
 export function deleteSelection(): void {
+  if (refuseWhileCropping()) return;
   const view = useView.getState();
   const doc = useDocument.getState();
   const { selection } = view;
@@ -171,6 +174,7 @@ export function deleteSelection(): void {
 
 /** Duplicates the selection next to itself. */
 export function duplicateSelection(): void {
+  if (refuseWhileCropping()) return;
   const view = useView.getState();
   const doc = useDocument.getState();
   const { selection } = view;
@@ -1266,13 +1270,13 @@ export function deletePage(id: string): void {
 export function undo(): void {
   const entry = useDocument.getState().undoLast();
   if (entry) useView.getState().tick();
-  announce(entry ? 'Undo' : 'Nothing to undo');
+  announce(entry ? (entry.scope === 'canvas' && entry.label ? `${entry.label} undone.` : 'Undo') : 'Nothing to undo');
 }
 
 export function redo(): void {
   const entry = useDocument.getState().redoLast();
   if (entry) useView.getState().tick();
-  announce(entry ? 'Redo' : 'Nothing to redo');
+  announce(entry ? (entry.scope === 'canvas' && entry.label ? `${entry.label} redone.` : 'Redo') : 'Nothing to redo');
 }
 
 /* --------------------------------- flip --------------------------------- */
@@ -1295,6 +1299,7 @@ function flipRefusal(element: HtmlElement, computed: Record<string, string> | un
 export function flipSelection(axis: 'x' | 'y'): void {
   const doc = useDocument.getState();
   if (doc.readOnly) return;
+  if (refuseWhileCropping(CROP_MESSAGES.flip)) return;
   const { selection } = useView.getState();
   if (selection.kind === 'mixed') {
     // Each artboard flips its own elements; artboards and notes do not flip.

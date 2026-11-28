@@ -10,6 +10,7 @@
  */
 
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
+import { NoteStill } from './NotePicture.tsx';
 import type { BoardBoot } from '@open-artifact/dc';
 import { boardsOnPage, notesOnPage, unionRect, type BoardEntry, type Canvas, type CanvasNote } from '@open-artifact/design-core';
 import { cn } from '@open-artifact/ui';
@@ -56,7 +57,14 @@ function PreviewNote({ note }: { note: CanvasNote }) {
     );
   }
   const r = noteRect(note);
-  if (note.kind === 'image' && note.src) return <img alt="" src={note.src} className="pointer-events-none absolute object-cover" style={{ left: r.x, top: r.y, width: r.w, height: r.h }} />;
+  if (note.kind === 'image' && note.src) {
+    const turn = note.rotate || note.flipX || note.flipY ? `rotate(${note.rotate ?? 0}deg) scale(${note.flipX ? -1 : 1},${note.flipY ? -1 : 1})` : undefined;
+    return (
+      <div className="pointer-events-none absolute" style={{ left: r.x, top: r.y, width: r.w, height: r.h, transform: turn }}>
+        <NoteStill note={note} />
+      </div>
+    );
+  }
   const shape = note.kind === 'rect' || note.kind === 'oval';
   const title = note.kind === 'title1';
   return (

@@ -163,7 +163,8 @@ export function imageLook(note: CanvasNote): ImageLook {
   const background = css['background-color'] ?? (note.src ? undefined : IMAGE_PLACEHOLDER);
   const dom: Record<string, string> = {
     'box-sizing': 'border-box',
-    'object-fit': css['object-fit'] ?? 'fill',
+    // A video note whose cover the user set shows it filling the note.
+    'object-fit': css['object-fit'] ?? (note.video && note.videoCover ? 'cover' : 'fill'),
     ...(css['object-position'] ? { 'object-position': css['object-position'] } : {}),
     ...('outline' in border ? { 'border-style': 'none' } : {}),
     ...border,
@@ -178,8 +179,9 @@ export function imageLook(note: CanvasNote): ImageLook {
   const drawnBorder = css['border-style'] !== 'none' && css['border-style'] !== 'hidden';
   const radius = [css['border-radius'], ...corners.map(([, value]) => value)].some((value) => value !== undefined && px(value) !== 0);
   const opacity = noteOpacity(note);
+  // A cropped picture and a video are always drawn by the DOM body.
   const engine =
-    !drawnBorder && !radius && !css['box-shadow'] && !css.filter && !css['backdrop-filter'] && css['background-color'] === undefined &&
+    !note.crop && !note.video && !drawnBorder && !radius && !css['box-shadow'] && !css.filter && !css['backdrop-filter'] && css['background-color'] === undefined &&
     (css['object-fit'] === undefined || css['object-fit'] === 'fill') && css['object-position'] === undefined && (opacity === undefined || opacity >= 1);
   return { dom, engine };
 }

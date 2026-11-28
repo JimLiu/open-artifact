@@ -34,6 +34,7 @@ import { boardIsActive } from './locks.ts';
 import { canJoin, endJoinHover, joinHover, joinInto } from './join.ts';
 import { isLive, useLive, type MotionSource } from './live.ts';
 import { cameraDriver, viewportSize } from './viewport.ts';
+import { rememberPictureSize } from './picture-sizes.ts';
 import { elementGroupsOf, selectedBoardsOf, selectedNotesOf, selectionFrom } from '../lib/selection.ts';
 
 /** `?open_artifact_engine=off`: the DOM canvas, for comparing in benchmarks and as a way out. */
@@ -289,11 +290,12 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
       const id = noteItemId(noteId);
       seen.add(id);
       const size = noteSizes.get(noteId);
-      const look = `${z}|${readOnly ? 'r' : 'w'}|${size ? `${size.w}x${size.h}` : ''}`;
+      const hidden = view.noteCrop === noteId;
+      const look = `${z}|${readOnly ? 'r' : 'w'}|${size ? `${size.w}x${size.h}` : ''}|${hidden ? 'c' : ''}`;
       const last = sent.get(id);
       if (last && last.source === note && last.look === look) return;
       if (note.kind === 'image' && note.src) sources.set(imageKey(note.src), { url: note.src });
-      upsert.push(remember(noteItem(noteId, note, { z, editable: !readOnly, locked: isLockedObject(note), measured: size }), note, look));
+      upsert.push(remember(noteItem(noteId, note, { z, editable: !readOnly, locked: isLockedObject(note), measured: size, hidden }), note, look));
     });
     const remove = [...sent.keys()].filter((id) => !seen.has(id));
     for (const id of remove) sent.delete(id);
@@ -322,6 +324,8 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
     try {
       const blob = await (await fetch(source.url)).blob();
       let bitmap = await createImageBitmap(blob, { premultiplyAlpha: 'premultiply', ...(source.width ? { resizeWidth: source.width, resizeQuality: 'medium' as const } : {}) });
+      // A note's picture at full size: cropping it needs that size, and the GPU scene is often its only reader.
+      if (!source.path && !source.width) rememberPictureSize(source.url, bitmap.width, bitmap.height);
       if (!source.path && bitmap.width > MAX_IMAGE_WIDTH) {
         const full = bitmap;
         bitmap = await createImageBitmap(full, { premultiplyAlpha: 'premultiply', resizeWidth: MAX_IMAGE_WIDTH, resizeQuality: 'medium' });
@@ -514,7 +518,7 @@ export async function startEngine(canvas: HTMLCanvasElement, surface: HTMLElemen
       // Locked artboards take presses only while something is selected in them.
       queueSync();
     }
-    if (state.page !== prev.page || state.frames !== prev.frames || state.textEdit !== prev.textEdit || state.playing !== prev.playing) queueSync();
+    if (state.page !== prev.page || state.frames !== prev.frames || state.textEdit !== prev.textEdit || state.playing !== prev.playing || state.noteCrop !== prev.noteCrop) queueSync();
   });
   const unsubscribeDocument = useDocument.subscribe((state, prev) => {
     if (state.canvas !== prev.canvas || state.readOnly !== prev.readOnly) queueSync();

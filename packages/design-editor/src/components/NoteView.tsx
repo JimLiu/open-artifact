@@ -7,6 +7,7 @@
  */
 
 import { imageLook, NOTE_BORDER_WIDTH, noteOpacity, reactStyle, shapeLook, shapeRadius } from '../lib/note-look.ts';
+import { NotePicture } from './NotePicture.tsx';
 import { memo, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import type { CanvasNote } from '@open-artifact/design-core';
 import { cn, isComposingKey } from '@open-artifact/ui';
@@ -172,6 +173,7 @@ export interface NoteViewProps {
 /** One note. Hit testing reads `data-note` on the outer element. */
 export const NoteView = memo(function NoteView({ id, note, bare = false }: NoteViewProps) {
   const editing = useView((s) => s.noteEdit === id);
+  const cropping = useView((s) => s.noteCrop === id);
   const outer = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => (bare && outer.current ? observeNoteSize(outer.current) : undefined), [bare]);
   const fontSize = noteFontSize(note.size, note.kind);
@@ -207,17 +209,12 @@ export const NoteView = memo(function NoteView({ id, note, bare = false }: NoteV
   }
 
   if (note.kind === 'image') {
-    const look = imageLook(note);
-    // Over the GPU scene the picture is drawn here only when the scene cannot draw its look (note-look.ts).
-    if (bare && look.engine) return null;
-    const style = reactStyle(look.dom);
+    // Over the GPU scene the picture is drawn here only when the scene cannot draw its look (note-look.ts);
+    // while it is cropped, the crop overlay draws it.
+    if ((bare && imageLook(note).engine) || cropping) return null;
     return (
       <div data-note={id} data-note-look="dom" className={cn('absolute', bare && 'pointer-events-none')} style={{ ...position, width: note.w ?? 320, height: note.h ?? 240 }}>
-        {note.src ? (
-          <img src={note.src} alt={note.alt ?? note.text ?? ''} draggable={false} className="block size-full select-none" style={style} />
-        ) : (
-          <div className="size-full" style={style} />
-        )}
+        <NotePicture id={id} note={note} />
       </div>
     );
   }

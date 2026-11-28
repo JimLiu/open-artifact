@@ -34,7 +34,10 @@ import {
   ListOrdered,
   Lock,
   LockOpen,
+  MessageCircle,
+  Pause,
   PencilLine,
+  Play,
   Trash2,
   Underline,
 } from 'lucide-react';
@@ -53,9 +56,9 @@ import { KEEP_TEXT_EDIT, applyEditedTextLink, cancelEditedTextLink, commitTextEd
 import { cancelScale, commitScale, setScaleFactor, useScale } from '../services/scale.ts';
 import { parseScaleInput } from '../lib/scale.ts';
 import { BAR_MARGIN, barLeft, barLimit } from '../lib/bar-place.ts';
-import { ChromeButton, ChromeMenu, ChromeMenuItem, FoldDivider, FoldGroup, FoldToolbar, MOD, Tip, TipGroup, useFolded } from '@open-artifact/editor-kit/react';
+import { ChromeButton, ChromeMenu, ChromeMenuItem, FoldDivider, FoldGroup, FoldToolbar, MOD, Tip, TipButton, TipGroup, useFolded } from '@open-artifact/editor-kit/react';
 import { toggleSelectionLock, useDeleteLockedWhy, useLockedWhy, useSelectionLock } from '../services/locks.ts';
-import { PColor, PIconButton, PInput, PSegments, isTransparent, roundPx, toHex, withoutUnit } from './fields.tsx';
+import { PColor, PIconButton, PInput, PSegments, PSelect, isTransparent, roundPx, toHex, withoutUnit } from './fields.tsx';
 import { BorderAlignButton } from './BorderAlign.tsx';
 import { readAlignment, SIDES_NEED_INSIDE } from '../lib/border-align.ts';
 import { editSelectedAlignedBorder } from '../services/border-align.ts';
@@ -64,6 +67,13 @@ import { FILL_IS_TEXT, solidTextPatch } from '../lib/text-gradient.ts';
 import { loneShapeOf } from '../lib/lone-shape.ts';
 import { layerPaint, mixedPaintKinds, paintMixed, paintSelection } from '../services/paint.ts';
 import { addressCardKeys } from './address-card.ts';
+import type { CanvasNote } from '@open-artifact/design-core';
+import { useVideo } from '../state/video.ts';
+import { toggleVideoNote } from '../services/video-play.ts';
+import { endNoteCrop, noteCropBlocked, startNoteCrop } from '../services/note-crop.ts';
+import { usePictureSize } from '../services/picture-sizes.ts';
+import { pickFile, setCoverImage, setNoteCssKeys } from '../services/video-note.ts';
+import { canComment, commentOnSelection, useComments } from '../services/comments.ts';
 
 /** Screen box of the selection the bar sits on. */
 export interface SelectionBarBox {
@@ -132,11 +142,8 @@ const fieldValue = (value: string | undefined) => withoutUnit(value);
 
 /** A ghost strip button with a tooltip above. */
 function StripButton({ tip, shortcut, className, ...props }: Parameters<typeof ChromeButton>[0] & { tip: string; shortcut?: string }) {
-  return (
-    <Tip label={tip} shortcut={shortcut} side="top">
-      <ChromeButton square aria-label={props['aria-label'] ?? tip} className={className} {...props} />
-    </Tip>
-  );
+  // The tip also shows while the button is off: it says why (a lock, a picture not loaded yet).
+  return <TipButton tip={tip} shortcut={shortcut} side="top" square aria-label={props['aria-label'] ?? tip} className={className} {...props} />;
 }
 
 /** A group of strip controls; on a narrow strip each folds into the "More tools" card. */
@@ -420,7 +427,7 @@ function SideInput({ side, widths, placeholder, disabled, onCommit }: { side: Si
 }
 
 /** Corner radius, for every corner or each one. */
-function RadiusPopup({ ctx }: { ctx: StripContext }) {
+function RadiusPopup({ ctx }: { ctx: Pick<StripContext, 'inline' | 'computed' | 'locked' | 'set'> }) {
   const short = expandSides(ctx.inline['border-radius']?.split('/')[0]);
   // border-radius shorthand order: top-left, top-right, bottom-right, bottom-left.
   const fromShort: Record<Corner, string | undefined> = { 'top-left': short?.[0], 'top-right': short?.[1], 'bottom-right': short?.[2], 'bottom-left': short?.[3] };
@@ -893,8 +900,8 @@ function CropButton({ ctx, board, item, single }: { ctx: StripContext; board: st
 /** Component imports: their styles live in the imported file. */
 const IMPORTS = new Set(['dc-import', 'x-import']);
 
-/** Locks or unlocks the selection (⌘L), in a group of its own at the strip's start. */
-function LockButton({ readOnly }: { readOnly: boolean }) {
+/** Locks or unlocks the selection (⌘L), in a group of its own; a divider follows unless `last`. */
+function LockButton({ readOnly, last = false }: { readOnly: boolean; last?: boolean }) {
   const lock = useSelectionLock();
   if (!lock.lockable) return null;
   const locked = lock.next === false;
@@ -912,13 +919,27 @@ function LockButton({ readOnly }: { readOnly: boolean }) {
           {locked ? <Lock {...ICON} /> : <LockOpen {...ICON} />}
         </StripButton>
       </Group>
-      <FoldDivider />
+      {last ? null : <FoldDivider />}
     </>
   );
 }
 
-/** Ask about the selection, and open the properties panel; on touch screens, Delete too. */
-function Tail({ lead, deletes = true }: { lead?: ReactNode; deletes?: boolean }) {
+/** Starts a comment on the selection; shown only to people who can comment. */
+function CommentButton({ tip }: { tip: string }) {
+  const available = useComments((s) => s.available);
+  if (!available || !canComment()) return null;
+  return (
+    <StripButton tip={tip} aria-label="Comment" data-comment-selection="" onClick={() => commentOnSelection()}>
+      <MessageCircle {...ICON} />
+    </StripButton>
+  );
+}
+
+/**
+ * Comment on the selection, and open the properties panel; on touch screens,
+ * Delete too. `comment` is the Comment button's tip (`null`: no button).
+ */
+function Tail({ lead, deletes = true, comment = 'Comment on this element' }: { lead?: ReactNode; deletes?: boolean; comment?: string | null }) {
   const setPanel = useView((s) => s.setPanel);
   const panelOpen = useView((s) => s.panelOpen);
   const count = useView((s) => selectionCounts(s.selection).elements);
@@ -929,6 +950,7 @@ function Tail({ lead, deletes = true }: { lead?: ReactNode; deletes?: boolean })
   return (
     <FoldGroup tail>
       {lead}
+      {comment === null ? null : <CommentButton tip={comment} />}
       {deletes && coarse && !readOnly && deleteLocked === null ? (
         <StripButton
           tip={count > 1 ? `Delete ${count} elements` : 'Delete this element'}
@@ -997,7 +1019,8 @@ function MixedStrip({ selection, readOnly }: { selection: MixedSelection; readOn
         </StripButton>
       </Group>
       <FoldDivider />
-      <Tail deletes={false} />
+      {/* A selection across files has no one place to comment on. */}
+      <Tail deletes={false} comment={null} />
     </>
   );
 }
@@ -1083,6 +1106,145 @@ function ScaleStrip() {
       <ChromeButton onClick={() => (apply(), commitScale())}>Done</ChromeButton>
       <ChromeButton onClick={() => cancelScale()}>Cancel</ChromeButton>
     </Group>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* The strip of an image or video note                                         */
+/* -------------------------------------------------------------------------- */
+
+/** Starts cropping the note, or ends it. Presses on it don't end cropping on their own. */
+function NoteCropButton({ id, note, readOnly }: { id: string; note: CanvasNote; readOnly: boolean }) {
+  const cropping = useView((s) => s.noteCrop === id);
+  // Read here so the button turns on when the picture's size arrives.
+  usePictureSize(note.src);
+  const reason = readOnly ? null : cropping ? null : noteCropBlocked(note);
+  const what = note.video ? 'video' : 'picture';
+  return (
+    <StripButton
+      tip={reason ?? (cropping ? 'Done cropping (or press Enter)' : `Crop (or double-click the ${what})`)}
+      aria-label="Crop"
+      pressed={cropping}
+      disabled={readOnly || reason !== null}
+      data-keeps-crop=""
+      onClick={() => (cropping ? endNoteCrop('confirm') : startNoteCrop(id))}
+    >
+      <Crop {...ICON} />
+    </StripButton>
+  );
+}
+
+/** What a note is called in its strip's tips. */
+type NoteThing = 'note' | 'video' | 'picture' | 'link' | 'shape';
+
+function noteThing(note: CanvasNote): NoteThing {
+  if (note.kind === 'image') return note.video ? 'video' : 'picture';
+  if (note.kind === 'link') return 'link';
+  return note.kind === 'sticky' || note.kind === 'title1' ? 'note' : 'shape';
+}
+
+const NOTE_COMMENT: Record<NoteThing, string> = {
+  note: 'Comment on this note',
+  video: 'Comment on this video',
+  picture: 'Comment on this picture',
+  link: 'Comment on this link card',
+  shape: 'Comment on this shape',
+};
+
+const NOTE_DELETE: Record<NoteThing, string> = {
+  note: 'Delete note — undo restores it',
+  video: 'Delete video — undo restores it',
+  picture: 'Delete picture — undo restores it',
+  link: 'Delete link card — undo restores it',
+  shape: 'Delete shape — undo restores it',
+};
+
+/** The strip's corner radius popup for a note: its own css. */
+function NoteRadiusPopup({ id, note, readOnly }: { id: string; note: CanvasNote; readOnly: boolean }) {
+  const inline = (note.css ?? {}) as Record<string, string>;
+  return <RadiusPopup ctx={{ inline, computed: {}, locked: readOnly, set: (patch) => void setNoteCssKeys(id, { ...patch }) }} />;
+}
+
+/**
+ * The strip over a selected note:
+ *
+ * - a video: play | cover image, crop, corner radius | lock | comment, properties;
+ * - a picture: crop | lock | comment;
+ * - a shape or a link card: lock | comment;
+ * - a text note: comment.
+ *
+ * Delete joins the comment on touch screens. Nothing left to show, no strip.
+ */
+export function NoteBar({ box, id }: { box: SelectionBarBox; id: string }) {
+  const note = useDocument((s) => s.canvas.notes[id]);
+  const readOnly = useDocument((s) => s.readOnly);
+  const on = useVideo((s) => s.slots.playing.includes(id) || s.slots.waiting.includes(id));
+  const cropping = useView((s) => s.noteCrop === id);
+  const panelOpen = useView((s) => s.panelOpen);
+  const setPanel = useView((s) => s.setPanel);
+  const comments = useComments((s) => s.available) && canComment();
+  const coarse = useCoarsePointer();
+  const deleteLocked = useDeleteLockedWhy();
+  const folded = useFolded();
+  const place = useBarPlace(box);
+  if (!note) return null;
+  const thing = noteThing(note);
+  const video = thing === 'video';
+  const picture = note.kind === 'image' && Boolean(note.src);
+  // Text notes take no lock in the strip; nor does a picture being cropped.
+  const padlock = thing !== 'note' && !cropping;
+  const deletes = coarse && !readOnly && deleteLocked === null;
+  const properties = video && !panelOpen;
+  if (!picture && !padlock && !comments && !deletes) return null;
+  const tail = comments || deletes || properties;
+  return (
+    <div ref={place.ref} className="pointer-events-auto absolute z-10 w-max" style={{ left: place.left, top: barTop(box) }} onPointerDown={(event) => event.stopPropagation()} data-selection-bar="" data-note-bar={id}>
+      <TipGroup>
+        <FoldToolbar aria-label={thing === 'link' ? 'Link card actions' : thing === 'note' ? 'Note actions' : 'Shape actions'} data-focus-region="selection" rowClassName="gap-1 p-1" fold foldKey={id} placed={barSide(box)} limit={place.limit}>
+          {video ? (
+            <>
+              <Group>
+                <StripButton tip={on ? 'Pause video' : 'Play video'} onClick={() => toggleVideoNote(id)}>
+                  {on ? <Pause {...ICON} /> : <Play {...ICON} />}
+                </StripButton>
+              </Group>
+              <FoldDivider />
+              <Group>
+                <StripButton tip="Set cover image" disabled={readOnly} onClick={() => pickFile('image/*', (file) => void setCoverImage(id, file))}>
+                  <ImageIcon {...ICON} />
+                </StripButton>
+                <NoteCropButton id={id} note={note} readOnly={readOnly} />
+                <NoteRadiusPopup id={id} note={note} readOnly={readOnly} />
+              </Group>
+              {padlock || tail ? <FoldDivider /> : null}
+            </>
+          ) : picture ? (
+            <>
+              <Group>
+                <NoteCropButton id={id} note={note} readOnly={readOnly} />
+              </Group>
+              {padlock || tail ? <FoldDivider /> : null}
+            </>
+          ) : null}
+          {padlock ? <LockButton readOnly={readOnly} last={!tail} /> : null}
+          {tail ? (
+            <FoldGroup tail>
+              {comments ? <CommentButton tip={NOTE_COMMENT[thing]} /> : null}
+              {deletes ? (
+                <StripButton tip={NOTE_DELETE[thing]} aria-label="Delete" onClick={() => deleteSelection()}>
+                  <Trash2 {...ICON} />
+                </StripButton>
+              ) : null}
+              {properties ? (
+                <StripButton tip="Open the Properties panel" aria-label="Properties" data-fold-more="" onClick={() => setPanel('properties', true)}>
+                  {folded ? <PanelRight {...ICON} /> : <EllipsisVertical {...ICON} />}
+                </StripButton>
+              ) : null}
+            </FoldGroup>
+          ) : null}
+        </FoldToolbar>
+      </TipGroup>
+    </div>
   );
 }
 

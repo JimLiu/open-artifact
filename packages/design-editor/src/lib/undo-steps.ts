@@ -37,7 +37,8 @@ export interface FilesHistory {
 
 /** One undo step. */
 export type HistoryEntry =
-  | { scope: 'canvas'; before: Canvas; after: Canvas }
+  /** `label` names the action when undoing or redoing it is announced ("Crop undone."). */
+  | { scope: 'canvas'; before: Canvas; after: Canvas; label?: string }
   | BoardHistory
   | { scope: 'boards'; changes: BoardHistory[] }
   | FilesHistory;

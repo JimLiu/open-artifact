@@ -21,6 +21,54 @@ const T = { timeout: 90000 };
 const BOARD = 'project/Main.dc.html';
 const canvasOf = root => JSON.parse(fs.readFileSync(path.join(root, 'project', 'canvas.json'), 'utf8'));
 
+// In the page: `__record(w, h, name)` makes a one-second webm; `__clip` is a 160 × 90 one; `__drop(files, x, y)` drops
+// files on the canvas (by default at a point outside the artboard, where a drop makes notes); `__paste(files)` pastes
+// them; the next file picker gets `__pick`.
+const VIDEO_KIT = `(async () => {
+  window.__record = async (w, h, name) => {
+    const canvas = Object.assign(document.createElement('canvas'), { width: w, height: h });
+    const g = canvas.getContext('2d');
+    const recorder = new MediaRecorder(canvas.captureStream(30), { mimeType: 'video/webm' });
+    const chunks = [];
+    recorder.ondataavailable = event => chunks.push(event.data);
+    const stopped = new Promise(resolve => { recorder.onstop = resolve; });
+    recorder.start(100);
+    for (let i = 0; i < 30; i++) {
+      g.fillStyle = 'hsl(' + i * 12 + ', 80%, 55%)';
+      g.fillRect(0, 0, w, h);
+      await new Promise(resolve => setTimeout(resolve, 33));
+    }
+    recorder.stop();
+    await stopped;
+    return new File(chunks, name, { type: 'video/webm' });
+  };
+  window.__clip = await window.__record(160, 90, 'Launch clip.webm');
+  const open = () => {
+    const surface = document.querySelector('[data-canvas-surface]').getBoundingClientRect();
+    const board = document.querySelector('iframe[data-board="Main.dc.html"]').getBoundingClientRect();
+    if (board.bottom + 60 < surface.bottom - 10) return [board.left + 40, board.bottom + 40];
+    if (board.right + 60 < surface.right - 10) return [board.right + 40, board.top + 40];
+    return [board.left - 40, board.top + 40];
+  };
+  window.__drop = (files, x = open()[0], y = open()[1]) => {
+    const dt = new DataTransfer();
+    for (const file of files) dt.items.add(file);
+    document.querySelector('[data-canvas-surface]').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, clientX: x, clientY: y, bubbles: true, cancelable: true }));
+  };
+  window.__paste = files => {
+    const dt = new DataTransfer();
+    for (const file of files) dt.items.add(file);
+    document.body.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  };
+  HTMLInputElement.prototype.click = function () {
+    if (this.type !== 'file' || !window.__pick) return;
+    const dt = new DataTransfer();
+    dt.items.add(window.__pick);
+    this.files = dt.files;
+    this.dispatchEvent(new Event('change'));
+  };
+})()`;
+
 // Run the real frame shell and its daemon with the installed type under test.
 async function withDesignShell(ctx, root, ready, check) {
   const home = tmpDir('design-frame-shell');
@@ -3770,6 +3818,317 @@ editorSuite({
         assert.ok(await page.waitFor(`getComputedStyle(document.querySelector('[data-note="pic"] img')).borderTopWidth === '3px'`, 5000), 'the page draws the border');
         assert.deepEqual(page.problems, []);
       } finally { await page.close(); }
+    });
+
+    it('an image note is cropped by double-click, keys and an edge handle, drawn clipped with its radius; ⌘Z undoes the crop and cancels cropping', T, async () => {
+      const picture = `data:image/svg+xml,${encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='200' height='100'><rect width='100' height='100' fill='green'/><rect x='100' width='100' height='100' fill='blue'/></svg>")}`;
+      const { root, url } = await ctx.openNew('note-crop', (_ctx, dir) => {
+        copyFixture('design', dir);
+        const canvas = canvasOf(dir);
+        canvas.notes = { ...canvas.notes, pic: { kind: 'image', x: 0, y: 700, w: 200, h: 100, title: 'Picture', src: picture, css: { 'border-radius': '12px' } } };
+        fs.writeFileSync(path.join(dir, 'project/canvas.json'), JSON.stringify(canvas));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('[data-note="pic"] img')`, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const status = phrase => `[...document.querySelectorAll('[role=status][aria-live]')].some(el => el.textContent.includes(${JSON.stringify(phrase)}))`;
+      const pic = () => canvasOf(root).notes.pic;
+      const cropAt = async () => {
+        const at = await middleOf(page, `document.querySelector('[data-note="pic"]')`);
+        await page.clickTimes(at.x, at.y, 2);
+        assert.ok(await page.waitFor(`!!document.querySelector('[role=group][aria-label="Crop"][data-note-crop="pic"]')`, 5000), 'double-click starts cropping');
+      };
+      try {
+        await cropAt();
+        assert.ok(await page.waitFor(status('Cropping. Press Enter when done.'), 5000), 'cropping is announced');
+        await page.type('+');
+        await page.type('+');
+        await page.press('ArrowRight');
+        await page.press('Enter');
+        assert.ok(await until(() => Math.abs((pic().crop?.zoom ?? 0) - 1.21) < 0.001, 10000), `two zoom steps: ${JSON.stringify(pic())}`);
+        assert.equal(pic().css['object-fit'], 'cover');
+        assert.equal(pic().css['border-radius'], '12px');
+        assert.ok(pic().crop.x < 0.5, 'the arrow moved the picture right, so the frame shows more of its left');
+        assert.ok(await page.waitFor(`(() => {
+          const frame = document.querySelector('[data-note="pic"] img')?.parentElement;
+          const style = frame && getComputedStyle(frame);
+          return style?.overflow === 'hidden' && style.borderTopLeftRadius === '12px' && document.querySelector('[data-note="pic"] img').style.width === '121%';
+        })()`, 5000), 'the page clips the zoomed picture in a rounded frame');
+        await page.press('z', mod);
+        assert.ok(await page.waitFor(status('Crop undone.'), 5000), 'the undo is named');
+        assert.ok(await until(() => pic().crop === undefined, 5000), 'the crop is gone again');
+        // An edge handle drag, then Escape: Escape keeps the crop.
+        await cropAt();
+        const edge = await middleOf(page, `document.querySelector('[data-crop-edge="e"]')`);
+        await page.dragMouse([edge.x, edge.y], [edge.x - 50, edge.y]);
+        await page.press('Escape');
+        assert.ok(await until(() => pic().w < 200 && pic().w > 120, 10000), `the frame narrowed the note: ${JSON.stringify(pic())}`);
+        assert.ok(await page.waitFor(`!document.querySelector('[data-note-crop]')`, 5000), 'Escape ended cropping');
+        // ⌘Z while cropping drops the draft and changes nothing.
+        const before = JSON.stringify(pic());
+        await cropAt();
+        await page.type('+');
+        await page.press('z', mod);
+        assert.ok(await page.waitFor(status('Cropping cancelled.'), 5000), 'cancelling is announced');
+        await new Promise(resolve => setTimeout(resolve, 300));
+        assert.equal(JSON.stringify(pic()), before, 'nothing was written');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('a dropped video becomes a video note: cover and play button, a click plays and pauses it; Media toggles, cover and replace write canvas.json', T, async () => {
+      const { root, url } = await ctx.openNew('video-note');
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
+      const notes = () => Object.entries(canvasOf(root).notes).filter(([, n]) => n.video);
+      const switchOf = label => `document.querySelector('[data-properties-panel] [role=switch][aria-label="${label}"]')`;
+      try {
+        // A one-second webm made in the page; then one file over 20 MB and five at once.
+        await page.evaluate(VIDEO_KIT);
+        await page.evaluate(`window.__drop([new File([new Uint8Array(25 * 1024 * 1024)], 'big.mp4', { type: 'video/mp4' })])`);
+        assert.ok(await page.waitFor(textIn('Videos over 20 MB can’t be added. Trim or compress it first.'), 5000), 'a file over 20 MB is refused');
+        await page.evaluate(`window.__drop([window.__clip])`);
+        assert.ok(await until(() => notes().length === 1, 30000), `a video note: ${JSON.stringify(canvasOf(root).notes)}`);
+        const [id, note] = notes()[0];
+        assert.match(note.src, /^\/_blob\/[0-9a-f]{32}$/);
+        assert.match(note.video, /^\/_blob\/[0-9a-f]{32}$/);
+        assert.equal(note.alt, 'Launch clip');
+        assert.equal(note.w / note.h, 16 / 9, `the note takes the video's shape: ${note.w} × ${note.h}`);
+        const box = `document.querySelector('[data-note="${id}"]')`;
+        assert.ok(await page.waitFor(`!!${box}?.querySelector('img[src="${note.src}"]') && !!${box}.querySelector('[data-note-play]')`, 10000), 'the cover shows with a play button');
+        const bar = `document.querySelector('[data-note-bar="${id}"]')`;
+        assert.ok(await page.waitFor(`['Play video', 'Set cover image', 'Crop', 'Corner radius', 'Lock', 'Properties'].every(name => ${bar}?.querySelector('button[aria-label="' + name + '"]'))`, 5000), 'the new note is selected and its quick bar shows');
+        assert.equal(await page.evaluate(`!!${bar}.querySelector('button[aria-label="Delete"]')`), false, 'Delete is on the bar only on touch screens');
+        // Click the selected note: it plays, muted (autoplay is on); again: it pauses.
+        const middle = await middleOf(page, box);
+        await page.click(middle.x, middle.y);
+        assert.ok(await page.waitFor(`(() => { const v = ${box}.querySelector('video[data-note-video]'); return v && !v.paused && v.muted; })()`, 10000), 'a click plays it, muted');
+        await new Promise(resolve => setTimeout(resolve, 600));
+        await page.click(middle.x, middle.y);
+        assert.ok(await page.waitFor(`${box}.querySelector('video[data-note-video]')?.paused === true`, 5000), 'a second click pauses it');
+        await clickOn(page, `${bar}.querySelector('button[aria-label="Properties"]')`);
+        assert.ok(await page.waitFor(`!!${switchOf('Autoplay')} && ${textIn('Launch clip')}`, 5000), 'the Media section shows the video by name');
+        // Autoplay off writes videoStart; Sound is then free; Autoplay on again drops both.
+        assert.equal(await page.evaluate(`${switchOf('Autoplay')}.getAttribute('aria-checked')`), 'true');
+        assert.equal(await page.evaluate(`${switchOf('Sound')}.hasAttribute('data-disabled')`), true, 'Sound waits for Autoplay to be off');
+        await clickOn(page, switchOf('Autoplay'));
+        assert.ok(await until(() => canvasOf(root).notes[id].videoStart === 'click', 5000), 'Autoplay off is stored');
+        assert.ok(await page.waitFor(`!${switchOf('Sound')}.hasAttribute('data-disabled')`, 5000), 'Sound can be turned on');
+        await clickOn(page, switchOf('Sound'));
+        assert.ok(await until(() => canvasOf(root).notes[id].videoSound === 'on', 5000), 'Sound on is stored');
+        await clickOn(page, switchOf('Autoplay'));
+        assert.ok(await until(() => !('videoStart' in canvasOf(root).notes[id]) && !('videoSound' in canvasOf(root).notes[id]), 5000), `Autoplay on goes back to the default and turns Sound off: ${JSON.stringify(canvasOf(root).notes[id])}`);
+        // A cover image from a file; Reset takes a frame from the video again.
+        await page.evaluate(`window.__pick = new File([new Uint8Array(${JSON.stringify([...png([9, 9, 9])])})], 'cover.png', { type: 'image/png' })`);
+        await clickOn(page, `document.querySelector('[data-properties-panel] button[title="Set cover image"]')`);
+        assert.ok(await until(() => canvasOf(root).notes[id].videoCover === 'custom' && canvasOf(root).notes[id].src !== note.src, 10000), 'the cover is set');
+        assert.ok(await page.waitFor(textIn('Custom cover image'), 5000));
+        await clickOn(page, buttonNamed('Reset cover image'));
+        assert.ok(await until(() => !('videoCover' in canvasOf(root).notes[id]), 15000), 'the cover is reset');
+        // The Video row takes videos only; another video keeps the width, and the height follows it.
+        const replace = `document.querySelector('[data-properties-panel] button[title="Replace video"]')`;
+        await page.evaluate(`window.__pick = new File([\`<svg xmlns='http://www.w3.org/2000/svg' width='40' height='10'/>\`], 'wide.svg', { type: 'image/svg+xml' })`);
+        await clickOn(page, replace);
+        assert.ok(await page.waitFor(textIn('Pick a video file here. To set a cover image, use Cover image in Properties.'), 5000), 'a picture is refused on the Video row');
+        assert.equal(canvasOf(root).notes[id].video, note.video, 'the video stays');
+        await page.evaluate(`(async () => { window.__pick = await window.__record(90, 90, 'Square clip.webm'); })()`);
+        await clickOn(page, replace);
+        assert.ok(await until(() => canvasOf(root).notes[id].video !== note.video, 15000), 'the video is replaced');
+        const now = canvasOf(root).notes[id];
+        assert.equal(now.alt, 'Square clip');
+        assert.equal(now.w, note.w, 'the width stays');
+        assert.equal(now.h, now.w, `the height follows the square video: ${JSON.stringify(now)}`);
+        // Five at once: four are added, next to the first one.
+        await page.evaluate(`window.__drop([1, 2, 3, 4, 5].map(n => new File([window.__clip], 'clip ' + n + '.webm', { type: 'video/webm' })))`);
+        assert.ok(await page.waitFor(textIn('Adding the first 4 videos. Add the rest separately.'), 5000), 'the rest are refused');
+        assert.ok(await until(() => notes().length === 5, 60000), `four more video notes: ${notes().length}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('a pasted video becomes a video note; a video dropped on an artboard is written into it as a <video>', T, async () => {
+      const { root, url } = await ctx.openNew('video-paste');
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
+      const notes = () => Object.values(canvasOf(root).notes).filter(n => n.video);
+      try {
+        await page.evaluate(VIDEO_KIT);
+        await page.evaluate(`window.__paste([window.__clip])`);
+        assert.ok(await until(() => notes().length === 1, 30000), `a video note: ${JSON.stringify(canvasOf(root).notes)}`);
+        const [note] = notes();
+        assert.match(note.video, /^\/_blob\/[0-9a-f]{32}$/);
+        assert.equal(note.alt, 'Launch clip');
+        assert.equal(note.w / note.h, 16 / 9, `the note takes the video's shape: ${note.w} × ${note.h}`);
+        const board = await middleOf(page, `document.querySelector('iframe[data-board="Main.dc.html"]')`);
+        await page.evaluate(`window.__drop([window.__clip], ${board.x}, ${board.y})`);
+        const written = () => /<video src="\/_blob\/[0-9a-f]{32}" poster="\/_blob\/[0-9a-f]{32}" aria-label="Launch clip" autoplay loop muted playsinline style="position:absolute;[^"]*object-fit:contain"><\/video>/.test(fs.readFileSync(path.join(root, BOARD), 'utf8'));
+        assert.ok(await until(written, 30000), 'the artboard file has the video');
+        assert.ok(await page.waitFor(`!!document.querySelector('iframe[data-board="Main.dc.html"]').contentDocument.querySelector('video[aria-label="Launch clip"]')`, 10000), 'the artboard shows it');
+        assert.equal(notes().length, 1, 'no note for the dropped video');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('a plain picture note drawn by the GPU scene can be cropped, and its Crop turns on once a new picture has loaded', T, async () => {
+      const first = 'abcdefabcdefabcdefabcdefabcdef01';
+      const second = 'abcdefabcdefabcdefabcdefabcdef02';
+      const { root, url } = await ctx.openNew('note-crop-gpu', (_ctx, dir) => {
+        copyFixture('design', dir);
+        fs.mkdirSync(path.join(dir, 'project/assets'), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'project/assets', first + '.png'), png([20, 160, 60]));
+        fs.writeFileSync(path.join(dir, 'project/assets', second + '.png'), png([30, 60, 200]));
+        const canvas = canvasOf(dir);
+        canvas.notes = { ...canvas.notes, pic: { kind: 'image', x: 0, y: 620, w: 200, h: 100, src: `/_blob/${first}` } };
+        fs.writeFileSync(path.join(dir, 'project/canvas.json'), JSON.stringify(canvas));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: textIn('Smoke canvas'), settle: 800 });
+      const pic = () => canvasOf(root).notes.pic;
+      const crop = `document.querySelector('[data-note-bar="pic"] button[aria-label="Crop"]')`;
+      // Where a point of the canvas is on the page, from the artboard at 0,0.
+      const at = (x, y) => page.evaluate(`(() => { const frame = document.querySelector('iframe[data-board="Main.dc.html"]'); const r = frame.getBoundingClientRect(); const zoom = r.width / 880; return [r.left + ${x} * zoom, r.top + ${y} * zoom]; })()`);
+      try {
+        assert.equal(await page.evaluate(`!!document.querySelector('[data-note="pic"]')`), false, 'the note has no DOM picture: the GPU scene draws it');
+        await page.click(...await at(100, 670));
+        assert.ok(await page.waitFor(`${crop}?.disabled === false`, 10000), 'Crop is on once the scene has the picture');
+        // A new picture written on disk (with a new artboard title, to see when the editor has it): the note stays
+        // selected, and its Crop turns on once that picture has loaded.
+        const canvas = canvasOf(root);
+        canvas.notes.pic.src = `/_blob/${second}`;
+        canvas.boards['Main.dc.html'].title = 'Swapped on disk';
+        fs.writeFileSync(path.join(root, 'project/canvas.json'), JSON.stringify(canvas));
+        assert.ok(await page.waitFor(textIn('Swapped on disk'), 15000), 'the editor read the change');
+        assert.ok(await page.waitFor(`${crop}?.disabled === false`, 15000), 'Crop is on for the new picture without selecting the note again');
+        await page.clickTimes(...await at(100, 670), 2);
+        assert.ok(await page.waitFor(`!!document.querySelector('[role=group][aria-label="Crop"][data-note-crop="pic"]')`, 5000), 'double-click starts cropping');
+        const edge = await middleOf(page, `document.querySelector('[data-crop-edge="e"]')`);
+        await page.dragMouse([edge.x, edge.y], [edge.x - 50, edge.y]);
+        await page.press('Enter');
+        assert.ok(await until(() => pic().crop && pic().w < 200, 10000), `the crop is saved: ${JSON.stringify(pic())}`);
+        assert.equal(pic().css?.['object-fit'], 'cover');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('a locked picture note is not cropped: a double-click says to unlock it, and Crop is off', T, async () => {
+      const picture = `data:image/svg+xml,${encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='200' height='100'><rect width='200' height='100' fill='green'/></svg>")}`;
+      const { root, url } = await ctx.openNew('note-crop-locked', (_ctx, dir) => {
+        copyFixture('design', dir);
+        const canvas = canvasOf(dir);
+        canvas.notes = { ...canvas.notes, pic: { kind: 'image', x: 0, y: 700, w: 200, h: 100, title: 'Picture', src: picture, locked: true, css: { 'border-radius': '12px' } } };
+        fs.writeFileSync(path.join(dir, 'project/canvas.json'), JSON.stringify(canvas));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('[data-note="pic"] img')`, settle: 800 });
+      try {
+        const at = await middleOf(page, `document.querySelector('[data-note="pic"]')`);
+        await page.clickTimes(at.x, at.y, 2);
+        assert.ok(await page.waitFor(textIn('Locked: unlock first.'), 5000), 'the double-click says why');
+        await new Promise(resolve => setTimeout(resolve, 300));
+        assert.equal(await page.evaluate(`!!document.querySelector('[data-note-crop]')`), false, 'no cropping');
+        const crop = `document.querySelector('[data-note-bar="pic"] button[aria-label="Crop"]')`;
+        assert.ok(await page.waitFor(`${crop}?.disabled === true`, 5000), 'the strip’s Crop is off');
+        await page.hover(...Object.values(await middleOf(page, crop)));
+        assert.ok(await page.waitFor(`[...document.querySelectorAll('[role=tooltip], [data-side]')].some(el => el.textContent.includes('Locked: unlock first.'))`, 5000), 'its tip says why');
+        assert.equal(canvasOf(root).notes.pic.crop, undefined);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('a cropped picture note keeps its crop when resized', T, async () => {
+      const picture = `data:image/svg+xml,${encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='200' height='100'><rect width='100' height='100' fill='green'/><rect x='100' width='100' height='100' fill='blue'/></svg>")}`;
+      const crop = { zoom: 2, x: 0.25, y: 0.5 };
+      const { root, url } = await ctx.openNew('note-crop-resize', (_ctx, dir) => {
+        copyFixture('design', dir);
+        const canvas = canvasOf(dir);
+        canvas.notes = { ...canvas.notes, pic: { kind: 'image', x: 0, y: 700, w: 200, h: 100, title: 'Picture', src: picture, crop, css: { 'object-fit': 'cover' } } };
+        fs.writeFileSync(path.join(dir, 'project/canvas.json'), JSON.stringify(canvas));
+      });
+      // On the DOM canvas, whose resize handles are elements.
+      const page = await (await ctx.browser()).load(new URL('index.html?open_artifact_engine=off', url).href, { ready: `document.querySelector('[data-note="pic"] img')?.style.width === '200%'`, settle: 800 });
+      const pic = () => canvasOf(root).notes.pic;
+      try {
+        const at = await middleOf(page, `document.querySelector('[data-note="pic"]')`);
+        await page.click(at.x, at.y);
+        const handle = `document.querySelector('[data-handle="se"][data-handle-note="pic"]')`;
+        assert.ok(await page.waitFor(`!!${handle}`, 5000), 'the note is selected');
+        const from = await middleOf(page, handle);
+        await page.dragMouse([from.x, from.y], [from.x + 80, from.y + 40]);
+        assert.ok(await until(() => pic().w > 200, 10000), `the note grew: ${JSON.stringify(pic())}`);
+        assert.deepEqual(pic().crop, crop, 'the crop stays');
+        assert.ok(await page.waitFor(`(() => {
+          const img = document.querySelector('[data-note="pic"] img');
+          const frame = img?.parentElement;
+          if (!img || getComputedStyle(frame).overflow !== 'hidden' || img.style.width !== '200%') return false;
+          return Math.abs(img.getBoundingClientRect().width - 2 * frame.getBoundingClientRect().width) < 1;
+        })()`, 5000), 'the page still draws it zoomed in its frame');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('Comment on a selected note’s strip and on a selected element’s strip starts a comment there', T, async () => {
+      const picture = `data:image/svg+xml,${encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' width='200' height='100'><rect width='200' height='100' fill='green'/></svg>")}`;
+      const { root, url } = await ctx.openNew('comment-strips', (_ctx, dir) => {
+        copyFixture('design', dir);
+        const canvas = canvasOf(dir);
+        canvas.notes = { ...canvas.notes, pic: { kind: 'image', x: 0, y: 620, w: 200, h: 100, title: 'Picture', src: picture, css: { 'border-radius': '12px' } } };
+        fs.writeFileSync(path.join(dir, 'project/canvas.json'), JSON.stringify(canvas));
+      });
+      const editor = `document.querySelector('iframe[name="open-artifact-shell"]')`;
+      const inside = `${editor}?.contentDocument`;
+      const board = `${inside}?.querySelector('iframe[data-board="Main.dc.html"]')`;
+      const shell = await (await ctx.browser()).load(url, { ready: `!!${board}?.contentDocument?.querySelector('h1') && !!${inside}.querySelector('[data-note="pic"] img')` });
+      const file = path.join(root, 'comments.json');
+      const anchors = () => (fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')).threads : []).map(t => ({ anchor: JSON.parse(t.anchor), text: t.messages?.[0]?.text }));
+      // The middle of an element of the editor, in the shell's viewport.
+      const middleIn = element => shell.evaluate(`(() => {
+        const outer = ${editor}.getBoundingClientRect();
+        const r = (${element})?.getBoundingClientRect();
+        return r?.width ? [outer.left + r.left + r.width / 2, outer.top + r.top + r.height / 2] : null;
+      })()`);
+      const typing = "document.activeElement?.shadowRoot?.activeElement?.matches('textarea') === true";
+      const comment = async (button, title, text) => {
+        assert.ok(await shell.waitFor(`!!(${button})`, 5000), `the strip has Comment: ${button}`);
+        await shell.click(...await middleIn(button));
+        assert.ok(await until(async () => (await shell.evaluateAll(typing)).some(Boolean), 10000), `${title}: the comment box opens`);
+        await shell.type(text);
+        await shell.press('Enter');
+        assert.ok(await until(() => anchors().some(t => t.text === text), 10000), `${title}: the comment is saved`);
+        return anchors().find(t => t.text === text).anchor;
+      };
+      try {
+        await shell.click(...await middleIn(`${inside}.querySelector('[data-note="pic"]')`));
+        const onNote = `${inside}.querySelector('[data-note-bar="pic"] button[aria-label="Comment"]')`;
+        const noted = await comment(onNote, 'note', 'On the picture');
+        assert.equal(noted.kind, 'note');
+        assert.equal(noted.note, 'pic');
+        // Out of comment mode, then an element of the artboard.
+        await shell.evaluate(`${editor}.contentWindow.focus(), ${inside}.querySelector('[data-canvas-surface]').focus()`);
+        await shell.press('v');
+        assert.ok(await shell.waitFor("!document.querySelector('[data-comment-capture]')", 5000), 'comment mode is off');
+        const heading = await shell.evaluate(`(() => {
+          const outer = ${editor}.getBoundingClientRect();
+          const frame = ${board};
+          const rect = frame.getBoundingClientRect();
+          const zoom = rect.width / frame.offsetWidth;
+          const h1 = frame.contentDocument.querySelector('h1').getBoundingClientRect();
+          return [outer.left + rect.left + (h1.left + 20) * zoom, outer.top + rect.top + (h1.top + h1.height / 2) * zoom];
+        })()`);
+        await shell.click(...heading);
+        const onElement = `[...${inside}.querySelectorAll('button[aria-label="Comment"]')].find(b => !b.closest('[data-note-bar]'))`;
+        const element = await comment(onElement, 'element', 'On the heading');
+        assert.equal(element.kind, 'element');
+        assert.equal(element.board, 'Main.dc.html');
+        assert.deepEqual(shell.problems.filter(problem => !problem.includes('favicon.ico')), []);
+      } finally { await shell.close(); }
+    });
+
+    it('a 20 MB video uploads to the type server, alone and under the daemon', T, async () => {
+      // Sent from here: the browser under test reports each request body to the harness, and 20 MB is more than that link carries.
+      const post = async page => (await fetch(new URL('_api/assets?name=big.mp4', page), { method: 'POST', headers: { 'content-type': 'video/mp4' }, body: new Uint8Array(20 * 1024 * 1024) })).status;
+      const { url, root } = await ctx.openNew('video-upload-size');
+      assert.equal(await post(new URL('index.html', url)), 200, 'the type server takes it');
+      await withDesignShell(ctx, root, `document.querySelector('[data-board-title="Main.dc.html"]')`, async shell => {
+        const pages = (await shell.evaluateAll(`document.querySelector('[data-canvas-surface]') ? location.href : null`)).filter(Boolean);
+        assert.equal(pages.length, 1, 'the editor runs in one frame of the shell');
+        // The editor posts its uploads next to its own page: under the daemon, that is the type server it started.
+        assert.equal(await post(new URL(pages[0])), 200, 'the type server the daemon started takes it');
+      });
     });
 
     it('closing the link address with Escape or Tab says the address was dropped, and the next Delete only says to press it again', T, async () => {

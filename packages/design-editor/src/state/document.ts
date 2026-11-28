@@ -94,7 +94,8 @@ export interface DocumentActions {
    */
   transact<T>(run: (cancel: () => void) => T, options?: { key?: string }): T;
   /** Changes the canvas. Outside a gesture each call is one undo step. */
-  updateCanvas(recipe: (canvas: Canvas) => Canvas): void;
+  /** `label` names the step for undo and redo announcements ("Crop" → "Crop undone."). */
+  updateCanvas(recipe: (canvas: Canvas) => Canvas, label?: string): void;
   /** Starts coalescing canvas changes into one undo step. */
   beginGesture(): void;
   /** Ends the gesture, recording one undo step when something changed. */
@@ -239,7 +240,7 @@ export const useDocument = create<DocumentState & DocumentActions>()((set, get) 
     }
   },
 
-  updateCanvas(recipe) {
+  updateCanvas(recipe, label) {
     const state = get();
     if (state.readOnly || state.canvasError) return;
     const next = recipe(state.canvas);
@@ -247,7 +248,7 @@ export const useDocument = create<DocumentState & DocumentActions>()((set, get) 
     noteCanvasFor(state);
     set({
       canvas: next,
-      ...(state.gesture || step ? {} : { undo: push(state.undo, { scope: 'canvas', before: state.canvas, after: next }), redo: [] }),
+      ...(state.gesture || step ? {} : { undo: push(state.undo, { scope: 'canvas', before: state.canvas, after: next, ...(label ? { label } : {}) }), redo: [] }),
       revision: state.revision + 1,
     });
   },

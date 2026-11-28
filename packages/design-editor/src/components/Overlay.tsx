@@ -32,7 +32,7 @@ import { LayoutGuides } from './LayoutGuides.tsx';
 import { HoverLink } from './HoverLink.tsx';
 import { linkAround } from '../lib/hover-link.ts';
 import { templateOf } from '../services/agent.ts';
-import { SelectionBar } from './SelectionBar.tsx';
+import { NoteBar, SelectionBar } from './SelectionBar.tsx';
 import { useScale } from '../services/scale.ts';
 import { viewportSize } from '../services/viewport.ts';
 import { boardTakesPart, elementGroupsOf, elementsIn, selectedBoardsOf, selectedNotesOf } from '../lib/selection.ts';
@@ -289,6 +289,7 @@ function SelectionOverlay({ engine }: { engine: boolean }) {
   const readOnly = useDocument((s) => s.readOnly);
   const playing = useView((s) => s.playing);
   const panelOpen = useView((s) => s.panelOpen);
+  const noteEdit = useView((s) => s.noteEdit);
   const scaling = useScale((s) => s.session !== null);
   const sources = useDocument((s) => s.boards);
 
@@ -424,6 +425,13 @@ function SelectionOverlay({ engine }: { engine: boolean }) {
         // Hidden while the camera moves: it does not scale with the canvas.
         <div data-camera-bound="">
           <SelectionBar box={elementBoxesOnScreen[0]} />
+        </div>
+      ) : null}
+
+      {/* A note's strip stays with the panel open; not while its words are typed. */}
+      {single?.note && singleNote && noteEdit !== single.note && !scaling && !playing ? (
+        <div data-camera-bound="">
+          <NoteBar box={single.box} id={single.note} />
         </div>
       ) : null}
 

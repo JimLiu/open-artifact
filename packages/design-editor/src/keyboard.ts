@@ -54,6 +54,7 @@ import { escapeGoesHome, regionStepOf } from './lib/focus-regions.ts';
 import { focusHome, regionAt, rememberRegionFocus, stepRegion } from './services/focus-regions.ts';
 import { boardsReached, elementGroupsOf } from './lib/selection.ts';
 import { groupSelection, ungroupSelection } from './services/structure.ts';
+import { noteCropKey } from './services/note-crop.ts';
 
 /** A key press, from the window or from a frame. */
 export interface KeyPress {
@@ -80,6 +81,13 @@ export function runShortcut({ key, code, meta, shift, alt, repeat, ctrl }: KeyPr
   const view = useView.getState();
   const doc = useDocument.getState();
   const lower = key.toLowerCase();
+
+  // Cropping a note pauses the canvas shortcuts; a key from an artboard frame reaches it here.
+  if (view.noteCrop) {
+    if (fromFrame && noteCropKey({ key, code, meta, shift, alt })) return true;
+    // What is left while cropping goes on: the canvas zoom keys (⌘ − = 0 1).
+    if (useView.getState().noteCrop && !meta) return false;
+  }
 
   const scaling = useScale.getState().session !== null;
   if (scaling && key === 'Escape') {
@@ -425,6 +433,21 @@ export function installKeyboard(): () => void {
     useView.getState().setSpacePan(false);
     useView.getState().setAltHeld(false);
   };
+  // While a note is cropped, its keys come first (services/note-crop.ts); fields and a focused button keep theirs.
+  const cropKeys = (event: KeyboardEvent): void => {
+    if (!useView.getState().noteCrop || event.defaultPrevented || isComposingKey(event)) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (isTextField(target) || (target instanceof HTMLElement && target.isContentEditable)) return;
+    if ((event.key === 'Enter' || event.key === ' ') && target?.closest('button, [role="button"]')) return;
+    if (!noteCropKey({ key: event.key, code: event.code, meta: event.metaKey || event.ctrlKey, shift: event.shiftKey, alt: event.altKey })) return;
+    event.preventDefault();
+    event.stopPropagation();
+  };
+  // First of the capture listeners, so cropping sees its keys before Escape goes home.
+  const offCrop = (() => {
+    window.addEventListener('keydown', cropKeys, true);
+    return () => window.removeEventListener('keydown', cropKeys, true);
+  })();
   window.addEventListener('keydown', escapeHome, true);
   window.addEventListener('keydown', down);
   window.addEventListener('keyup', up);
@@ -432,6 +455,7 @@ export function installKeyboard(): () => void {
   window.addEventListener('blur', blur);
   window.addEventListener('pointerdown', cancelCard, true);
   return () => {
+    offCrop();
     window.removeEventListener('pointerdown', cancelCard, true);
     window.removeEventListener('keydown', escapeHome, true);
     window.removeEventListener('keydown', down);

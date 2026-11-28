@@ -16,6 +16,7 @@ import { startFollow } from './services/follow.ts';
 import { startShellBridge } from './services/shell.ts';
 import { installKeyboard } from './keyboard.ts';
 import { placeImages } from './services/images.ts';
+import { placeVideos } from './services/videos.ts';
 import { Canvas } from './components/Canvas.tsx';
 import { FocusedView } from './components/FocusedView.tsx';
 import { EndCard, FootToolbar, StartCard } from './components/Toolbar.tsx';
@@ -122,7 +123,16 @@ export function App() {
   }, [title]);
 
   // Copy, cut and paste; pasted images become image notes at the viewport center.
-  useEffect(() => installClipboard((files) => void placeImages(files, viewportCenter())), []);
+  useEffect(
+    () =>
+      installClipboard((files) => {
+        const images = files.filter((file) => file.type.startsWith('image/'));
+        const videos = files.filter((file) => !file.type.startsWith('image/'));
+        if (images.length) void placeImages(images, viewportCenter());
+        if (videos.length) void placeVideos(videos, viewportCenter(), 'pasted');
+      }),
+    [],
+  );
 
   if (status === 'loading') return <Loading />;
   if (status === 'error') {

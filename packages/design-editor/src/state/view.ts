@@ -74,6 +74,8 @@ export interface ViewState {
   textEdit: TextEditState | null;
   /** The note whose text is being edited. */
   noteEdit: string | null;
+  /** The image or video note being cropped (services/note-crop.ts holds the draft). */
+  noteCrop: string | null;
   /** The artboard whose title is being renamed on the canvas. */
   renamingBoard: string | null;
   mode: 'canvas' | 'focused';
@@ -132,6 +134,7 @@ export interface ViewActions {
   /** Updates the text edit in progress (nothing when none is). */
   patchTextEdit(patch: Partial<TextEditState>): void;
   setNoteEdit(id: string | null): void;
+  setNoteCrop(id: string | null): void;
   setRenamingBoard(path: string | null): void;
   focus(path: string | null): void;
   play(path: string | null): void;
@@ -177,6 +180,7 @@ export const useView = create<ViewState & ViewActions>()((set, get) => ({
   peek: null,
   textEdit: null,
   noteEdit: null,
+  noteCrop: null,
   renamingBoard: null,
   mode: 'canvas',
   focused: null,
@@ -238,6 +242,9 @@ export const useView = create<ViewState & ViewActions>()((set, get) => ({
   },
   setNoteEdit(noteEdit) {
     set({ noteEdit });
+  },
+  setNoteCrop(noteCrop) {
+    if (get().noteCrop !== noteCrop) set({ noteCrop });
   },
   setRenamingBoard(renamingBoard) {
     set({ renamingBoard });
