@@ -345,7 +345,7 @@ export function copyNoteStyle(note: CanvasNote): CopiedStyle | null {
       'font-size': `${noteFontSize(note.size, note.kind)}px`,
       'font-weight': note.bold ? '700' : '400',
       'font-style': note.italic ? 'italic' : 'normal',
-      color: sticky ? NOTE_TEXT_COLOR : noteColor(note.color, 'stroke', NOTE_TEXT_COLOR),
+      color: noteColor(note.color, 'stroke', NOTE_TEXT_COLOR),
     };
     const fill = noteColor(note.fill, 'sticky', sticky ? DEFAULT_STICKY : 'transparent');
     return { source: kind, groups: { text, fill: clear(fill) ? {} : { 'background-color': fill } } };

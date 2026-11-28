@@ -28,6 +28,7 @@ import { copyToSystem, pasteFromSystem } from './services/clipboard.ts';
 import { copyProperties, pasteProperties } from './services/properties.ts';
 import { armScale, cancelScale, commitScale, useScale } from './services/scale.ts';
 import { zoomStep, zoomTo, zoomToBoards, zoomToFit } from './services/viewport.ts';
+import { commitNoteTyping, focusNoteTyping } from './services/note-typing.ts';
 import { frameKeyPressed } from './services/follow.ts';
 import { openFind, useFind } from './services/find.ts';
 import { leaveCommentMode, runCollabShortcut } from './services/collab.ts';
@@ -106,7 +107,7 @@ export function runShortcut({ key, code, meta, shift, alt, repeat, ctrl }: KeyPr
   if (key === 'Escape') {
     if (view.composer) view.setComposer(false);
     else if (view.findOpen) useFind.getState().close();
-    else if (view.noteEdit) view.setNoteEdit(null);
+    else if (view.noteEdit) commitNoteTyping();
     else if (view.playing) view.play(null);
     else if (view.mode === 'focused') view.focus(null);
     else if (view.tool !== 'select') view.setTool('select');
@@ -417,6 +418,13 @@ export function installKeyboard(): () => void {
     const press = { key: event.key, meta: event.metaKey || event.ctrlKey, shift: event.shiftKey, alt: event.altKey };
     // An open "More tools" card of the strip takes the Escape first.
     if (event.defaultPrevented || target?.closest(FOLD_OWNS_ESCAPE)) return;
+    // On the strip of a sticky being typed, Escape goes back to the typing.
+    if (event.key === 'Escape' && target?.closest('[data-note-typing-strip]') && useView.getState().noteEdit) {
+      event.preventDefault();
+      event.stopPropagation();
+      focusNoteTyping();
+      return;
+    }
     if (!escapeGoesHome(press, { region: regionAt(target), inField: isTextField(target), expanded: target?.getAttribute('aria-expanded') === 'true' })) return;
     event.preventDefault();
     event.stopPropagation();

@@ -79,6 +79,7 @@ import { UploadBoxes } from './UploadBoxes.tsx';
 import { placeVideos } from '../services/videos.ts';
 import { looksLikeVideo, VIDEO_MESSAGES } from '../lib/video-files.ts';
 import { startNoteCrop } from '../services/note-crop.ts';
+import { commitNoteTyping } from '../services/note-typing.ts';
 import { toggleVideoNote } from '../services/video-play.ts';
 import { JoinPreview } from './JoinPreview.tsx';
 import { PathPoints } from './PathPoints.tsx';
@@ -468,7 +469,7 @@ function endTextEdit(): void {
 /** Ends a note text edit unless the press is on that note. */
 function endNoteEdit(hit: Hit): void {
   const { noteEdit } = useView.getState();
-  if (noteEdit && !(hit.kind === 'note' && hit.note === noteEdit)) (document.activeElement as HTMLElement | null)?.blur();
+  if (noteEdit && !(hit.kind === 'note' && hit.note === noteEdit)) commitNoteTyping();
 }
 
 export function Canvas() {

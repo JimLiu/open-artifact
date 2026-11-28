@@ -20,6 +20,7 @@ import {
   AlignRight,
   Ban,
   Bold,
+  Check,
   ChevronDown,
   Component,
   Copy,
@@ -27,6 +28,7 @@ import {
   Image as ImageIcon,
   Unlink,
   EllipsisVertical,
+  ExternalLink,
   PanelRight,
   Italic,
   Link,
@@ -39,6 +41,7 @@ import {
   PencilLine,
   Play,
   Trash2,
+  Type,
   Underline,
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
@@ -67,12 +70,18 @@ import { FILL_IS_TEXT, solidTextPatch } from '../lib/text-gradient.ts';
 import { loneShapeOf } from '../lib/lone-shape.ts';
 import { layerPaint, mixedPaintKinds, paintMixed, paintSelection } from '../services/paint.ts';
 import { addressCardKeys } from './address-card.ts';
-import type { CanvasNote } from '@open-artifact/design-core';
+import { NOTE_COLORS, type CanvasNote, type NoteColor } from '@open-artifact/design-core';
+import { DEFAULT_STICKY, NOTE_PALETTE, noteColor, noteStroke } from '../lib/notes.ts';
+import { shapeFill } from '../lib/note-look.ts';
+import { NOTE_TEXT_COLOR } from '../lib/style-clipboard.ts';
+import { NOTE_SIZE_MAX, NOTE_SIZE_MIN, NOTE_SIZE_PRESETS, lineColorPatch, lineStyleOf, lineStylePatch, readTextStyle, restylePatch, shapeFillPatch, type TextRestyle } from '../lib/note-style.ts';
+import { canMark, hasMark, lineListOf, setLineList, toggleMark, type LineList } from '../lib/note-typing.ts';
+import { editNoteTyping, focusNoteTyping, useNoteTyping } from '../services/note-typing.ts';
 import { useVideo } from '../state/video.ts';
 import { toggleVideoNote } from '../services/video-play.ts';
 import { endNoteCrop, noteCropBlocked, startNoteCrop } from '../services/note-crop.ts';
 import { usePictureSize } from '../services/picture-sizes.ts';
-import { pickFile, setCoverImage, setNoteCssKeys } from '../services/video-note.ts';
+import { patchNote, pickFile, setCoverImage, setNoteCssKeys } from '../services/video-note.ts';
 import { canComment, commentOnSelection, useComments } from '../services/comments.ts';
 
 /** Screen box of the selection the bar sits on. */
@@ -173,6 +182,7 @@ function StripPopup({
   pressed,
   address,
   keep,
+  onClosed,
   children,
 }: {
   tip: string;
@@ -187,15 +197,22 @@ function StripPopup({
   address?: string;
   /** Stays on the strip when it folds (an address card opens from the strip only). */
   keep?: boolean;
-  children: ReactNode;
+  /** Called once the popup has closed. */
+  onClosed?: () => void;
+  /** The popup's content; a function gets a way to close it. */
+  children: ReactNode | ((close: () => void) => ReactNode);
 }) {
   const [open, setOpen] = useState(false);
+  const toggle = (next: boolean) => {
+    setOpen(next);
+    if (!next) onClosed?.();
+  };
   const cardKeys = address === undefined ? undefined : addressCardKeys({ saved: address, close: () => setOpen(false), guardDelete: true });
   const button = (
     <ChromeButton square={!wide} aria-label={tip} pressed={pressed} disabled={disabled} data-fold-keep={keep ? '' : undefined} className={cn(wide && 'px-2', open && 'bg-chrome-hover')} />
   );
   return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
+    <Popover.Root open={open} onOpenChange={toggle}>
       <Tip label={tip} side="top">
         <Popover.Trigger render={button as ReactElement<Record<string, unknown>>}>{trigger}</Popover.Trigger>
       </Tip>
@@ -210,7 +227,7 @@ function StripPopup({
               width,
             )}
           >
-            {children}
+            {typeof children === 'function' ? children(() => toggle(false)) : children}
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>
@@ -1140,7 +1157,7 @@ type NoteThing = 'note' | 'video' | 'picture' | 'link' | 'shape';
 function noteThing(note: CanvasNote): NoteThing {
   if (note.kind === 'image') return note.video ? 'video' : 'picture';
   if (note.kind === 'link') return 'link';
-  return note.kind === 'sticky' || note.kind === 'title1' ? 'note' : 'shape';
+  return !note.kind || note.kind === 'sticky' || note.kind === 'title1' ? 'note' : 'shape';
 }
 
 const NOTE_COMMENT: Record<NoteThing, string> = {
@@ -1165,22 +1182,376 @@ function NoteRadiusPopup({ id, note, readOnly }: { id: string; note: CanvasNote;
   return <RadiusPopup ctx={{ inline, computed: {}, locked: readOnly, set: (patch) => void setNoteCssKeys(id, { ...patch }) }} />;
 }
 
+/* -------------------------------------------------------------------------- */
+/* The style controls of a note's strip                                        */
+/* -------------------------------------------------------------------------- */
+
+/** One choice of a palette popup: a named colour, or the default (`null`). */
+interface PaletteChoice {
+  value: string | null;
+  label: string;
+  /** What it shows; undefined: an empty (dashed) square. */
+  color: string | undefined;
+}
+
+/** The stroke of a line, an arrow or a drawing with no colour of its own. */
+const NOTE_LINE_STROKE = '#2b2b2b';
+
+const paletteName = (color: NoteColor): string => color[0]!.toUpperCase() + color.slice(1);
+
+/** A default choice, then the eight palette colours. */
+function paletteChoices(first: PaletteChoice, use: 'sticky' | 'stroke'): PaletteChoice[] {
+  return [first, ...NOTE_COLORS.map((color) => ({ value: color, label: paletteName(color), color: NOTE_PALETTE[color][use] }))];
+}
+
+const INK_CHOICES = paletteChoices({ value: null, label: 'Default ink', color: NOTE_TEXT_COLOR }, 'stroke');
+const STICKY_FILL_CHOICES = paletteChoices({ value: null, label: 'Default yellow', color: DEFAULT_STICKY }, 'sticky');
+const SHAPE_FILL_CHOICES = paletteChoices({ value: null, label: 'No fill', color: undefined }, 'sticky');
+const STROKE_CHOICES = paletteChoices({ value: null, label: 'Default gray', color: NOTE_LINE_STROKE }, 'stroke');
+
+/** A palette as a popup on the strip: its trigger shows the colour in use; a pick closes it. */
+function PalettePopup({ tip, choices, value, shown, onPick, onClosed }: { tip: string; choices: PaletteChoice[]; value: string | undefined; shown: string | undefined; onPick(value: string | null): void; onClosed?: () => void }) {
+  const current = choices.find((choice) => choice.value === (value ?? null));
+  return (
+    <StripPopup tip={tip} trigger={<Swatch color={shown} />} width="w-auto" onClosed={onClosed}>
+      {(close) => (
+        <div role="group" aria-label={tip} className="grid grid-cols-3 gap-1">
+          {choices.map((choice) => (
+            <TipButton
+              key={choice.label}
+              tip={choice.label}
+              side="top"
+              square
+              aria-label={choice.label}
+              aria-pressed={choice === current}
+              data-swatch={choice.value ?? 'default'}
+              className={cn(choice === current && 'bg-chrome-hover')}
+              onClick={() => {
+                onPick(choice.value);
+                close();
+              }}
+            >
+              <Swatch color={choice.color} />
+            </TipButton>
+          ))}
+        </div>
+      )}
+    </StripPopup>
+  );
+}
+
+const TYPING_SIZE = 'Finish typing to set a custom size';
+const TYPING_KIND = 'Finish typing to change the note’s kind';
+
+/** A note's size names in its text style chip. */
+const sizeName = (px: number): string => NOTE_SIZE_PRESETS.find((preset) => preset.px === px)?.label ?? String(px);
+
 /**
- * The strip over a selected note:
+ * The text style chip of a text note: its kind (sticky or title) and a
+ * named size, or a size of its own. While it is typed the kind and a size
+ * of its own wait.
+ */
+function NoteTextStylePopup({ id, note, typing = false, onClosed }: { id: string; note: CanvasNote; typing?: boolean; onClosed?: () => void }) {
+  const style = readTextStyle(note);
+  const [tab, setTab] = useState<'theme' | 'custom'>('theme');
+  const restyle = (change: TextRestyle) => patchNote(id, restylePatch(note, change));
+  return (
+    <StripPopup
+      tip="Text style"
+      wide
+      width="w-[224px]"
+      onClosed={onClosed}
+      trigger={
+        <span className="flex items-center gap-1.5 text-[13px] text-chrome-fg">
+          <Type {...SMALL} />
+          <span className="tabular-nums">{sizeName(style.px)}</span>
+          <ChevronDown className="size-3.5 shrink-0 opacity-60" strokeWidth={1.75} />
+        </span>
+      }
+    >
+      {(close) => (
+        <>
+          <div role="tablist" aria-label="Text style" className="grid grid-cols-2 gap-0.5 rounded-[6px] bg-chrome-field p-px">
+            {(['theme', 'custom'] as const).map((name) => (
+              <button
+                key={name}
+                type="button"
+                role="tab"
+                aria-selected={tab === name}
+                className={cn('h-6 rounded-[5px] text-[12px] text-chrome-muted', tab === name && 'bg-chrome text-chrome-fg shadow-[0_0_0_1px_var(--dc-field-ring)]')}
+                onClick={() => setTab(name)}
+              >
+                {name === 'theme' ? 'Theme' : 'Custom'}
+              </button>
+            ))}
+          </div>
+          {tab === 'theme' ? (
+            <>
+              <Hint>Note style</Hint>
+              <Tip label={typing ? TYPING_KIND : 'Note style'} side="top">
+                <span className="flex">
+                  <PSegments
+                    className="flex-1"
+                    disabled={typing}
+                    value={style.kind}
+                    options={[
+                      { value: 'sticky', label: 'Sticky', icon: <span className="text-[12px]">Sticky</span> },
+                      { value: 'title1', label: 'Title', icon: <span className="text-[12px]">Title</span> },
+                    ]}
+                    onChange={(kind) => {
+                      restyle({ kind });
+                      close();
+                    }}
+                  />
+                </span>
+              </Tip>
+              <div role="group" aria-label="Size" className="flex flex-col">
+                {NOTE_SIZE_PRESETS.map((preset) => (
+                  <button
+                    key={preset.key}
+                    type="button"
+                    aria-pressed={style.preset?.key === preset.key}
+                    className="flex h-7 items-center gap-2 rounded-[6px] px-1.5 text-left hover:bg-chrome-hover"
+                    onClick={() => {
+                      restyle({ size: preset.key });
+                      close();
+                    }}
+                  >
+                    <Check aria-hidden="true" className={cn('size-3.5', style.preset?.key !== preset.key && 'invisible')} strokeWidth={1.75} />
+                    <span className="flex-1">{preset.label}</span>
+                    <span className="tabular-nums text-chrome-muted">{preset.px} px</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <Tip label={typing ? TYPING_SIZE : 'Size (px)'} side="top">
+              <span className="flex">
+                <PInput
+                  aria-label="Size"
+                  prefix="Size"
+                  unit="px"
+                  numeric
+                  min={NOTE_SIZE_MIN}
+                  max={NOTE_SIZE_MAX}
+                  className="flex-1"
+                  disabled={typing}
+                  value={String(style.px)}
+                  onCommit={(value) => {
+                    const px = Number.parseFloat(value);
+                    if (Number.isFinite(px)) restyle({ size: px });
+                  }}
+                />
+              </span>
+            </Tip>
+          )}
+        </>
+      )}
+    </StripPopup>
+  );
+}
+
+/** Ink, then bold and italic of a whole text note. */
+function NoteInkAndWeight({ id, note }: { id: string; note: CanvasNote }) {
+  const style = readTextStyle(note);
+  return (
+    <>
+      <PalettePopup tip="Ink" choices={INK_CHOICES} value={style.ink} shown={noteColor(style.ink, 'stroke', NOTE_TEXT_COLOR)} onPick={(ink) => patchNote(id, restylePatch(note, { ink }))} />
+      <StripButton tip="Bold" pressed={style.bold} onClick={() => patchNote(id, restylePatch(note, { bold: !style.bold }))}>
+        <Bold {...ICON} />
+      </StripButton>
+      <StripButton tip="Italic" pressed={style.italic} onClick={() => patchNote(id, restylePatch(note, { italic: !style.italic }))}>
+        <Italic {...ICON} />
+      </StripButton>
+    </>
+  );
+}
+
+/** A sticky's paper. */
+function StickyFillPopup({ id, note, onClosed }: { id: string; note: CanvasNote; onClosed?: () => void }) {
+  const fill = readTextStyle(note).fill;
+  return <PalettePopup tip="Fill color" choices={STICKY_FILL_CHOICES} value={fill} shown={noteColor(fill, 'sticky', DEFAULT_STICKY)} onClosed={onClosed} onPick={(next) => patchNote(id, restylePatch(note, { fill: next }))} />;
+}
+
+const LINE_STYLES = [
+  { value: 'solid', label: 'Solid' },
+  { value: 'dashed', label: 'Dashed' },
+  { value: 'dotted', label: 'Dotted' },
+] as const;
+
+/** The look controls of a shape, a line or a link card. */
+function NoteShapeControls({ id, note }: { id: string; note: CanvasNote }) {
+  if (note.kind === 'rect' || note.kind === 'oval') {
+    const fill = note.fill || undefined;
+    return <PalettePopup tip="Fill color" choices={SHAPE_FILL_CHOICES} value={fill} shown={shapeFill(note)} onPick={(next) => patchNote(id, shapeFillPatch(note, next))} />;
+  }
+  if (note.kind === 'link') {
+    return (
+      <StripButton tip="Open in a new tab (or double-click the card)" aria-label="Open" disabled={!note.href} onClick={() => note.href && window.open(note.href, '_blank', 'noopener,noreferrer')}>
+        <ExternalLink {...ICON} />
+      </StripButton>
+    );
+  }
+  const stroke = noteStroke(note);
+  const style = lineStyleOf(note);
+  return (
+    <>
+      <PalettePopup tip="Stroke" choices={STROKE_CHOICES} value={note.color || undefined} shown={noteColor(stroke.color, 'stroke', NOTE_LINE_STROKE)} onPick={(next) => patchNote(id, lineColorPatch(note, next))} />
+      <StripPopup tip="Line style" trigger={<Glyph name={style === 'solid' ? 'strokeSolid' : style === 'dashed' ? 'strokeDashed' : 'strokeDotted'} />} width="w-auto">
+        {(close) => (
+          <div role="group" aria-label="Line style" className="flex gap-1">
+            {LINE_STYLES.map((option) => (
+              <TipButton
+                key={option.value}
+                tip={option.label}
+                side="top"
+                square
+                aria-label={option.label}
+                aria-pressed={style === option.value}
+                className={cn(style === option.value && 'bg-chrome-hover')}
+                onClick={() => {
+                  patchNote(id, lineStylePatch(note, option.value));
+                  close();
+                }}
+              >
+                <Glyph name={option.value === 'solid' ? 'strokeSolid' : option.value === 'dashed' ? 'strokeDashed' : 'strokeDotted'} />
+              </TipButton>
+            ))}
+          </div>
+        )}
+      </StripPopup>
+    </>
+  );
+}
+
+const WHOLE_BOLD = 'The whole note is already bold (its style)';
+const WHOLE_ITALIC = 'The whole note is already italic (its style)';
+
+const LIST_TIPS: Record<LineList, string> = { none: 'None', bullet: 'Bulleted list', number: 'Numbered list' };
+
+/** Keeps the focus in the text box on a press of a strip button (a field keeps its own). */
+function keepTyping(event: { target: EventTarget; preventDefault(): void }): void {
+  const target = event.target as Element | null;
+  if (!target?.closest?.('input, textarea, [contenteditable="true"]')) event.preventDefault();
+}
+
+/** Focus handed back to the strip by a popup that closed goes on to the text box (a Tab onto the strip stays). */
+function backToTyping(event: { currentTarget: Element; relatedTarget: EventTarget | null }): void {
+  const from = event.relatedTarget instanceof Element ? event.relatedTarget : null;
+  if (!from || (!event.currentTarget.contains(from) && from.closest(`[${KEEP_TEXT_EDIT}]`))) focusNoteTyping();
+}
+
+/**
+ * The strip over a sticky being typed: text style, then bold and italic of
+ * the selected words | list | fill | comment. Presses keep the typing (and
+ * its selection) going; Escape on the strip goes back to the text.
+ */
+export function NoteTypingBar({ box, id }: { box: SelectionBarBox; id: string }) {
+  const note = useDocument((s) => s.canvas.notes[id]);
+  const typing = useNoteTyping();
+  const comments = useComments((s) => s.available) && canComment();
+  const place = useBarPlace(box);
+  if (!note || typing.id !== id) return null;
+  const style = readTextStyle(note);
+  const list = lineListOf(typing.text, typing.start, typing.end);
+  const words = canMark(typing.text, typing.start, typing.end);
+  const mark = (name: 'bold' | 'italic') => {
+    const whole = name === 'bold' ? style.bold : style.italic;
+    const on = !whole && hasMark(typing.text, typing.start, typing.end, name);
+    return (
+      <StripButton
+        tip={whole ? (name === 'bold' ? WHOLE_BOLD : WHOLE_ITALIC) : name === 'bold' ? 'Bold' : 'Italic'}
+        aria-label={name === 'bold' ? 'Bold' : 'Italic'}
+        pressed={on}
+        disabled={whole || !words}
+        onClick={() => editNoteTyping(({ text, start, end }) => toggleMark(text, start, end, name))}
+      >
+        {name === 'bold' ? <Bold {...ICON} /> : <Italic {...ICON} />}
+      </StripButton>
+    );
+  };
+  const ListIcon = list === 'number' ? ListOrdered : List;
+  return (
+    <div
+      ref={place.ref}
+      className="pointer-events-auto absolute z-10 w-max"
+      style={{ left: place.left, top: barTop(box) }}
+      onPointerDown={(event) => event.stopPropagation()}
+      onMouseDown={keepTyping}
+      onFocus={backToTyping}
+      data-selection-bar=""
+      data-note-bar={id}
+      data-note-typing-strip=""
+      {...{ [KEEP_TEXT_EDIT]: '' }}
+    >
+      <TipGroup>
+        <FoldToolbar aria-label="Note actions" data-focus-region="selection" rowClassName="gap-1 p-1" fold foldKey={`${id}:typing`} placed={barSide(box)} limit={place.limit}>
+          <Group>
+            <NoteTextStylePopup id={id} note={note} typing onClosed={focusNoteTyping} />
+            {mark('bold')}
+            {mark('italic')}
+          </Group>
+          <FoldDivider />
+          <Group>
+            <ChromeMenu
+              side="bottom"
+              mark={KEEP_TEXT_EDIT}
+              onOpenChange={(open) => (open ? undefined : focusNoteTyping())}
+              tip={{ label: `List: ${LIST_TIPS[list]}`, side: 'top' }}
+              trigger={
+                <ChromeButton aria-label="List" pressed={list !== 'none'} className="gap-0.5 px-1.5">
+                  <ListIcon {...ICON} />
+                  <ChevronDown className="size-3.5 opacity-60" strokeWidth={1.75} />
+                </ChromeButton>
+              }
+            >
+              {(['none', 'bullet', 'number'] as const).map((value) => {
+                const ItemIcon = value === 'none' ? Ban : value === 'bullet' ? List : ListOrdered;
+                return (
+                  <ChromeMenuItem key={value} checked={value === list} icon={<ItemIcon {...SMALL} />} onSelect={() => editNoteTyping(({ text, start, end }) => setLineList(text, start, end, value))}>
+                    {LIST_TIPS[value]}
+                  </ChromeMenuItem>
+                );
+              })}
+            </ChromeMenu>
+          </Group>
+          <FoldDivider />
+          <Group>
+            <StickyFillPopup id={id} note={note} onClosed={focusNoteTyping} />
+          </Group>
+          {comments ? (
+            <>
+              <FoldDivider />
+              <FoldGroup tail>
+                <CommentButton tip={NOTE_COMMENT.note} />
+              </FoldGroup>
+            </>
+          ) : null}
+        </FoldToolbar>
+      </TipGroup>
+    </div>
+  );
+}
+
+/**
+ * The strip over a selected note, shown only to people who can edit:
  *
  * - a video: play | cover image, crop, corner radius | lock | comment, properties;
  * - a picture: crop | lock | comment;
- * - a shape or a link card: lock | comment;
- * - a text note: comment.
+ * - a rectangle or oval: fill | lock | comment;
+ * - a line, arrow or drawing: stroke, line style | lock | comment;
+ * - a link card: open | lock | comment;
+ * - a sticky or title: text style, ink, bold, italic | fill (a sticky) | comment.
  *
- * Delete joins the comment on touch screens. Nothing left to show, no strip.
+ * Delete joins the comment on touch screens. A shape whose words are being
+ * typed keeps its strip, without the lock.
  */
 export function NoteBar({ box, id }: { box: SelectionBarBox; id: string }) {
   const note = useDocument((s) => s.canvas.notes[id]);
   const readOnly = useDocument((s) => s.readOnly);
   const on = useVideo((s) => s.slots.playing.includes(id) || s.slots.waiting.includes(id));
   const cropping = useView((s) => s.noteCrop === id);
-  const panelOpen = useView((s) => s.panelOpen);
+  const typing = useView((s) => s.noteEdit === id);
   const setPanel = useView((s) => s.setPanel);
   const comments = useComments((s) => s.available) && canComment();
   const coarse = useCoarsePointer();
@@ -1191,14 +1562,29 @@ export function NoteBar({ box, id }: { box: SelectionBarBox; id: string }) {
   const thing = noteThing(note);
   const video = thing === 'video';
   const picture = note.kind === 'image' && Boolean(note.src);
-  // Text notes take no lock in the strip; nor does a picture being cropped.
-  const padlock = thing !== 'note' && !cropping;
+  const text = thing === 'note';
+  const sticky = text && note.kind !== 'title1';
+  const looks = thing === 'shape' || thing === 'link';
+  // Text notes take no lock in the strip; nor does a picture being cropped or a shape being typed in.
+  const padlock = !text && !cropping && !typing;
   const deletes = coarse && !readOnly && deleteLocked === null;
-  const properties = video && !panelOpen;
-  if (!picture && !padlock && !comments && !deletes) return null;
+  // A video's strip always offers the Properties panel (open already: it goes to its Properties tab).
+  const properties = video;
+  if (!picture && !padlock && !comments && !deletes && !text && !looks) return null;
   const tail = comments || deletes || properties;
   return (
-    <div ref={place.ref} className="pointer-events-auto absolute z-10 w-max" style={{ left: place.left, top: barTop(box) }} onPointerDown={(event) => event.stopPropagation()} data-selection-bar="" data-note-bar={id}>
+    <div
+      ref={place.ref}
+      className="pointer-events-auto absolute z-10 w-max"
+      style={{ left: place.left, top: barTop(box) }}
+      onPointerDown={(event) => event.stopPropagation()}
+      // A shape being typed in keeps its typing while its strip is used.
+      onMouseDown={typing ? keepTyping : undefined}
+      onFocus={typing ? backToTyping : undefined}
+      data-selection-bar=""
+      data-note-bar={id}
+      {...(typing ? { [KEEP_TEXT_EDIT]: '' } : {})}
+    >
       <TipGroup>
         <FoldToolbar aria-label={thing === 'link' ? 'Link card actions' : thing === 'note' ? 'Note actions' : 'Shape actions'} data-focus-region="selection" rowClassName="gap-1 p-1" fold foldKey={id} placed={barSide(box)} limit={place.limit}>
           {video ? (
@@ -1222,6 +1608,29 @@ export function NoteBar({ box, id }: { box: SelectionBarBox; id: string }) {
             <>
               <Group>
                 <NoteCropButton id={id} note={note} readOnly={readOnly} />
+              </Group>
+              {padlock || tail ? <FoldDivider /> : null}
+            </>
+          ) : text ? (
+            <>
+              <Group>
+                <NoteTextStylePopup id={id} note={note} />
+                <NoteInkAndWeight id={id} note={note} />
+              </Group>
+              {sticky ? (
+                <>
+                  <FoldDivider />
+                  <Group>
+                    <StickyFillPopup id={id} note={note} />
+                  </Group>
+                </>
+              ) : null}
+              {tail ? <FoldDivider /> : null}
+            </>
+          ) : looks && note.kind !== 'image' ? (
+            <>
+              <Group>
+                <NoteShapeControls id={id} note={note} />
               </Group>
               {padlock || tail ? <FoldDivider /> : null}
             </>

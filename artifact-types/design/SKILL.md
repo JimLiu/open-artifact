@@ -85,7 +85,8 @@ whole page at that width, as tall as its content. Point them there; you take no 
     SEVERAL artboards, never for one (a frame's name strip shows its `title` or filename): one bold 72 px line; set `maxW` (its row's width; `maxH` if tight):
     longer text shrinks. ≥223 px above its row, off name strips, nothing over it. No `kind` = a sticky: set `w`; up
     to 4/3 `w` tall (keep that clear), taller in empty canvas, then scrolls. Both take `size` px|s|m|l|xl|xxl,
-    `bold`, `italic`, `page`, `color`/sticky `fill` gray|red|orange|green|teal|blue|purple|pink. `kind`
+    `bold`, `italic`, `page`, `color` (the words' ink) and sticky `fill` (its paper; default yellow), each
+    gray|red|orange|green|teal|blue|purple|pink. `kind`
     rect|oval|pen|line|arrow|image is the person's; leave it (its `css` holds only the style keys a note takes). An
     `image` note may carry `crop`, `video`, `videoStart`, `videoLoop`, `videoSound` and `videoCover`: set in the editor,
     never by you; its `src` and `video` are only `/_blob/<id>` addresses from an upload. The rest: `reference/canvas.md`.

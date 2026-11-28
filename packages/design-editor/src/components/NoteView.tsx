@@ -14,6 +14,8 @@ import { cn, isComposingKey } from '@open-artifact/ui';
 import { useDocument } from '../state/document.ts';
 import { useView } from '../state/view.ts';
 import { observeNoteSize } from '../services/engine.ts';
+import { registerNoteEditor, reportNoteTyping } from '../services/note-typing.ts';
+import { KEEP_TEXT_EDIT, focusInKeepChrome } from '../services/text-edit.ts';
 import { DEFAULT_STICKY, arrowHeads, penViewBox, noteStroke, inlineRuns, isPathNote, markdownBlocks, noteBounds, noteColor, noteFontSize, textLines } from '../lib/notes.ts';
 
 /** Renders inline Markdown runs. */
@@ -67,7 +69,8 @@ function Markdown({ text }: { text: string }) {
 function commitText(id: string, text: string): void {
   const doc = useDocument.getState();
   const note = doc.canvas.notes[id];
-  useView.getState().setNoteEdit(null);
+  // Typing may already have moved on to another note.
+  if (useView.getState().noteEdit === id) useView.getState().setNoteEdit(null);
   if (!note || note.text === text) {
     if (note && !text.trim() && (!note.kind || note.kind === 'sticky' || note.kind === 'title1')) removeNote(id);
     return;
@@ -91,6 +94,41 @@ function removeNote(id: string): void {
 function NoteEditor({ id, note, style }: { id: string; note: CanvasNote; style: CSSProperties }) {
   const [draft, setDraft] = useState(note.text ?? '');
   const ref = useRef<HTMLTextAreaElement>(null);
+  const latest = useRef(draft);
+  latest.current = draft;
+  /** The selection to make once a rewritten draft shows (a format from the typing strip). */
+  const pending = useRef<{ start: number; end: number } | null>(null);
+  const done = useRef(false);
+  const commit = () => {
+    if (done.current) return;
+    done.current = true;
+    commitText(id, latest.current);
+  };
+  useEffect(() => {
+    const area = ref.current;
+    if (!area) return;
+    reportNoteTyping(id, area);
+    return registerNoteEditor({
+      id,
+      area,
+      replace: ({ text, start, end }) => {
+        pending.current = { start, end };
+        latest.current = text;
+        setDraft(text);
+      },
+      commit,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+  useLayoutEffect(() => {
+    const area = ref.current;
+    const at = pending.current;
+    if (!area || !at) return;
+    pending.current = null;
+    area.focus({ preventScroll: true });
+    area.setSelectionRange(at.start, at.end);
+    reportNoteTyping(id, area);
+  }, [draft, id]);
   useEffect(() => {
     // Focus after the current pointer event: a note created on pointerdown
     // mounts during it, and the browser's own mousedown focus change would
@@ -113,15 +151,24 @@ function NoteEditor({ id, note, style }: { id: string; note: CanvasNote; style: 
     <textarea
       ref={ref}
       value={draft}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={() => commitText(id, draft)}
+      onChange={(event) => {
+        setDraft(event.target.value);
+        reportNoteTyping(id, event.target);
+      }}
+      onSelect={(event) => reportNoteTyping(id, event.currentTarget)}
+      onBlur={(event) => {
+        // Focus going to the typing strip or its popups keeps the typing going.
+        const to = event.relatedTarget instanceof Element ? event.relatedTarget : null;
+        if (to?.closest(`[${KEEP_TEXT_EDIT}]`) || focusInKeepChrome()) return;
+        commit();
+      }}
       onPointerDown={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
         event.stopPropagation();
         if (isComposingKey(event.nativeEvent)) return;
         if (event.key === 'Escape' || (event.key === 'Enter' && (event.metaKey || event.ctrlKey))) {
           event.preventDefault();
-          commitText(id, draft);
+          commit();
         }
       }}
       className="pointer-events-auto block w-full resize-none overflow-hidden border-0 bg-transparent p-0 outline-none"
@@ -193,7 +240,8 @@ export const NoteView = memo(function NoteView({ id, note, bare = false }: NoteV
     lineHeight: 1.35,
     fontWeight: (note.bold ?? note.kind === 'title1') ? 700 : 400,
     fontStyle: note.italic ? 'italic' : undefined,
-    color: note.kind === 'title1' ? noteColor(note.color, 'stroke', '#1d1d1b') : '#1d1d1b',
+    // A text note's `color` is the ink of its words (a sticky's paper is its `fill`).
+    color: !note.kind || note.kind === 'sticky' || note.kind === 'title1' ? noteColor(note.color, 'stroke', '#1d1d1b') : '#1d1d1b',
   };
   const position: CSSProperties = { left: note.x, top: note.y,
     ...(note.rotate || note.flipX || note.flipY ? { transform: `rotate(${note.rotate ?? 0}deg) scale(${note.flipX ? -1 : 1},${note.flipY ? -1 : 1})` } : {}) };
@@ -291,7 +339,7 @@ export const NoteView = memo(function NoteView({ id, note, bare = false }: NoteV
       data-note={id}
       data-sticky-scroll=""
       className={cn('absolute rounded-sm p-3', !editing && 'touch-none', bare ? 'pointer-events-none' : 'shadow-[0_1px_2px_rgba(0,0,0,0.12),0_4px_12px_rgba(0,0,0,0.06)]')}
-      style={{ ...position, width: note.w ?? 240, minHeight: note.h ?? 80, maxHeight: editing ? undefined : Math.max(note.h ?? 80, Math.round((note.w ?? 240) * 4 / 3)), overflowY: 'auto', background: bare ? undefined : noteColor(note.fill ?? note.color, 'sticky', DEFAULT_STICKY) }}
+      style={{ ...position, width: note.w ?? 240, minHeight: note.h ?? 80, maxHeight: editing ? undefined : Math.max(note.h ?? 80, Math.round((note.w ?? 240) * 4 / 3)), overflowY: 'auto', background: bare ? undefined : noteColor(note.fill, 'sticky', DEFAULT_STICKY) }}
     >
       {editing ? <NoteEditor id={id} note={note} style={textStyle} /> : <div style={textStyle}><Markdown text={note.text ?? ''} /></div>}
     </div>

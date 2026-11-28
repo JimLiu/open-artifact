@@ -229,7 +229,7 @@ export function noteItem(id: string, note: CanvasNote, look: NoteLook): CanvasIt
       return {
         ...base,
         kind: 'rect',
-        fill: noteFill(note.fill ?? note.color, 'sticky', DEFAULT_STICKY),
+        fill: noteFill(note.fill, 'sticky', DEFAULT_STICKY),
         radius: 2,
         shadow: { color: 'rgba(0,0,0,0.1)', blur: 10, dy: 3 },
       };

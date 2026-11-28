@@ -79,6 +79,7 @@ import { announce } from '../services/announce.ts';
 import { MIXED, inspectorRoute, mergedValue, selectionCounts, type MixedSelection, type ObjectsSelection, type PaintRole } from '../lib/selection.ts';
 import { zoomToBoards } from '../services/viewport.ts';
 import { isPathNote, NOTE_PALETTE, noteStroke } from '../lib/notes.ts';
+import { NOTE_SIZE_PRESETS } from '../lib/note-style.ts';
 import { noteRect } from '../lib/scene.ts';
 import { describeElement, detailOf, selectorOf } from '../lib/outline.ts';
 import { MOD } from '@open-artifact/editor-kit';
@@ -1368,13 +1369,7 @@ function BoardsInspector({ paths }: { paths: readonly string[] }) {
 
 /* ------------------------------- note inspector ---------------------------- */
 
-const SIZES: { value: Exclude<NoteSize, number>; label: string }[] = [
-  { value: 's', label: 'S' },
-  { value: 'm', label: 'M' },
-  { value: 'l', label: 'L' },
-  { value: 'xl', label: 'XL' },
-  { value: 'xxl', label: 'XXL' },
-];
+const SIZES: { value: Exclude<NoteSize, number>; label: string }[] = NOTE_SIZE_PRESETS.map((preset) => ({ value: preset.key, label: preset.key.toUpperCase() }));
 
 function Swatches({ selected, onPick, disabled, ring, colorOf }: { selected?: string; onPick(color: string): void; disabled: boolean; ring?: boolean; colorOf(color: (typeof NOTE_COLORS)[number]): string }) {
   return (
@@ -1416,6 +1411,11 @@ function NoteInspector({ id }: { id: string }) {
           onPick={(color) => updateNote(id, { [colorKey]: note[colorKey] === color ? undefined : color })}
         />
       </PRow>
+      {sticky ? (
+        <PRow label="Ink">
+          <Swatches ring selected={note.color} disabled={readOnly} colorOf={(color) => NOTE_PALETTE[color].stroke} onPick={(color) => updateNote(id, { color: note.color === color ? undefined : color })} />
+        </PRow>
+      ) : null}
       {shape ? (
         <PRow label="Stroke">
           <Swatches ring selected={note.color} disabled={readOnly} colorOf={(color) => NOTE_PALETTE[color].stroke} onPick={(color) => updateNote(id, { color: note.color === color ? undefined : color })} />

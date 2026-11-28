@@ -32,7 +32,7 @@ import { LayoutGuides } from './LayoutGuides.tsx';
 import { HoverLink } from './HoverLink.tsx';
 import { linkAround } from '../lib/hover-link.ts';
 import { templateOf } from '../services/agent.ts';
-import { NoteBar, SelectionBar } from './SelectionBar.tsx';
+import { NoteBar, NoteTypingBar, SelectionBar } from './SelectionBar.tsx';
 import { useScale } from '../services/scale.ts';
 import { viewportSize } from '../services/viewport.ts';
 import { boardTakesPart, elementGroupsOf, elementsIn, selectedBoardsOf, selectedNotesOf } from '../lib/selection.ts';
@@ -420,18 +420,18 @@ function SelectionOverlay({ engine }: { engine: boolean }) {
           })
         : null}
 
-      {/* A selection across files keeps its strip with the panel open: Duplicate and Delete act on all of it. */}
-      {elementBoxesOnScreen[0] && (!panelOpen || scaling || selection.kind === 'mixed') ? (
+      {/* Strips are for people who can edit. A selection across files keeps its strip with the panel open: Duplicate and Delete act on all of it. */}
+      {elementBoxesOnScreen[0] && !readOnly && (!panelOpen || scaling || selection.kind === 'mixed') ? (
         // Hidden while the camera moves: it does not scale with the canvas.
         <div data-camera-bound="">
           <SelectionBar box={elementBoxesOnScreen[0]} />
         </div>
       ) : null}
 
-      {/* A note's strip stays with the panel open; not while its words are typed. */}
-      {single?.note && singleNote && noteEdit !== single.note && !scaling && !playing ? (
+      {/* A note's strip stays with the panel open. While its words are typed a sticky has the typing strip, a shape its own, a title none. */}
+      {single?.note && singleNote && !readOnly && !scaling && !playing && !(noteEdit === single.note && singleNote.kind === 'title1') ? (
         <div data-camera-bound="">
-          <NoteBar box={single.box} id={single.note} />
+          {noteEdit === single.note && (!singleNote.kind || singleNote.kind === 'sticky') ? <NoteTypingBar box={single.box} id={single.note} /> : <NoteBar box={single.box} id={single.note} />}
         </div>
       ) : null}
 

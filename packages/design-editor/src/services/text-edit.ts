@@ -23,13 +23,17 @@ if (typeof document !== 'undefined') {
   document.addEventListener('pointerdown', (event) => (lastPointerDown = { target: event.target, at: performance.now() }), true);
 }
 
-/** True when focus went to (or the pointer just went down in) chrome that keeps the edit going. */
-function focusKeepsTextEdit(board: string): boolean {
-  const active = document.activeElement;
-  if (active?.closest?.(`[${KEEP_TEXT_EDIT}]`)) return true;
+/** True when focus went to (or the pointer just went down in) chrome that keeps an edit going. */
+export function focusInKeepChrome(): boolean {
+  if (document.activeElement?.closest?.(`[${KEEP_TEXT_EDIT}]`)) return true;
   const target = lastPointerDown.target as Element | null;
-  if (target?.closest?.(`[${KEEP_TEXT_EDIT}]`) && performance.now() - lastPointerDown.at < 1000) return true;
-  // Focus came back to the board's own frame.
+  return Boolean(target?.closest?.(`[${KEEP_TEXT_EDIT}]`)) && performance.now() - lastPointerDown.at < 1000;
+}
+
+/** True when focus went to chrome that keeps the edit going, or back to the board's own frame. */
+function focusKeepsTextEdit(board: string): boolean {
+  if (focusInKeepChrome()) return true;
+  const active = document.activeElement;
   return active instanceof HTMLIFrameElement && active.dataset.board === board;
 }
 

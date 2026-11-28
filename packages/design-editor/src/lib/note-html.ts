@@ -112,8 +112,10 @@ function titleHtml(note: CanvasNote, box: Rect): string {
 }
 
 function stickyHtml(note: CanvasNote, box: Rect): string {
-  const fill = safeNoteColor(note.fill ?? note.color, 'sticky', DEFAULT_STICKY);
-  return `<div style="margin: 0; box-sizing: border-box; width: ${px(box.w)}; min-height: ${px(box.h)}; padding: 12px; border-radius: 2px; background-color: ${fill}; line-height: ${NOTE_LINE_HEIGHT};${textCss(note, false)} white-space: pre-wrap;${noteTransformCss(note)}">${stickyBody(note.text ?? '')}</div>`;
+  // A sticky's `fill` is its paper, its `color` the ink of its words.
+  const fill = safeNoteColor(note.fill, 'sticky', DEFAULT_STICKY);
+  const ink = note.color ? ` color: ${safeNoteColor(note.color, 'stroke', '#1d1d1b')};` : '';
+  return `<div style="margin: 0; box-sizing: border-box; width: ${px(box.w)}; min-height: ${px(box.h)}; padding: 12px; border-radius: 2px; background-color: ${fill}; line-height: ${NOTE_LINE_HEIGHT};${textCss(note, false)}${ink} white-space: pre-wrap;${noteTransformCss(note)}">${stickyBody(note.text ?? '')}</div>`;
 }
 
 function shapeHtml(note: CanvasNote, box: Rect): string {

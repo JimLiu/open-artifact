@@ -23,7 +23,7 @@ each change and change only what you mean to.
   "order": ["Cart.dc.html", "Pay.dc.html", "parts/Card.dc.html"],
   "notes": {
     "t1": { "kind": "title1", "x": 0, "y": 0, "text": "Checkout flow", "maxW": 880 },
-    "n1": { "x": 980, "y": 120, "text": "Apple Pay only on iOS.", "color": "orange" }
+    "n1": { "x": 980, "y": 120, "text": "Apple Pay only on iOS.", "fill": "orange" }
   },
   "designSystems": []
 }
@@ -83,8 +83,9 @@ Keyed by id (`[A-Za-z0-9_-]{1,40}`), as many as you need while the whole index s
   with nothing over it.
 - No `kind` is a sticky: set `w`; it grows to 4/3 of `w` tall (keep that space clear), taller on empty
   canvas, then scrolls.
-- Both take `size` (px, or `s m l xl xxl`), `bold`, `italic`, `page`, and `color` (sticky: `fill`)
-  from `gray red orange green teal blue purple pink`.
+- Both take `size` (px, or `s m l xl xxl`), `bold`, `italic`, `page`, and `color`, the ink of the
+  words; a sticky also takes `fill`, its paper (yellow by default). Colors are
+  `gray red orange green teal blue purple pink`.
 - `rect`, `oval`, `pen`, `line`, `arrow` and `image` are what people draw on the canvas: leave them.
   Their look can sit in `css` (below).
 - Drawn inside an artboard, the same tools write into its page instead: an absolutely positioned `div`

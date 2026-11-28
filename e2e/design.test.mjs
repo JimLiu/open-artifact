@@ -3910,6 +3910,12 @@ editorSuite({
         assert.ok(await page.waitFor(`${box}.querySelector('video[data-note-video]')?.paused === true`, 5000), 'a second click pauses it');
         await clickOn(page, `${bar}.querySelector('button[aria-label="Properties"]')`);
         assert.ok(await page.waitFor(`!!${switchOf('Autoplay')} && ${textIn('Launch clip')}`, 5000), 'the Media section shows the video by name');
+        // Properties stays on the strip with the panel open, and takes the panel back to its Properties tab.
+        const tab = name => `[...document.querySelectorAll('[role=tab]')].find(t => t.textContent.trim() === ${JSON.stringify(name)})`;
+        await clickOn(page, tab('Code'), 'the Code tab');
+        assert.ok(await page.waitFor(`${tab('Code')}?.getAttribute('aria-selected') === 'true'`, 5000), 'the Code tab is open');
+        await clickOn(page, `${bar}.querySelector('button[aria-label="Properties"]')`, 'Properties with the panel open');
+        assert.ok(await page.waitFor(`${tab('Properties')}?.getAttribute('aria-selected') === 'true' && !!${switchOf('Autoplay')}`, 5000), 'Properties goes back to the Properties tab');
         // Autoplay off writes videoStart; Sound is then free; Autoplay on again drops both.
         assert.equal(await page.evaluate(`${switchOf('Autoplay')}.getAttribute('aria-checked')`), 'true');
         assert.equal(await page.evaluate(`${switchOf('Sound')}.hasAttribute('data-disabled')`), true, 'Sound waits for Autoplay to be off');
@@ -4063,6 +4069,128 @@ editorSuite({
         })()`, 5000), 'the page still draws it zoomed in its frame');
         assert.deepEqual(page.problems, []);
       } finally { await page.close(); }
+    });
+
+    it('a note’s strip styles it: a size and an ink on a sticky, a fill on a rectangle, a dash on a line, each written to canvas.json', T, async () => {
+      const { root, url } = await ctx.openNew('note-strip-style', (_ctx, dir) => {
+        copyFixture('design', dir);
+        const canvas = canvasOf(dir);
+        canvas.notes = {
+          memo: { x: 0, y: 700, w: 240, text: 'Style me' },
+          box: { kind: 'rect', x: 320, y: 700, w: 160, h: 100 },
+          wire: { kind: 'line', x: 560, y: 750, points: [[0, 0], [200, 0]] },
+        };
+        fs.writeFileSync(path.join(dir, 'project/canvas.json'), JSON.stringify(canvas));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('[data-note="memo"]')`, settle: 800 });
+      const notes = () => canvasOf(root).notes;
+      // Where a point of the canvas is on the page, from the artboard at 0,0 (a shape without words and a line have no DOM box).
+      const middles = { memo: [120, 720], box: [400, 750], wire: [660, 750] };
+      const select = async id => {
+        const at = await page.evaluate(`(() => { const r = document.querySelector('iframe[data-board="Main.dc.html"]').getBoundingClientRect(); const zoom = r.width / 880; return { x: r.left + ${middles[id][0]} * zoom, y: r.top + ${middles[id][1]} * zoom }; })()`);
+        await page.click(at.x, at.y);
+        assert.ok(await page.waitFor(`!!document.querySelector('[data-note-bar="${id}"]')`, 5000), `${id}: its strip shows`);
+      };
+      const onBar = (id, label) => `document.querySelector('[data-note-bar="${id}"] button[aria-label="${label}"]')`;
+      const swatch = value => `document.querySelector('[data-swatch="${value}"]')`;
+      try {
+        await select('memo');
+        assert.equal(await page.evaluate(`${onBar('memo', 'Text style')}.textContent.trim()`), 'Small');
+        await clickOn(page, onBar('memo', 'Text style'), 'Text style');
+        await clickOn(page, `[...document.querySelectorAll('button')].find(b => b.textContent.trim().startsWith('Large'))`, 'Large');
+        assert.ok(await until(() => notes().memo.size === 'l', 5000), `a preset writes its name: ${JSON.stringify(notes().memo)}`);
+        assert.ok(await page.waitFor(`${onBar('memo', 'Text style')}?.textContent.trim() === 'Large'`, 5000), 'the strip shows the new size');
+        await clickOn(page, onBar('memo', 'Ink'), 'Ink');
+        await clickOn(page, swatch('blue'), 'the blue ink');
+        assert.ok(await until(() => notes().memo.color === 'blue', 5000), `the ink is the sticky's color: ${JSON.stringify(notes().memo)}`);
+        await clickOn(page, onBar('memo', 'Bold'), 'Bold');
+        assert.ok(await until(() => notes().memo.bold === true, 5000), 'Bold is written');
+        assert.ok(await page.waitFor(`${onBar('memo', 'Bold')}?.getAttribute('aria-pressed') === 'true'`, 5000), 'Bold shows pressed');
+        await clickOn(page, onBar('memo', 'Fill color'), 'Fill color');
+        await clickOn(page, swatch('teal'), 'the teal paper');
+        assert.ok(await until(() => notes().memo.fill === 'teal', 5000), `the paper is the sticky's fill: ${JSON.stringify(notes().memo)}`);
+        await select('box');
+        await clickOn(page, onBar('box', 'Fill color'), 'the rectangle’s Fill color');
+        await clickOn(page, swatch('green'), 'green');
+        assert.ok(await until(() => notes().box.fill === 'green', 5000), `the rectangle is filled: ${JSON.stringify(notes().box)}`);
+        await select('wire');
+        await clickOn(page, onBar('wire', 'Line style'), 'Line style');
+        await clickOn(page, `document.querySelector('[role=group][aria-label="Line style"] button[aria-label="Dashed"]')`, 'Dashed');
+        assert.ok(await until(() => notes().wire.dash === 'dashed', 5000), `the line is dashed: ${JSON.stringify(notes().wire)}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('a sticky being typed has the typing strip: Bold marks the selected words in the draft, Escape writes the draft and the strip goes; a title has none', T, async () => {
+      const { root, url } = await ctx.openNew('note-typing-strip', (_ctx, dir) => {
+        copyFixture('design', dir);
+        const canvas = canvasOf(dir);
+        canvas.notes = { memo: { x: 0, y: 700, w: 240, text: 'make it bold' }, head: { kind: 'title1', x: 0, y: 900, text: 'Heading', maxW: 600 } };
+        fs.writeFileSync(path.join(dir, 'project/canvas.json'), JSON.stringify(canvas));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('[data-note="memo"]')`, settle: 800 });
+      const strip = `document.querySelector('[data-note-typing-strip]')`;
+      const typing = `document.activeElement?.tagName === 'TEXTAREA'`;
+      try {
+        const at = await middleOf(page, `document.querySelector('[data-note="memo"]')`);
+        await page.clickTimes(at.x, at.y, 2);
+        assert.ok(await page.waitFor(`${typing} && !!${strip}`, 5000), 'typing shows the typing strip');
+        assert.ok(await page.evaluate(`['Text style', 'Bold', 'Italic', 'Fill color', 'Comment'].every(name => ${strip}.querySelector('button[aria-label="' + name + '"]'))`), 'with its controls');
+        // Select "bold" and make it bold from the strip: the box keeps the typing.
+        await page.evaluate(`(() => { const area = document.activeElement; area.setSelectionRange(8, 12); area.dispatchEvent(new Event('select', { bubbles: true })); })()`);
+        await clickOn(page, `${strip}.querySelector('button[aria-label="Bold"]')`, 'Bold');
+        assert.ok(await page.waitFor(`${typing} && document.activeElement.value === 'make it **bold**'`, 5000), `Bold marks the words: ${await page.evaluate('document.activeElement?.value')}`);
+        assert.equal(canvasOf(root).notes.memo.text, 'make it bold', 'the draft is not written yet');
+        await page.press('Escape');
+        assert.ok(await page.waitFor(`!${strip} && !(${typing})`, 5000), 'Escape ends the typing and the strip goes');
+        assert.ok(await until(() => canvasOf(root).notes.memo.text === 'make it **bold**', 5000), `the draft is written: ${JSON.stringify(canvasOf(root).notes.memo)}`);
+        const head = await middleOf(page, `document.querySelector('[data-note="head"]')`);
+        await page.clickTimes(head.x, head.y, 2);
+        assert.ok(await page.waitFor(typing, 5000), 'the title is typed');
+        await new Promise(resolve => setTimeout(resolve, 300));
+        assert.equal(await page.evaluate(`!!document.querySelector('[data-note-bar]')`), false, 'a title being typed has no strip');
+        await page.press('Escape');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('a read-only canvas shows no strip on a selected note, for a viewer or a commenter', T, async () => {
+      const root = tmpDir('design-readonly-strip');
+      copyFixture('design', root);
+      const canvas = canvasOf(root);
+      canvas.notes = { memo: { x: 0, y: 700, w: 240, text: 'Read me' }, box: { kind: 'rect', x: 320, y: 700, w: 160, h: 100, text: 'Box' } };
+      fs.writeFileSync(path.join(root, 'project/canvas.json'), JSON.stringify(canvas));
+      const server = createTypeServer({ assetsDir: path.join(ctx.typeDir, 'scripts'), idleMs: 0, secret: 'test-owner',
+        lanAddresses: () => [], isLocal: req => req.headers['x-test-owner'] === 'yes' });
+      await server.listen();
+      try {
+        const opened = await server.open({ root, type: 'design' });
+        const response = await fetch(new URL('/__open-artifact/share', opened.url), { method: 'POST',
+          headers: { authorization: 'Bearer test-owner', 'content-type': 'application/json', 'x-test-owner': 'yes' },
+          body: JSON.stringify({ id: opened.id, lan: true }) });
+        assert.equal(response.status, 200);
+        const { links } = await response.json();
+        const editor = `document.querySelector('iframe[name="open-artifact-shell"]')`;
+        const inside = `${editor}?.contentDocument`;
+        for (const role of ['viewer', 'commenter']) {
+          const page = await (await ctx.browser()).load(links[role].url, { ready: "document.querySelector('input[name=name]')" });
+          try {
+            await typeInto(page, "document.querySelector('input[name=name]')", role);
+            await page.press('Enter');
+            assert.ok(await page.waitFor(`!!${inside}?.querySelector('[data-note="memo"]')`, 15000), `${role}: the canvas shows the notes`);
+            for (const id of ['memo', 'box']) {
+              const at = await page.evaluate(`(() => {
+                const outer = ${editor}.getBoundingClientRect();
+                const r = ${inside}.querySelector('[data-note="${id}"]').getBoundingClientRect();
+                return [outer.left + r.left + r.width / 2, outer.top + r.top + r.height / 2];
+              })()`);
+              await page.click(...at);
+              await new Promise(resolve => setTimeout(resolve, 400));
+              assert.equal(await page.evaluate(`!!${inside}.querySelector('[data-note-bar], [data-selection-bar]')`), false, `${role}: no strip on ${id}`);
+            }
+          } finally { await page.close(); }
+        }
+      } finally { await server.stop(); }
     });
 
     it('Comment on a selected note’s strip and on a selected element’s strip starts a comment there', T, async () => {

@@ -95,6 +95,7 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
   - a board that throws shows its error, and "Ask agent to fix" sends it (`wait` receives the title and the error);
   - "1 error" at the top right lists the artboards with errors and its "Ask agent to fix" sends them all; closing an artboard's error notice leaves a mark in its name strip that brings it back;
   - a pasted image is uploaded and becomes an image note in `canvas.json`;
+  - a note's strip styles it: a sticky's size preset (written by name), ink (`color`), Bold and paper (`fill`), a rectangle's fill and a line's dash each land in `canvas.json`; a sticky being typed shows the typing strip, whose Bold marks the selected words in the draft without ending the typing, and Escape writes the draft and takes the strip away; a title being typed has no strip; on a read-only canvas (a viewer's or a commenter's link) a selected note shows no strip;
   - PNG and PDF exports draw an artboard in the web font its own `@font-face` loads, a Flow artboard's paper pages too;
   - with WebGL, live artboards stay visible throughout zoom gestures, and the overview stays stable around 30 % until zoom reaches 32 %;
   - in WebGL and DOM, artboard titles, controls, and size labels keep their CSS dimensions as the board and its grid move through each zoom frame, and the title still selects, moves and renames the board;

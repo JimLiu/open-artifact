@@ -108,13 +108,13 @@ export function markdownBlocks(text: string): MarkdownBlock[] {
   return blocks;
 }
 
-/** Inline runs: `**bold**`, `*italic*` and `` `code` ``. */
+/** Inline runs: `**bold**`, `*italic*`, `***both***` and `` `code` ``. */
 export type InlineRun = { text: string; bold?: boolean; italic?: boolean; code?: boolean; href?: string };
 
 /** Splits a line into inline runs. */
 export function inlineRuns(text: string): InlineRun[] {
   const runs: InlineRun[] = [];
-  const pattern = /(\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g;
+  const pattern = /(\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g;
   let last = 0;
   for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
     if (match.index > last) runs.push({ text: text.slice(last, match.index) });
@@ -122,7 +122,8 @@ export function inlineRuns(text: string): InlineRun[] {
     if (token.startsWith('[')) {
       const split = token.indexOf('](');
       runs.push({ text: token.slice(1, split), href: token.slice(split + 2, -1) });
-    } else if (token.startsWith('**')) runs.push({ text: token.slice(2, -2), bold: true });
+    } else if (token.startsWith('***')) runs.push({ text: token.slice(3, -3), bold: true, italic: true });
+    else if (token.startsWith('**')) runs.push({ text: token.slice(2, -2), bold: true });
     else if (token.startsWith('`')) runs.push({ text: token.slice(1, -1), code: true });
     else runs.push({ text: token.slice(1, -1), italic: true });
     last = match.index + token.length;

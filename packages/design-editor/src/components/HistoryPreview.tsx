@@ -75,7 +75,7 @@ function PreviewNote({ note }: { note: CanvasNote }) {
         top: r.y,
         width: r.w,
         minHeight: title ? undefined : r.h,
-        background: title ? undefined : shape ? (note.fill ? noteColor(note.fill, 'sticky', 'transparent') : 'transparent') : noteColor(note.color, 'sticky', DEFAULT_STICKY),
+        background: title ? undefined : shape ? (note.fill ? noteColor(note.fill, 'sticky', 'transparent') : 'transparent') : noteColor(note.fill, 'sticky', DEFAULT_STICKY),
         border: shape ? `2px solid ${stroke}` : undefined,
       }}
     >
