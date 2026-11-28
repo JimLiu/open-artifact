@@ -1,6 +1,6 @@
 {
   "name": "@open-artifact/design-editor",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "private": true,
   "type": "module",
   "description": "The Design artifact editor: an infinite canvas of live HTML artboards with notes, inspector, tweaks and agent requests.",
@@ -9,15 +9,15 @@
     "dev": "vite"
   },
   "dependencies": {
-    "@open-artifact/canvas-engine": "0.17.0",
-    "@open-artifact/dc": "0.17.0",
-    "@open-artifact/design-core": "0.17.0",
-    "@open-artifact/design-system-core": "0.17.0",
-    "@open-artifact/editor-kit": "0.17.0",
-    "@open-artifact/export-kit": "0.17.0",
-    "@open-artifact/runtime": "0.17.0",
-    "@open-artifact/ui": "0.17.0",
-    "@open-artifact/wasm-export": "0.17.0",
+    "@open-artifact/canvas-engine": "0.18.0",
+    "@open-artifact/dc": "0.18.0",
+    "@open-artifact/design-core": "0.18.0",
+    "@open-artifact/design-system-core": "0.18.0",
+    "@open-artifact/editor-kit": "0.18.0",
+    "@open-artifact/export-kit": "0.18.0",
+    "@open-artifact/runtime": "0.18.0",
+    "@open-artifact/ui": "0.18.0",
+    "@open-artifact/wasm-export": "0.18.0",
     "dom-to-svg": "^0.12.2"
   },
   "license": "Apache-2.0"

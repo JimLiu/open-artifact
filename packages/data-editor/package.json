@@ -1,6 +1,6 @@
 {
   "name": "@open-artifact/data-editor",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "private": true,
   "type": "module",
   "description": "The Data artifact editor: dashboards and data pages built from connector queries, uploaded files and calculations, with sources, hand editing, drafts, history, read aloud and exports.",
@@ -9,13 +9,13 @@
     "dev": "vite"
   },
   "dependencies": {
-    "@open-artifact/data-core": "0.17.0",
-    "@open-artifact/editor-kit": "0.17.0",
-    "@open-artifact/export-kit": "0.17.0",
-    "@open-artifact/live-store": "0.17.0",
-    "@open-artifact/runtime": "0.17.0",
-    "@open-artifact/ui": "0.17.0",
-    "@open-artifact/wasm-export": "0.17.0",
+    "@open-artifact/data-core": "0.18.0",
+    "@open-artifact/editor-kit": "0.18.0",
+    "@open-artifact/export-kit": "0.18.0",
+    "@open-artifact/live-store": "0.18.0",
+    "@open-artifact/runtime": "0.18.0",
+    "@open-artifact/ui": "0.18.0",
+    "@open-artifact/wasm-export": "0.18.0",
     "d3-array": "3.2.4",
     "d3-axis": "3.0.0",
     "d3-brush": "3.0.0",

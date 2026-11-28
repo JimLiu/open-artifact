@@ -1,6 +1,6 @@
 {
   "name": "@open-artifact/whiteboard-editor",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "private": true,
   "type": "module",
   "description": "The Whiteboard artifact editor: an infinite, shared board of notes, shapes, arrows, ink, images, tables, stickers and embeds, with comments, presence and agent requests.",
@@ -9,15 +9,15 @@
     "dev": "vite"
   },
   "dependencies": {
-    "@open-artifact/canvas-engine": "0.17.0",
-    "@open-artifact/editor-kit": "0.17.0",
-    "@open-artifact/export-kit": "0.17.0",
-    "@open-artifact/motion-export": "0.17.0",
-    "@open-artifact/runtime": "0.17.0",
-    "@open-artifact/ui": "0.17.0",
-    "@open-artifact/wasm-export": "0.17.0",
-    "@open-artifact/wasm-motion": "0.17.0",
-    "@open-artifact/whiteboard-core": "0.17.0"
+    "@open-artifact/canvas-engine": "0.18.0",
+    "@open-artifact/editor-kit": "0.18.0",
+    "@open-artifact/export-kit": "0.18.0",
+    "@open-artifact/motion-export": "0.18.0",
+    "@open-artifact/runtime": "0.18.0",
+    "@open-artifact/ui": "0.18.0",
+    "@open-artifact/wasm-export": "0.18.0",
+    "@open-artifact/wasm-motion": "0.18.0",
+    "@open-artifact/whiteboard-core": "0.18.0"
   },
   "license": "Apache-2.0"
 }

@@ -2,7 +2,7 @@
 name: open-artifact
 description: Make an Open Artifact (a slide deck, a design canvas, a whiteboard, a data dashboard, a doc, a short animated motion piece, …) as a folder of files that opens as a live local page where the person views, edits, comments and exports, with their comments coming back to you. Use when the person types `/open-artifact <type> <what to make>`, or asks for something they will look at closely, keep, change, comment on or present - a presentation, pitch or talk deck; app screens, a mockup, a landing page, a poster, flyer or graphic, or "a few options" to look at; a brainstorm or retro board, a flowchart or an architecture sketch; a dashboard, metrics page, KPI tracker or recurring report from their data; a document, report, proposal, plan, spec, memo, notes or other writing to keep, share or comment on; a short animated video, an explainer, a promo, motion graphics or a GIF; a widget or mini game - or asks to keep or share a diagram you drew. Not for answers read once, code, or a file in a format they named.
 argument-hint: <type> <what to make>
-generated-by: open-artifact 0.17.0
+generated-by: open-artifact 0.18.0
 etag: 060ad4fa66ebeae3
 ---
 

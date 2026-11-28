@@ -6,6 +6,45 @@ Every release of Open Artifact: the `@open-artifact/*` libraries, `@open-artifac
 Each entry is written from the commits since the previous tag (`node scripts/changelog.mjs` lists them); see
 [Releasing](README.md#releasing).
 
+## [0.18.0] - 2026-11-27
+
+Draw and rearrange designs across artboards, navigate and animate whiteboards, and work with connected tables and richer documents.
+
+### Added
+
+- Design can select artboards, notes and elements together; move, copy, cut, paste, align, lock and arrange them in one undo step; and copy and paste properties across kinds. Drag notes and frameless pieces into artboards, move elements back onto the canvas or between artboards, and paste layers into a selected artboard. Grouping and ungrouping keep elements in place.
+- Design's drawing tools insert text, shapes, lines, arrows, pencil strokes and frames directly into artboards, with snapping and point editing for SVG paths. Picture notes can be cropped, video notes can be added, and note strips offer text, fill, stroke and comment controls. Properties add grid layout, spans, size limits, per-side borders, gradient text and state styles.
+- Slides adds element locking and stacking shortcuts, an inline Scale strip with a live preview and grips, links on selected words, and comments anchored to individual list items or table cells. Space, the middle button or a right-button drag pans the stage, and Alt shows distances to nearby elements.
+- Docs adds a table of contents block, links to selected words, word and character counts, comment filters, unread marks and thread assignment. Word and PDF exports ask which tabs to include, and the table of contents is kept in print, HTML, Word and Markdown exports.
+- Sheets adds named ranges, cell and sheet protection, hidden sheets, default values and limits, more chart types, and named versions with change summaries. Connected tables can ask the owning agent to load or refresh records, with confirmation of a new call, progress and failure reasons; agents gain connected-table edits, reads and the `refresh` command.
+- Whiteboard adds links to elements on the same board, a Back button after a jump and a Go to section menu. Flowing dashed arrows show direction, respect reduced motion and can be exported as an animated GIF or a silent MP4.
+- Data adds a shared autosaved draft, draft history and restoration, auto-publish controls, and connector sharing, execution identity and shared results. Connectors can read sheets. Sources show counts, failures and retry details; history rows offer Restore, and links show their destination in a card.
+- Comments across artifact types support people and agent mentions, editing, a composer in the All comments panel and a pin for an unfinished draft. Empty artifacts offer a What should it be? field that carries the person's brief into the agent handoff.
+- A Hermes Agent plugin provides Artifact, ArtifactData and ArtifactComments through the stdio Harness bridge, carries its own runtime in the release bundle and reconnects sessions without losing undelivered messages.
+
+### Changed
+
+- Design exports an entire project in numbered ZIP files when needed, and one-file HTML embeds imported stylesheets and their assets, reporting anything it cannot include. Slides' Best quality web exports keep original pictures until the size limit requires reductions; PDF and web exports warn about slides still being written.
+- Selection and formatting bars fold controls that do not fit. Design's toolbar can move between the top and bottom from the artifact menu, with a Comment button at the bottom; Slides fits narrow windows and adds a Comment button and video controls. Motion's floating playback and action bars join at the bottom when space is limited.
+- Motion export starts in one click, reports a successful save in a toast and keeps a file available to save again when the host cannot save it.
+- The website's home page runs live demos for all nine types, each replaying an agent creating and revising a Juniper Coffee showcase artifact. `npm run desktop` builds and launches Desktop with renderer hot updates and automatic restarts for main-process and runtime changes.
+
+### Fixed
+
+- Slides refuses unsafe SVG markup, resource links and SMIL targets, and Docs normalizes and rejects unsafe link schemes. MCP and ChatGPT cards accept messages only from their parent, including hosts with an opaque sandbox origin.
+- Desktop closes views left by a failed open, checks subframe redirects, preserves overlay focus and disabled commands, applies the chosen theme at startup and validates external URLs through one path.
+- Design and Slides catch up on files changed during a disconnected event stream while retaining the camera, selection, drafts and unsaved edits. Slide page numbers follow additions, moves, deletions and undo; undo restores deleted slides and elements with their original tags and classes.
+- Design prototypes start from their initial state each time they play on the canvas. Zoom keeps live artboards stable and overlays at screen size; grouping, stacking, locks, paste and drag placement preserve the intended layout. Resize handles in Whiteboard and Docs and percentage-positioned elements in Design follow the pointer correctly.
+- Input-method Enter and Escape no longer submit fields, close panels or trigger editor shortcuts while confirming a candidate. Number fields validate bounds and ambiguous input, announce adjustments and commit before Save.
+- The Ask pane stops showing a request as waiting when its owner receives it, including through assignment, an inbox take or an open wait; another session taking a message does not mark the owner's request delivered. Docs keeps comment send context across offline retries.
+- Data recalculates expressions that read `dash.params()` when filters change and keeps sources when applying a page-only shared draft. Connected-table refreshes can be retried after one minute when an agent never answers, and Sheets explains Excel export losses in plain language.
+
+### Integrators
+
+- The shipped `hermes` harness profile supports L3 stdio integration. Hermes and the Python stdio example route only explicitly identified owner messages as user turns; messages they cannot hand on are returned with `inbox.return` or retained for the next tool result. Hermes sends a tool call only once when its bridge fails.
+- Shell messages add Whiteboard element navigation and link copying, and an optional unread-comments flag on chrome reports. Hosts can provide `room.participants()` / `GET _api/participants` for mentions. Owner inbox delivery emits `wake/state` with `via: "taken"`; returning undelivered messages uses `via: "inbox"` when messages remain waiting.
+- A failed refresh of declared hosts keeps the last successful declaration, and only the latest host hello applies. A host theme without an accent clears the previous host's accent from the Shell and Page runtime. The Harness protocol version remains 1.
+
 ## [0.17.0] - 2026-11-26
 
 Edit video footage in Motion, draw with a pen or touch on Whiteboard, and make artifacts from OMP.
@@ -736,6 +775,7 @@ One version for every package, with Docs and Sheets in every plugin.
 - Plugins for Claude Code, Codex, Cursor, Copilot, ChatGPT and DeepSeek Harness.
 - English and Chinese READMEs, under Apache-2.0.
 
+[0.18.0]: https://github.com/JimLiu/open-artifact/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/JimLiu/open-artifact/compare/v0.16.3...v0.17.0
 [0.16.3]: https://github.com/JimLiu/open-artifact/compare/v0.16.2...v0.16.3
 [0.16.2]: https://github.com/JimLiu/open-artifact/compare/v0.16.1...v0.16.2

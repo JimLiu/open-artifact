@@ -1,7 +1,7 @@
 {
   "name": "open-artifact",
   "displayName": "Open Artifact",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "description": "Make slide decks, design canvases, whiteboards, spreadsheets, data dashboards, docs, animated films, design systems and free HTML pages as local files that open in one page where you view, edit and comment. /open-artifact <type> <what to make>. Comments you send from the page come back to ZCode.",
   "author": { "name": "Open Artifact" },
   "license": "Apache-2.0",
