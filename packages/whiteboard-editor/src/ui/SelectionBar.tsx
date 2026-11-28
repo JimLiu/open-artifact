@@ -1019,7 +1019,7 @@ export function SelectionBar(): ReactNode {
   const camera = useCamera((state) => state.camera);
   const viewWidth = useCamera((state) => state.width);
   const viewHeight = useCamera((state) => state.height);
-  const menuOpen = useContextMenu((state) => state.open && state.kind === 'items');
+  const menuOpen = useContextMenu((state) => state.open && state.fromBar);
   const coarse = useCoarsePointer();
   const pickedLayer = usePickedLayer();
 
@@ -1126,7 +1126,7 @@ export function SelectionBar(): ReactNode {
       onClick={(event) => {
         const rect = event.currentTarget.getBoundingClientRect();
         leaveTyping();
-        useContextMenu.getState().show({ at: { x: rect.left, y: rect.bottom + 6 }, kind: 'items', keyboard: event.detail === 0 });
+        useContextMenu.getState().show({ at: { x: rect.left, y: rect.bottom + 6 }, kind: 'items', keyboard: event.detail === 0, fromBar: true });
       }}
     />
   );

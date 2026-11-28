@@ -11,7 +11,7 @@ import type {
 } from './types.ts';
 import { isPlainObject } from './text.ts';
 import { checkRulePattern } from './rule-pattern.ts';
-import { EMPTY_PARAMS, parseDashboardContent } from './model.ts';
+import { EMPTY_PARAMS, markParsedContent, parseDashboardContent } from './model.ts';
 import { getSourceConnectorSpec, getSqlToolSpec } from './connectors.ts';
 import {
   EXACT_PARAMETER_PLACEHOLDER_PATTERN,
@@ -316,7 +316,7 @@ export function prepareDashboardContent(raw: unknown): DashboardContent {
   const content = parseDashboardContent(raw);
   const datasets = content.datasets.map((dataset) => fillDatasetParameters(dataset, content.params));
   const prepared = datasets.every((dataset, index) => dataset === content.datasets[index]) ? content : { ...content, datasets };
-  preparedContents.add(prepared);
+  preparedContents.add(markParsedContent(prepared));
   return prepared;
 }
 

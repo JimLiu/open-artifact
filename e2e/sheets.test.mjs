@@ -136,6 +136,31 @@ describe(TYPE, { skip: skip() }, () => {
     assert.equal(fs.readFileSync(csv.file, 'utf8').trim().split(/\r?\n/).join('|'), 'Item,Cost|Rent,"$1,200.00"|Food,$300.00|Total,"$1,500.00"');
   });
 
+  // Export of a Sheet with protection and default values says in words what Excel loses, never the engine's codes; and
+  // a name whose cells were deleted reads with no address (null), not "#REF!", in readNamedRanges and readSheets.
+  it('export names what a protection and default values lose in words, and a name of deleted cells has no address', T, async () => {
+    const root = path.join(tmpDir('sheets-names'), 'prices');
+    fs.mkdirSync(root, { recursive: true });
+    await ctx.cli.json(['update', root, edits(1, [
+      { kind: 'writeCells', sheet: 'Sheet1', topLeft: 'A1', rows: [['Item', 'Price'], ['Tea', 4], ['Cake', 6]] },
+      { kind: 'saveNamedRange', name: 'Prices', sheet: 'Sheet1', range: 'B2:B3' },
+      { kind: 'writeCells', sheet: 'Sheet1', topLeft: 'D1', rows: [['=SUM(Prices)']] },
+      { kind: 'setDefaultValues', sheet: 'Sheet1', range: 'B2:B3', defaultValue: 1, limits: { minimum: 0, maximum: 50 } },
+      { kind: 'saveProtection', sheet: 'Sheet1', range: 'A1:B1' },
+    ])]);
+    const named = await ctx.cli.json(['read', root, JSON.stringify({ kind: 'readNamedRanges' })]);
+    assert.deepEqual(named.namedRanges, [{ name: 'Prices', address: 'Sheet1!B2:B3' }]);
+    const exported = await ctx.cli.json(['export', root]);
+    assert.ok(exported.notCarriedOver.includes('Cells can’t be reset to their defaults.'), JSON.stringify(exported.notCarriedOver));
+    assert.ok(exported.notCarriedOver.some(words => /anyone who opens the file can unlock them/.test(words)), JSON.stringify(exported.notCarriedOver));
+    for (const words of exported.notCarriedOver) assert.match(words, /\s/, `an engine code reached the agent: ${words}`);
+    await ctx.cli.json(['update', root, edits(2, [{ kind: 'deleteColumns', sheet: 'Sheet1', columns: 'B' }])]);
+    const gone = await ctx.cli.json(['read', root, JSON.stringify({ kind: 'readNamedRanges' })]);
+    assert.deepEqual(gone.namedRanges, [{ name: 'Prices', address: null }]);
+    const sheets = await ctx.cli.json(['read', root]);
+    assert.deepEqual(sheets.namedRanges, [{ name: 'Prices', address: null }]);
+  });
+
   it('open serves the page, and an update while it is open reaches it at once', T, async () => {
     const opened = await ctx.cli.json(['open', ctx.root, '--json']);
     assert.equal(opened.type, TYPE);

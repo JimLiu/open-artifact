@@ -20,8 +20,8 @@ open-artifact read <root> '{"kind":"readCellsChangedFromTheirDefaults","sheet":"
 
 - `saveNamedRange {name, sheet, range}` names some cells, and a formula can then use the name where it would use their address: `=SUM(Prices)`. `range` is cells (`A2:A9`), whole columns (`A:B`) or whole rows (`2:3`), never with a sheet name or `$` signs.
 - A FORMULA ONLY FINDS A NAME THAT ALREADY EXISTS. Save the name first: earlier in the same `applyEdits`, or in an update before it. A formula written before its name shows `#NAME?`, and keeps showing it after the name is saved until the formula is written again.
-- Capitals do not tell two names apart. To point a name at other cells, or to rename it, send `saveNamedRange` with `"inPlaceOf"` set to the name it has now. A formula keeps the words it was written with, so after a rename the formulas that used the old name show `#NAME?`: rewrite them in the same `applyEdits`.
-- `removeNamedRange {name}` deletes a name, and every formula that used it shows `#NAME?`. If you know of such formulas, say which before you delete it.
+- Capitals do not tell two names apart. To point a name at other cells, or to rename it, send `saveNamedRange` with `"inPlaceOf"` set to the name it has now. A formula holds the name itself, not its words, so after a rename the formulas that used it read the new name and go on working: leave them as they are.
+- `removeNamedRange {name}` deletes a name, and every formula that used it then reads `#REF!` where the name was and shows `#REF!`. Saving a name of the same words again does not mend them: they must be written again. If you know of such formulas, say which before you delete it.
 - `readNamedRanges {}` gives each name and the address it stands for now; `readSheets` lists them as well, under `namedRanges`, if the workbook has any. A `null` address means the cells it stood for were deleted.
 - A name the workbook does not have is refused with `namedRangeIsGone`, and the refusal says which names it does have.
 - In the page, people see and edit the names in the Named ranges pane.

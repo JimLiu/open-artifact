@@ -123,7 +123,9 @@ function parseDeclarations(text: string): Array<[string, string]> {
  */
 function parseStylesheet(css: string, firstOrder: number): StyleRule[] {
   const rules: StyleRule[] = [];
-  const text = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  // Comments go, and so do statement at-rules (`@charset …;`, `@import …;`, `@namespace …;`), which have no block:
+  // left in, one would be read as the start of the next rule's selector and take that rule with it.
+  const text = css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/@[\w-]+[^;{}]*;/g, '');
   let index = 0;
   let order = firstOrder;
   while (index < text.length) {
@@ -326,13 +328,46 @@ function describeUnknownParts(parts: readonly string[]): string {
  * and its viewBox size, or why it cannot be used.
  */
 export function cleanShapeSvg(source: string, title: string): CleanedShapeSvg | RefusedShapeSvg {
+  try {
+    return cleanShapeSvgOrThrow(source, title);
+  } catch {
+    // Whatever else goes wrong (a drawing nested deeper than the stack goes, say) leaves out this shape alone.
+    return refuse(UNREADABLE_DRAWING);
+  }
+}
+
+/** Why a drawing of `length` characters (or bytes) is left out, past {@link MAX_SHAPE_SVG_INPUT_CHARS}. */
+export function tooLargeToRead(length: number): string {
+  return `is too large to read (${Math.ceil(length / 1000)}k characters)`;
+}
+
+/** Why a drawing the board cannot read is left out. */
+const UNREADABLE_DRAWING = 'is not a drawing the board can read';
+
+/** {@link cleanShapeSvg}, throwing what it does not expect. */
+/** Deeper than any drawing needs; past it, reading the tree gets slow enough to stall the page. */
+const MAX_SHAPE_SVG_DEPTH = 256;
+
+/** How deeply the tags in `text` nest, by a quick scan that does not build the tree. */
+function nestingDepth(text: string): number {
+  let depth = 0;
+  let deepest = 0;
+  for (const match of text.matchAll(/<(\/?)[A-Za-z_][^>]*?(\/?)>/g)) {
+    if (match[1]) depth--;
+    else if (!match[2]) deepest = Math.max(deepest, ++depth);
+  }
+  return deepest;
+}
+
+function cleanShapeSvgOrThrow(source: string, title: string): CleanedShapeSvg | RefusedShapeSvg {
   if (typeof source !== 'string' || source.trim() === '') return refuse('has no drawing');
-  if (source.length > MAX_SHAPE_SVG_INPUT_CHARS) return refuse(`is too large to read (${Math.ceil(source.length / 1000)}k characters)`);
+  if (source.length > MAX_SHAPE_SVG_INPUT_CHARS) return refuse(tooLargeToRead(source.length));
   const body = source
     .replace(/^\uFEFF/, '')
     .replace(/^\s*<\?xml[^>]*\?>/, '')
     .replace(/<!DOCTYPE[^>[]*(?:\[[\s\S]*?\])?\s*>/i, '')
     .trim();
+  if (nestingDepth(body) > MAX_SHAPE_SVG_DEPTH) return refuse(UNREADABLE_DRAWING);
   let root: XmlElement;
   try {
     root = parseXml(body);
@@ -389,6 +424,6 @@ export function cleanShapeSvg(source: string, title: string): CleanedShapeSvg | 
   if (svg.length > MAX_SHAPE_SVG_CHARS) return refuse(`is too detailed (${svg.length.toLocaleString('en-US')} characters after cleaning; a shape has at most ${MAX_SHAPE_SVG_CHARS.toLocaleString('en-US')})`);
   const parts = unknownSvgParts(svg);
   if (parts.length > 0) return refuse(describeUnknownParts(parts));
-  if (typeof checkSvgSource(svg) === 'string') return refuse('is not a drawing the board can read');
+  if (typeof checkSvgSource(svg) === 'string') return refuse(UNREADABLE_DRAWING);
   return { ok: true, svg, w: boxW, h: boxH };
 }

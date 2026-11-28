@@ -895,6 +895,39 @@ describe(`${TYPE} in a browser`, { skip: skip() || browserSkip }, () => {
     }
   });
 
+  it('draws a shared draft that changes only the page with the dashboard’s own sources, when the page opens on it', T, async () => {
+    const { createTypeServer } = await import('../packages/type-server/src/index.ts');
+    const server = createTypeServer({ secret: 'data-draft-sources', idleMs: 0, assetsDir: path.join(typePath(TYPE), 'scripts'), lanAddresses: () => [] });
+    let page;
+    try {
+      const root = path.join(tmpDir('data-draft-sources'), 'dashboard');
+      const titled = title =>
+        `<meta name="dash-one-writer">\n<main><h1 id="title">${title}</h1><p>Notes: <b id="count" data-draw="count" data-source="notes">—</b></p></main>\n` +
+        `<script>dash.draw('count', el => { const notes = dash.data('notes'); el.textContent = notes.status === 'ok' ? String(notes.data.length) : '—'; });</script>\n`;
+      writeDoc(root, 'dash/meta', { title: 'Draft sources' });
+      writeDoc(root, 'datasets/notes', { title: 'Notes', source: { kind: 'store', path: 'data/team/notes' } });
+      writeDoc(root, 'data/team/notes/a', { text: 'One' });
+      writeDoc(root, 'data/team/notes/b', { text: 'Two' });
+      writeDoc(root, 'files/index.html', { text: titled('Live') });
+      // A change to the page alone waits in the shared draft: its sources are the dashboard's.
+      writeDoc(root, 'drafts/shared', { v: 1, kind: 'edit', by: 'someone', at: Date.now(), base: '', editors: { someone: true } });
+      writeDoc(root, 'drafts/shared/files/index.html', { text: titled('Draft') });
+      await server.listen();
+      const opened = await server.open({ root, type: TYPE, title: 'Draft sources' });
+      page = await browser.load(opened.url, { ready: `document.querySelector('h1#title')`, ignore: [/\/favicon\.ico$/] });
+      const one = async expression => (await page.evaluateAll(expression)).find(value => value !== null && value !== undefined);
+      assert.ok(await page.waitFor(`document.querySelector('h1#title')?.textContent === 'Draft'`, 15000), 'the page did not open on the shared draft');
+      assert.ok(
+        await page.waitFor(`document.querySelector('#count')?.textContent === '2'`, 15000),
+        `the draft's page did not read the dashboard's source: ${await one(`document.querySelector('#count')?.textContent ?? null`)}`,
+      );
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await page?.close();
+      await server.stop();
+    }
+  });
+
   it('keeps hand edits in the shared draft as they are made, with Undo and Redo on their own, and publishes them once the pencil is put down', T, async () => {
     const { createTypeServer } = await import('../packages/type-server/src/index.ts');
     const server = createTypeServer({ secret: 'data-joint', idleMs: 0, assetsDir: path.join(typePath(TYPE), 'scripts'), lanAddresses: () => [] });
@@ -918,9 +951,13 @@ describe(`${TYPE} in a browser`, { skip: skip() || browserSkip }, () => {
       assert.ok(await page.waitFor(`document.querySelector('h1#title')?.isContentEditable || document.activeElement?.closest?.('[contenteditable="true"]')`, 5000), 'clicking the title did not start typing');
       await page.press('End');
       await page.type(' now');
+      // A pause in the typing, longer than edits rest before they are kept, leaves the caret where it was.
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      assert.equal(await one(`document.activeElement?.id ?? null`), 'title', 'a pause in the typing ended it');
+      await page.type(' then');
       // Ending the typing makes a step; the step goes into the shared draft a moment later, with no Save.
       await page.press('Escape');
-      assert.ok(await until(() => draftText()?.includes('Live now'), 10000), `the change did not reach the shared draft: ${draftText()}`);
+      assert.ok(await until(() => draftText()?.includes('Live now then'), 10000), `the change did not reach the shared draft: ${draftText()}`);
       assert.equal(readDoc(root, 'files/index.html').text.includes('Live now'), false, 'the change was published');
       assert.equal(await one(`Boolean(${button('Save')})`), false, 'editing in the shared draft offers Save');
       const alone = `document.querySelector('.dash-edit-history[data-usable]')`;
@@ -931,13 +968,13 @@ describe(`${TYPE} in a browser`, { skip: skip() || browserSkip }, () => {
       await page.evaluateAll(`${alone}?.querySelector('button[aria-label="Undo"]')?.click()`);
       assert.ok(await until(() => !draftText()?.includes('Live now'), 10000), `Undo left the change in the draft: ${draftText()}`);
       await page.evaluateAll(`${alone}?.querySelector('button[aria-label="Redo"]')?.click()`);
-      assert.ok(await until(() => draftText()?.includes('Live now'), 10000), `Redo did not put the change back: ${draftText()}`);
+      assert.ok(await until(() => draftText()?.includes('Live now then'), 10000), `Redo did not put the change back: ${draftText()}`);
 
       // Back to using the page, with auto-publish on and nobody else's changes in the draft, it goes live a moment later.
       await page.evaluateAll(`document.querySelector('button[aria-label="Use the page"]')?.click()`);
       assert.ok(await page.waitFor(`!document.querySelector('[data-dash-mode]')`, 10000), 'the pencil did not stop editing');
-      assert.equal(await one(`document.querySelector('h1#title')?.textContent ?? null`), 'Live now');
-      assert.ok(await until(() => readDoc(root, 'files/index.html').text.includes('Live now'), 15000), 'the hand edit was not published after the pencil was put down');
+      assert.equal(await one(`document.querySelector('h1#title')?.textContent ?? null`), 'Live now then');
+      assert.ok(await until(() => readDoc(root, 'files/index.html').text.includes('Live now then'), 15000), 'the hand edit was not published after the pencil was put down');
       assert.ok(await until(() => draftText() === null, 10000), `the published change is still in the draft: ${draftText()}`);
       assert.ok(await page.waitFor(button('Published'), 10000), 'no Published menu once the draft went live');
       assert.deepEqual(page.problems, []);

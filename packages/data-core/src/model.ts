@@ -341,6 +341,16 @@ export const EMPTY_DASHBOARD_CONTENT: DashboardContent = {
 const parsedContents = new WeakSet<object>();
 
 /**
+ * Marks content made from parsed content (a draft applied to the dashboard, datasets filled in) as parsed, so
+ * `parseDashboardContent` hands it back as it is instead of reading it again as documents, which would drop its
+ * datasets.
+ */
+export function markParsedContent<T extends DashboardContent>(content: T): T {
+  parsedContents.add(content);
+  return content;
+}
+
+/**
  * The dashboard read from its documents, `{meta, params, settings, look, datasets: {id: doc}, files: {name: doc}}`
  * (see `composeDashboardDocuments`). Content already parsed comes back as it is.
  */

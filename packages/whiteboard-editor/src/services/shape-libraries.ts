@@ -15,6 +15,7 @@
 
 import {
   MAX_BOARD_SHAPE_LIBRARIES,
+  MAX_SHAPE_SVG_INPUT_CHARS,
   SHAPE_LIBRARY_LIMITS,
   refuseShapeLibrary,
   readShapeLibrary,
@@ -27,6 +28,8 @@ import {
   type LeftOutShape,
   type ShapeLibrary,
   type ShapeLibraryRead,
+  type ShapeLibraryRefusal,
+  type SvgFile,
 } from '@open-artifact/whiteboard-core';
 import { resolveAssetUrl } from '../elements/links.ts';
 import { changeBoard, useBoard } from '../state/board.ts';
@@ -92,6 +95,10 @@ export async function addShapeLibrary(read: ShapeLibraryRead): Promise<LibraryIm
   }
   const assets = maybeSession()?.assets;
   if (!assets) return { ok: false, name: library.name, reason: NO_UPLOADS_MESSAGE, leftOut };
+  // A full board refuses before anything is uploaded (an upload the page cannot delete again); no library has the
+  // empty id, so only the room is checked here.
+  const full = refuseShapeLibrary(useBoard.getState().board.content.shapes ?? [], '');
+  if (full !== undefined) return { ok: false, name: library.name, reason: full, leftOut };
   let record: { id: string; url: string };
   try {
     record = await assets.upload(new Blob([serializeShapeLibrary(library)], { type: 'application/json' }), { name: `${library.name}.shapes.json` });
@@ -141,22 +148,44 @@ export async function importShapeFiles(files: readonly File[]): Promise<LibraryI
       results.push({ ok: false, name: file.name, reason: `It is larger than ${SHAPE_LIBRARY_LIMITS.bytes / 1024 / 1024} MB.`, leftOut: [] });
       continue;
     }
-    const bytes = new Uint8Array(await file.arrayBuffer());
+    const bytes = await fileBytes(file);
+    if (bytes === undefined) {
+      results.push({ ok: false, name: file.name, reason: UNREADABLE_FILE, leftOut: [] });
+      continue;
+    }
     // An SVG under another name joins the other SVG files.
     if (sniffLibraryBytes(bytes) === 'svg') {
       svgs.push(file);
       continue;
     }
-    const read = await readShapeLibraryBytes(bytes, file.name);
+    const read = await readShapeLibraryBytes(bytes, file.name).catch((): ShapeLibraryRefusal => ({ ok: false, reason: UNREADABLE_FILE }));
     results.push(read.ok ? await addShapeLibrary(read) : { ok: false, name: file.name, reason: read.reason, leftOut: [] });
   }
   if (svgs.length > 0) {
-    const texts = await Promise.all(svgs.slice(0, SHAPE_LIBRARY_LIMITS.shapes).map(async (file) => ({ fileName: file.name, text: file.size > 400_000 ? '' : await file.text() })));
+    // A file too large to read is still named, as too large (a cut-off or empty text would read as no drawing).
+    const texts = await Promise.all(
+      svgs.slice(0, SHAPE_LIBRARY_LIMITS.shapes).map(async (file): Promise<SvgFile> => {
+        if (file.size > MAX_SHAPE_SVG_INPUT_CHARS) return { fileName: file.name, text: '', tooLarge: file.size };
+        return { fileName: file.name, text: (await file.text().catch(() => undefined)) ?? '' };
+      }),
+    );
     const read = shapeLibraryFromSvgFiles(texts, looseLibraryName(useBoard.getState().board.content.shapes ?? []));
     results.push(await addShapeLibrary({ ...read, overLimit: read.overLimit + Math.max(0, svgs.length - SHAPE_LIBRARY_LIMITS.shapes) }));
   }
   announce(importSummary(results));
   return results;
+}
+
+/** Said for a picked or dropped file that cannot be read at all (a folder, say). */
+const UNREADABLE_FILE = 'It could not be read.';
+
+/** A picked or dropped file's bytes, or `undefined` when it cannot be read (a dropped folder). */
+async function fileBytes(file: File): Promise<Uint8Array | undefined> {
+  try {
+    return new Uint8Array(await file.arrayBuffer());
+  } catch {
+    return undefined;
+  }
 }
 
 /** One sentence about what an import did (also spoken). */

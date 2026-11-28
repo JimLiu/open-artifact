@@ -30,7 +30,9 @@ export interface ContextMenuState {
   cell: MenuCell | null;
   /** Opened from the keyboard: its first item takes focus. */
   keyboard: boolean;
-  show(options: { at: Point; kind: MenuKind; board?: Point | null; cell?: MenuCell | null; keyboard?: boolean }): void;
+  /** Opened from the selection bar's More actions button, which shows it as expanded. */
+  fromBar: boolean;
+  show(options: { at: Point; kind: MenuKind; board?: Point | null; cell?: MenuCell | null; keyboard?: boolean; fromBar?: boolean }): void;
   hide(): void;
 }
 
@@ -42,8 +44,9 @@ export const useContextMenu = create<ContextMenuState>()((set) => ({
   board: null,
   cell: null,
   keyboard: false,
-  show({ at, kind, board = null, cell = null, keyboard = false }) {
-    set({ open: true, at, kind, board, cell, keyboard });
+  fromBar: false,
+  show({ at, kind, board = null, cell = null, keyboard = false, fromBar = false }) {
+    set({ open: true, at, kind, board, cell, keyboard, fromBar });
   },
   hide() {
     set({ open: false });

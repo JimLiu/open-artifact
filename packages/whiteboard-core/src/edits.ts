@@ -525,11 +525,45 @@ function copyElements(
   return { copies, idMap };
 }
 
+/**
+ * Copies the arrows of `source` whose attached ends were copied onto those
+ * copies (see {@link copyArrowWithEnds}), adds them to `copies` and records
+ * each arrow's copy in `idMap`, so links to an arrow follow it too.
+ */
+function copyArrows(
+  source: readonly BoardElement[],
+  copies: BoardElement[],
+  idMap: Map<ElementId, ElementId>,
+  dx: number,
+  dy: number,
+  keepState = false,
+): void {
+  const ends: ReadonlyMap<ElementId, ElementId> = new Map(idMap);
+  for (const element of source) {
+    if (element.type !== 'arrow') continue;
+    const copy = copyArrowWithEnds(element, ends, dx, dy, keepState);
+    if (!copy) continue;
+    copies.push(copy);
+    idMap.set(element.id, copy.id);
+  }
+}
+
 /** Keeps what fits on the board, then drops arrows whose ends did not make it. */
 function keepCompleteCopies(copies: readonly BoardElement[], room: number): BoardElement[] {
   const kept = copies.slice(0, Math.max(0, room));
   const keptIds = new Set(kept.map((element) => element.id));
   return kept.filter((element) => element.type !== 'arrow' || everyArrowEndId(element, (id) => keptIds.has(id)));
+}
+
+/**
+ * The copies that fit on the board ({@link keepCompleteCopies}) with their
+ * links relinked ({@link relinkCopies}) through the copies kept only: a link
+ * to an element whose copy did not fit keeps pointing at the original.
+ */
+function keptCopiesRelinked(copies: readonly BoardElement[], idMap: ReadonlyMap<ElementId, ElementId>, room: number, boards?: CopiedLinkBoards): BoardElement[] {
+  const kept = keepCompleteCopies(copies, room);
+  const keptIds = new Set(kept.map((element) => element.id));
+  return relinkCopies(kept, new Map([...idMap].filter(([, copy]) => keptIds.has(copy))), boards);
 }
 
 /**
@@ -552,12 +586,8 @@ export function duplicateSelection<T extends BoardContent>(
     measures,
   );
   const { copies, idMap } = copyElements(source, offset, offset, (element) => copyableElementFields(structuredClone(element)));
-  for (const element of source) {
-    if (element.type !== 'arrow') continue;
-    const copy = copyArrowWithEnds(element, idMap, offset, offset);
-    if (copy) copies.push(copy);
-  }
-  const complete = keepCompleteCopies(relinkCopies(reattachCopiedStickers(copies, source, idMap, measures), idMap), room);
+  copyArrows(source, copies, idMap, offset, offset);
+  const complete = keptCopiesRelinked(reattachCopiedStickers(copies, source, idMap, measures), idMap, room);
   const added = remapCopiedGroups(complete, copiedGroupFate(content.elements, selectedIds));
   if (added.length === 0) return { content, newIds: [] };
   return { content: { ...content, elements: [...content.elements, ...added] }, newIds: added.map((element) => element.id) };
@@ -582,12 +612,8 @@ export function pasteElements<T extends BoardContent>(
 ): { content: T; newIds: ElementId[] } {
   const room = MAX_BOARD_ELEMENTS - content.elements.length;
   const { copies, idMap } = copyElements(elements, dx, dy, (element) => (keepState ? omitAuthorshipFields(element) : copyableElementFields(element)));
-  for (const element of elements) {
-    if (element.type !== 'arrow') continue;
-    const copy = copyArrowWithEnds(element, idMap, dx, dy, keepState);
-    if (copy) copies.push(copy);
-  }
-  const complete = keepCompleteCopies(relinkCopies(reattachCopiedStickers(copies, elements, idMap), idMap, boards), room);
+  copyArrows(elements, copies, idMap, dx, dy, keepState);
+  const complete = keptCopiesRelinked(reattachCopiedStickers(copies, elements, idMap), idMap, room, boards);
   const added = remapCopiedGroups(complete, () => 'new');
   if (added.length === 0) return { content, newIds: [] };
   const sameBoard = boards.from === undefined || boards.here === undefined || boards.from === boards.here;

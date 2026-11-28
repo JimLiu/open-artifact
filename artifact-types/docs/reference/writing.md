@@ -34,7 +34,8 @@ Markdown takes ATX headings, paragraphs, bullet, ordered and task lists (nested 
 code, rules, pipe tables, pictures (`![description](blob/<id>)`), and `**bold**`, `*italic*`, `~~strike~~`,
 `` `code` ``, `[link](url)`, `<u>underline</u>`, `==highlight==`, a line break as a backslash at the end of the
 line, and a text colour as `<span data-text-color="red">…</span>` (`red`, `yellow`, `green`, `teal` or `purple`,
-the colours of the page's menu). Inside a line (a `chars` or `find` target, or `side` `start`/`end` of a text
+the colours of the page's menu). An empty fenced `toc` block is a table of contents, which lists the tab's headings
+(see SKILL.md). Inside a line (a `chars` or `find` target, or `side` `start`/`end` of a text
 block) it must be one paragraph's worth of inline text. Plain `text` as blocks is one paragraph a line.
 
 ## Links inside the doc

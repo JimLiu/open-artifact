@@ -927,6 +927,71 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
     } finally { await deep.close(); }
   });
 
+  it('points a pasted link to a copied arrow at the arrow\'s copy', { skip: noBrowser }, async () => {
+    const board = tmpDir('whiteboard-arrow-links');
+    const elements = {
+      q: { type: 'shape', kind: 'rect', x: 0, y: 0, w: 120, h: 80, color: 'white', text: 'Queue' },
+      w: { type: 'shape', kind: 'rect', x: 420, y: 0, w: 120, h: 80, color: 'white', text: 'Worker' },
+      a1: { type: 'arrow', from: 'q', to: 'w', head: 'end', dash: false, color: 'ink' },
+      note: { type: 'text', x: 0, y: 200, w: 320, text: 'See [the hand-off](#element=a1)' },
+    };
+    for (const sub of ['db/elements', 'db/board']) fs.mkdirSync(path.join(board, sub), { recursive: true });
+    fs.writeFileSync(path.join(board, 'db/board/meta.json'), JSON.stringify({ v: 1, title: 'Arrow links', order: Object.keys(elements) }));
+    for (const [id, el] of Object.entries(elements)) fs.writeFileSync(path.join(board, 'db/elements', id + '.json'), JSON.stringify(el));
+    const { url } = await run.json(['open', board, '--type', 'whiteboard', '--json']);
+    const state = 'window.__openArtifactWhiteboard?.state()';
+    const p = await browser.load(url + '?open_artifact_bench=1', { ready });
+    try {
+      assert.ok(await p.waitFor(`${state}?.elements === 4 && !!document.querySelector('#wb-a1')`, 10000), 'the board did not draw');
+      await clickOn(p, "document.querySelector('#wb-q')", 'the shape');
+      await p.press('a', process.platform === 'darwin' ? { meta: true } : { ctrl: true });
+      assert.ok(await p.waitFor(`${state}.selection.length === 4`, 2000), 'select all');
+      await p.evaluate(`(() => {
+        const d = new DataTransfer();
+        document.dispatchEvent(new ClipboardEvent('copy', { bubbles: true, cancelable: true, clipboardData: d }));
+        document.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: d }));
+        return true;
+      })()`);
+      assert.ok(await p.waitFor(`${state}.elements === 8`, 4000), 'the copies did not land');
+      const result = await p.evaluate(`(() => {
+        const ids = [...new Set([...document.querySelectorAll('.wb-elements [data-wb-id]')].map(e => e.dataset.wbId))];
+        const els = window.__openArtifactWhiteboard.elements(ids).filter(Boolean);
+        const arrows = els.filter(e => e.type === 'arrow' && e.id !== 'a1').map(e => e.id);
+        const text = els.find(e => e.type === 'text' && e.id !== 'note');
+        return { arrows, text: text?.text };
+      })()`);
+      assert.equal(result.arrows.length, 1, JSON.stringify(result));
+      assert.equal(result.text, `See [the hand-off](#element=${result.arrows[0]})`, `the pasted text does not point at the pasted arrow: ${JSON.stringify(result)}`);
+      assert.deepEqual(p.problems, []);
+    } finally { await p.close(); } // No `stop`: the type server is shared with the rest of the suite.
+  });
+
+  it('shows no More tools on a selection bar that fits when a right-click opens the menu', { skip: noBrowser }, async () => {
+    const board = tmpDir('whiteboard-menu-fold');
+    for (const sub of ['db/elements', 'db/board']) fs.mkdirSync(path.join(board, sub), { recursive: true });
+    fs.writeFileSync(path.join(board, 'db/board/meta.json'), JSON.stringify({ v: 1, title: 'Menu fold', order: ['box', 'other'] }));
+    fs.writeFileSync(path.join(board, 'db/elements/box.json'), JSON.stringify({ type: 'shape', kind: 'rect', x: 0, y: 0, w: 160, h: 100, color: 'blue', text: 'Box' }));
+    fs.writeFileSync(path.join(board, 'db/elements/other.json'), JSON.stringify({ type: 'shape', kind: 'rect', x: 300, y: 0, w: 160, h: 100, color: 'white', text: 'Other' }));
+    const { url } = await run.json(['open', board, '--type', 'whiteboard', '--json']);
+    const p = await browser.load(url + '?open_artifact_bench=1', { ready });
+    const bar = `document.querySelector('[data-wb-bar="selection"]')`;
+    const toggleShown = `(t => !!t && t.getClientRects().length > 0)(${bar}?.querySelector('[data-fold-toggle]'))`;
+    try {
+      assert.ok(await p.waitFor(`document.querySelector('#wb-box')`, 10000));
+      // Right-clicked while nothing is selected: the shape is selected, its bar comes up and the menu opens at once.
+      const at = await p.evaluate(`(() => { const r = document.querySelector('#wb-box').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
+      await p.rightClick(...at);
+      assert.ok(await p.waitFor(`${bar} && document.querySelector('[role="menu"]')`, 4000), 'the right-click did not open the menu with the bar');
+      assert.equal(await p.evaluate(`${bar}.querySelector('[data-fold-more]')?.getAttribute('aria-expanded')`), 'false', 'More actions shows as open for a right-click menu');
+      assert.equal(await p.evaluate(toggleShown), false, 'More tools shows on a bar that fits while the menu is open');
+      await p.press('Escape');
+      assert.ok(await p.waitFor(`!document.querySelector('[role="menu"]')`, 2000), 'Escape did not close the menu');
+      await p.evaluate('new Promise(r => setTimeout(r, 400))');
+      assert.equal(await p.evaluate(toggleShown), false, 'More tools shows on a bar that fits after the menu closed');
+      assert.deepEqual(p.problems, []);
+    } finally { await p.close(); } // No `stop`: the type server is shared with the rest of the suite.
+  });
+
   it('recovers after an interrupted load and restores pictures on request', { skip: noBrowser }, async () => {
     const p = await browser.load(url, { ready });
     try {
@@ -1484,6 +1549,29 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
         assert.equal(libraries(board)[0].count, 2);
         await typeIntoSearch(p, 'storage');
         assert.ok(await p.waitFor(`${cells}.length === 1 && ${cells}[0].getAttribute('aria-label') === 'Pick shape: Disk'`, 3000), 'a folder name finds its shapes');
+        assert.deepEqual(p.problems, []);
+      } finally { await p.close(); }
+    });
+
+    it('adds loose SVG files, leaving out one nested too deep and one too large to read, quickly', { timeout: 60000 }, async () => {
+      const board = newBoard('whiteboard-library-loose');
+      const dir = tmpDir('whiteboard-library-loose-files');
+      const files = [['Router.svg', shapeSvg('Router')],
+        ['Deep.svg', `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">${'<g>'.repeat(50000)}<rect width="1" height="1"/>${'</g>'.repeat(50000)}</svg>`],
+        ['Huge.svg', `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><desc>${'x'.repeat(500000)}</desc><rect width="1" height="1"/></svg>`]]
+        .map(([name, text]) => { const file = path.join(dir, name); fs.writeFileSync(file, text); return file; });
+      const { url: boardUrl } = await run.json(['open', board, '--type', 'whiteboard', '--json']);
+      const p = await browser.load(boardUrl, { ready });
+      try {
+        await openPanel(p);
+        const started = Date.now();
+        await chooseFiles(p, files);
+        assert.ok(await p.waitFor(`${cells}.length === 1 && (${reportText()}).includes('1 shape, 2 left out')`, 10000), `the readable file is a shape and the other two are counted: ${await p.evaluate(reportText())}`);
+        assert.ok(Date.now() - started < 5000, `reading the files took ${Date.now() - started}ms`);
+        const report = await p.evaluate(reportText());
+        assert.ok(report.includes('Deep: is not a drawing the board can read'), report);
+        assert.ok(report.includes('Huge: is too large to read'), report);
+        assert.ok(await until(() => libraries(board).length === 1 && libraries(board)[0].count === 1));
         assert.deepEqual(p.problems, []);
       } finally { await p.close(); }
     });

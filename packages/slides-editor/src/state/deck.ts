@@ -429,8 +429,52 @@ export function slideText(slide: Slide, entry?: Pick<SlideEntry, 'saved' | 'save
   const saved = entry?.source ?? entry?.saved;
   if (!savedText || !saved || isFlatSlideHtml(savedText)) return flattenSlide(slide);
   if (sameSlide(slide, saved)) return savedText;
+  // The models here still carry the places of the file they were first read from; `source` has those of the file
+  // this tab wrote last, which differ once that save moved, added or removed elements.
+  const edited = entry?.source && entry.saved ? withSourcePlaces(slide, entry.saved, entry.source) : slide;
   // The patch is checked against the slide as read, page number included: at the place it was read at.
-  return patchSourceSlide(savedText, saved, slide, sourceDeck, { id: slide.id, index: entry?.place ?? sourcePlaces.get(slide.id) ?? 0 }) ?? flattenSlide(slide);
+  return patchSourceSlide(savedText, saved, edited, sourceDeck, { id: slide.id, index: entry?.place ?? sourcePlaces.get(slide.id) ?? 0 }) ?? flattenSlide(slide);
+}
+
+/**
+ * `slide` with the places (`origin`) of the file `source` was read from. `saved` is the model that file was written
+ * from: it has the places `slide` has and the shape of `source`, node for node. A node left as it was saved takes its
+ * twin's place; one changed since takes the place of the saved node it had the place of; one with neither is new.
+ */
+export function withSourcePlaces(slide: Slide, saved: Slide, source: Slide): Slide {
+  const byNode = new Map<SlideNode, number | undefined>();
+  const byPlace = new Map<number, number | undefined>();
+  const twice = new Set<number>();
+  const pair = (a: readonly SlideNode[], b: readonly SlideNode[]): void => {
+    a.forEach((node, i) => {
+      const twin = b[i];
+      if (!twin) return;
+      byNode.set(node, twin.origin);
+      if (node.origin !== undefined && node.origin >= 0) {
+        if (byPlace.has(node.origin)) twice.add(node.origin);
+        byPlace.set(node.origin, twin.origin);
+      }
+      if (node.kind === 'box' && twin.kind === 'box') pair(node.children, twin.children);
+    });
+  };
+  pair(saved.children, source.children);
+  for (const place of twice) byPlace.delete(place);
+  const place = (node: SlideNode): number | undefined => {
+    if (byNode.has(node)) return byNode.get(node);
+    if (node.origin === undefined || node.origin < 0) return node.origin;
+    return byPlace.get(node.origin);
+  };
+  const rebase = (node: SlideNode): SlideNode => {
+    const origin = place(node);
+    const children = node.kind === 'box' ? node.children.map(rebase) : undefined;
+    if (origin === node.origin && (!children || children.every((child, i) => child === (node as typeof node & { kind: 'box' }).children[i]))) return node;
+    const copy = { ...node, ...(children ? { children } : {}) } as SlideNode;
+    if (origin === undefined) delete copy.origin;
+    else copy.origin = origin;
+    return copy;
+  };
+  const children = slide.children.map(rebase);
+  return children.every((child, i) => child === slide.children[i]) ? slide : { ...slide, children };
 }
 
 /** What the next save sends, and what it will have saved once it went through ({@link DeckState.acknowledge}). */

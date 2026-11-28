@@ -19,7 +19,7 @@
  * reason instead of failing the whole library.
  */
 
-import { cleanShapeSvg } from './clean-svg.ts';
+import { cleanShapeSvg, tooLargeToRead } from './clean-svg.ts';
 
 /** The `format` of a library file. */
 export const SHAPE_LIBRARY_FORMAT = 'open-artifact-shapes';
@@ -153,6 +153,18 @@ function sizeOr(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= 100_000 ? Math.round(value * 100) / 100 || fallback : fallback;
 }
 
+/**
+ * A shape's size: the file's `w` and `h`, else the drawing's (`boxW` × `boxH`). With only one of them given, the
+ * other follows the drawing's proportions, so the shape is not drawn squeezed into a box of another shape.
+ */
+function shapeSize(w: unknown, h: unknown, boxW: number, boxH: number): { w: number; h: number } {
+  const givenW = sizeOr(w, 0);
+  const givenH = sizeOr(h, 0);
+  if (givenW > 0 && givenH === 0) return { w: givenW, h: sizeOr((givenW * boxH) / boxW, boxH) };
+  if (givenH > 0 && givenW === 0) return { w: sizeOr((givenH * boxW) / boxH, boxW), h: givenH };
+  return { w: givenW || boxW, h: givenH || boxH };
+}
+
 /** The name shown for an unnamed shape. */
 function fallbackShapeName(index: number): string {
   return `Shape ${index + 1}`;
@@ -171,8 +183,7 @@ export function readLibraryShape(raw: unknown, index: number): LibraryShape | Le
   if (!cleaned.ok) return { name, reason: cleaned.reason };
   const tags = cleanTags(fields.tags);
   const outline = cleanShapeOutline(fields.outline);
-  const w = sizeOr(fields.w, cleaned.w);
-  const h = sizeOr(fields.h, cleaned.h);
+  const { w, h } = shapeSize(fields.w, fields.h, cleaned.w, cleaned.h);
   return { name, ...(tags.length > 0 ? { tags } : {}), w, h, svg: cleaned.svg, ...(outline !== undefined ? { outline } : {}) };
 }
 
@@ -180,17 +191,25 @@ function isLeftOut(shape: LibraryShape | LeftOutShape): shape is LeftOutShape {
   return 'reason' in shape;
 }
 
-/** Builds a library from read shapes. */
+/**
+ * Builds a library from read shapes. Cleaning can make a file larger than it came (styles written onto each part, a
+ * title in every drawing), so the shapes that would take the stored file past {@link SHAPE_LIBRARY_LIMITS}`.bytes are
+ * left out from the end and counted in `overLimit`: a stored library always reads back.
+ */
 function libraryOf(name: string, source: string | undefined, license: string | undefined, entries: ReadonlyArray<LibraryShape | LeftOutShape>, overLimit: number): ShapeLibraryRead {
   const shapes: LibraryShape[] = [];
   const leftOut: LeftOutShape[] = [];
   for (const entry of entries) (isLeftOut(entry) ? leftOut : shapes).push(entry as LibraryShape & LeftOutShape);
-  return {
-    ok: true,
-    library: { format: SHAPE_LIBRARY_FORMAT, version: SHAPE_LIBRARY_VERSION, name, ...(source !== undefined ? { source } : {}), ...(license !== undefined ? { license } : {}), shapes },
-    leftOut,
-    overLimit,
-  };
+  const library: ShapeLibrary = { format: SHAPE_LIBRARY_FORMAT, version: SHAPE_LIBRARY_VERSION, name, ...(source !== undefined ? { source } : {}), ...(license !== undefined ? { license } : {}), shapes: [] };
+  const encoder = new TextEncoder();
+  let bytes = encoder.encode(serializeShapeLibrary(library)).length;
+  let fits = 0;
+  for (const shape of shapes) {
+    bytes += encoder.encode(JSON.stringify(shape)).length + (fits > 0 ? 1 : 0);
+    if (bytes > SHAPE_LIBRARY_LIMITS.bytes) break;
+    fits++;
+  }
+  return { ok: true, library: { ...library, shapes: shapes.slice(0, fits) }, leftOut, overLimit: overLimit + shapes.length - fits };
 }
 
 /** A library from shapes already read (and the ones left out); other readers (zip packs, draw.io libraries) end here. */
@@ -237,6 +256,8 @@ export function readShapeLibrary(text: string, fallbackName = 'Shapes'): ShapeLi
 export interface SvgFile {
   fileName: string;
   text: string;
+  /** The file's size, when it was too large to read (its `text` is then empty). */
+  tooLarge?: number;
 }
 
 /** A shape name from a file name: without its folder and `.svg` extension. */
@@ -255,7 +276,11 @@ export function shapeLibraryFromSvgFiles(files: readonly SvgFile[], name: string
     cleanLibraryText(name, SHAPE_LIBRARY_LIMITS.name) || 'Shapes',
     undefined,
     undefined,
-    kept.map((file, index) => readLibraryShape({ name: shapeNameOfFile(file.fileName), svg: file.text }, index)),
+    kept.map((file, index) =>
+      file.tooLarge !== undefined
+        ? { name: shapeNameOfFile(file.fileName), reason: tooLargeToRead(file.tooLarge) }
+        : readLibraryShape({ name: shapeNameOfFile(file.fileName), svg: file.text }, index),
+    ),
     files.length - kept.length,
   );
 }

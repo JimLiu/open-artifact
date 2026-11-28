@@ -182,6 +182,15 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - After the save: Delete in the second slide's rail menu removes its file and takes it out of `deck.json`. Once the save has come back, ⌘Z brings the slide back and its file is byte for byte the one that was deleted, with its classes and no page number written into it. Before the fix, it was saved flat (`<section data-flat …>`, inline styles, the page number as a literal `<p>Page 2</p>`). ⇧⌘Z deletes the file again, a second ⌘Z writes the same file back, and a tab that loads the deck whole shows three slides.
 - While the save is on its way: the page's `fetch` is wrapped so that the host's answer to `_api/publish` is held back. Delete in the first slide's rail menu; once the host has removed the file, ⌘Z brings the slide back in the rail while the answer is still held. When the answer is let through, the slide stays, its file is written again as it was, `deck.json` lists it, the badge says All changes synced, and a tab that loads the deck whole shows three slides. Before the fix, the slide stayed in the editor with no file on disk, and was gone on the next load.
 
+**Slides: editing after a save that moved elements** (`slides.test.mjs`, a one-slide source deck of its own whose three boxes take their size and first colour from a `.box` rule, Chrome only)
+
+- ⌘[ on the second box puts it first in the file; once saved, ⌘] puts it back, and the file is as written: each box on its own `<div class="box">` with only its own style. Before the fix, the first box was written onto the second box's tag, with the colour its class gives it written inline.
+- Delete on the first box removes its tag; once saved, → nudges the last box, and it moves on its own `<div class="box">`. Before the fix, it was written as a `<p>` with every style inline and no class.
+
+**Slides: catching up after the event stream was down** (`slides.test.mjs`, a two-slide source deck of its own, Chrome only)
+
+- The page's WebSockets are kept, and while the stream is held new ones go to a port nobody listens on. With a box on the first slide selected, the stream is closed; the first slide's title is rewritten on disk, a third slide written and added to `deck.json`. After 1.5 s the stage still shows the old title. Once the stream comes back, the stage shows the new title, the rail three slides, the box is still selected, and nothing was written over the changed file.
+
 **Sheets** (`sheets.test.mjs`)
 
 - `read` on a folder with no Sheet is refused; a first `update` makes the Sheet (one blank `Sheet1`) and applies its edits.
@@ -189,6 +198,7 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - `writeCells` takes formulas with many words of their own (Chinese or English texts in quotes), and more than 50 different ones in one edit: the page shows such formulas to the person before pasting them (`toBeShownFirst`), but an agent's write shows nothing first.
 - A stale `base`, an unknown edit and an unknown key are refused as JSON on stderr, and the revision stays.
 - `check` passes the Sheet. `export` writes an Excel file, and `--csv --sheet` the shown values of one sheet.
+- A Sheet with a named range, default values with limits and a protected range: `export` lists what Excel loses in words (cells can't be reset to their defaults, protected cells are locked with no password), never an engine code such as `defaultValues`. After the named cells' column is deleted, `readNamedRanges` and `readSheets` give the name with a `null` address, not `#REF!`.
 - `open` serves the page and reuses the address. In Chrome, the grid shows the sheet, and an `update` sent while it is open reaches the formula bar at once.
 - `comments` lists no threads on a new Sheet; `stop` stops the server.
 
@@ -208,6 +218,14 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 
 - With `wait` running, `@` → Ask Agent at the end of "The ferry leaves at nine." puts the agent chip in, and "Say when the last ferry leaves" plus Enter posts the `@Agent` thread on it. The request in `_agent/done` has `userText` "Say when the last ferry leaves", its `text` starts with those words and then "(The person wrote this in the comment thread on "@Agent" …", and its `selectionSnapshot` is `{kind: 'line', label: 'The ferry leaves at nine.', count: 1, items: [{id: <the line's block>, kind: 'block'}], text: …}`: the line without the chip, and no `where` in a one-tab doc.
 - An Ask is a comment, so it takes what a comment takes (4,096 bytes of UTF-8, `@Agent ` included): 1,364 CJK characters at "Bikes ride free." are refused with "That comment is too long.", the draft stays in the prompt, and no chip or thread is added. Before, the words were cut to 4,000 characters without a word.
+
+**Docs: @mentions in Chinese** (`docs.test.mjs`, the "a reply in Chinese names someone" case of the "comments button's news … assigning a comment" group, Chrome only)
+
+- A thread Ana has answered: in its reply box, `麻烦@A` (an `@` right after a Han letter) opens the list of people with Ana in it. After Escape, `na，订一下票` completes `麻烦@Ana，订一下票`; the box offers **Assign to Ana**, and the reply sent with it checked assigns her (`to: ["Ana"]`, `assignee: "Ana"`) and draws `@Ana` as a mention. Before, an `@` counted only after a space and a name only before a space or ASCII punctuation, so the list did not open, no one was named, and `@Agent，帮我改` did not go to the agent.
+
+**Docs: the More menu's icons** (`docs.test.mjs`, the word count case, Chrome only)
+
+- Every icon in the More menu starts at the same left edge. Before, Show all comments and Version history drew an empty check column before their icons, so those two stood a column to the right of the others.
 
 **Docs: wide tables** (`docs.test.mjs`, two cases in the "wide tables and folded sections" group, Chrome only)
 
@@ -234,6 +252,14 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 
 - The fixture dashboard gets two calcs over the signups file, which no filter reloads: one whose `fn` calls `dash.params()` and returns the region with the row count, one that only counts. Each is drawn once and has run once.
 - The page calls `dash.setParams({region: "South"})`: the first calc shows `South:6` and has run twice, the second still shows 6 and has run once. The page's Clear filters button takes the first back to `all:6` on its third run. Before the fix, `dash.params()` did not go through the calculations, so the first calc kept `all:6` whatever the filter.
+
+**Data: a shared draft of the page alone** (`data.test.mjs`, one case, Chrome only)
+
+- A dashboard with one stored source (`notes`, two documents) and a shared draft (`drafts/shared`) that holds only a new `index.html`. The page opens on the draft: its title shows, and the count drawn from `notes` reads 2, with no page problem. Before, the content made from the draft was read again as documents when the page prepared it, which dropped every source, so the draft showed no data.
+
+**Data: typing in the shared draft** (`data.test.mjs`, the "keeps hand edits in the shared draft as they are made" case, Chrome only)
+
+- In the shared draft with the pencil on, the title is retyped, then typed on after a 1.5 s pause: the title keeps the focus through the pause, and the draft, Undo and Redo, the page and the published file all read `Live now then`. Before, the keep timer ended the typing session 400 ms after the last key, so the caret left the title and the words typed after the pause went nowhere.
 
 **Cloud host** (`host.test.mjs`, Chrome only)
 
@@ -384,6 +410,11 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 
 - In a 660 px wide view the board opens fitted whole, below 60%, with every element in view. "Zoom out" in the zoom menu is enabled and zooms out, ctrl + wheel zooms out and back in, and "Fit the board" fits it whole again.
 
+**Whiteboard: links to copied arrows, and the menu beside the selection bar** (`whiteboard.test.mjs`, two cases, Chrome only)
+
+- Two boxes, an arrow between them, and a text whose link points at the arrow (`#element=…`), all copied and pasted: the pasted text points at the pasted arrow. Before, it kept pointing at the original arrow, because arrows were copied after the links were moved over.
+- A right-click on a shape that is not selected selects it and opens its menu: the selection bar's **More actions** is not shown as open, and the bar, which fits, shows no **More tools** while the menu is open or after Escape closes it. Before, the bar took the right-click menu for its own, put off measuring itself while it was "open", and showed **More tools** on a bar with nothing folded.
+
 **A whiteboard that missed events** (`whiteboard.test.mjs`, one case, Chrome only)
 
 - A board of its own. The page's event stream (a WebSocket, wrapped before the page's scripts run) is closed, and its reconnects are sent to a port nobody listens on. Meanwhile the agent edits one element's file and deletes another's, and the page still shows the old board.
@@ -396,7 +427,7 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - Share → Export lists "Animated GIF" only on a board with a flowing arrow; the downloaded `<title>.gif` has ten frames of 5/100 s that loop for ever, each one different from the next.
 - Share → Export lists "MP4 video" after the GIF only on a board with a flowing arrow; the downloaded `<title>.mp4` starts with an `ftyp` box, has a `moov` box, one video track and no sound, and lasts about six seconds. In a browser with no video encoder the case is skipped.
 
-**Whiteboard shape libraries** (`whiteboard.test.mjs`, five cases, Chrome only)
+**Whiteboard shape libraries** (`whiteboard.test.mjs`, six cases, Chrome only)
 
 - `fixtures/whiteboard/demo.shapes.json` chosen in **Shapes → Library → Add library… → From a file…** lists its 11 shapes as pictures (no SVG markup in the page), and `db/board/shapes.json` names the upload, which reads back as the library.
 - A shape found by tag and placed with a click becomes an unframed `image` (its own `data:image/svg+xml,` drawing) and an empty `text` under it, grouped with it, whose placeholder is the shape's name; an arrow drawn from it to a box attaches to it.
@@ -404,6 +435,7 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - **Remove from this board** removes the library; the placed shape, its label and the arrow stay.
 - An `.svg` with a `<script>` is refused: the panel names it and why, and no library or element is added.
 - A `.zip` built in the test (two SVG files in folders, plus `__MACOSX/`, `.DS_Store` and a text file) chosen with **From a file…** becomes one library named after the zip with two shapes and no complaint about the other files; a search for a folder name finds its shape.
+- Three loose `.svg` files chosen at once: a plain drawing, one nested 50,000 `<g>` deep and one of 500,000 characters. Within five seconds the panel adds one shape and reports two left out, `Deep` as not a drawing the board can read and `Huge` as too large to read. Before, the deep one held the page for tens of seconds and then threw, so the other files were not added either, and a file too large to read was not named.
 - A draw.io library (`.drawio`: an SVG `data` entry, an SVG picture in a compressed `xml` graph, a draw.io stencil, and an SVG picture in a plain `xml` graph titled `R&D Router`, the list written as draw.io writes it with `<`, `>` and `&` as entities) adds three shapes and reports the stencil as left out, by name and why. Before, the plain graph was left out too: its xml was read with the entities still in it.
 - **From a link…**, with the page's requests to a made-up `https://` site answered by the test (DevTools `Fetch.requestPaused`, so nothing reaches the network): an `http://` link is refused before any request; a response without `Access-Control-Allow-Origin` shows the could-not-be-read message that points to **From a file…**; a 404 is named; a zip pack is shown for confirmation (site, name, count), **Cancel** stores nothing, and **Add** lists it with the link as its source. No request carries a cookie or a referrer.
 

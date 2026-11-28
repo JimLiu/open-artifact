@@ -4,7 +4,7 @@
  */
 import { announce } from '@open-artifact/editor-kit';
 import { ChromeButton, ChromeMenu, ChromeMenuItem, ChromeMenuSeparator, ALT, MOD } from '@open-artifact/editor-kit/react';
-import { History, Keyboard, Lock, LockOpen, MessageSquareOff, MessagesSquare, MoreHorizontal, Pencil } from 'lucide-react';
+import { Check, History, Keyboard, Lock, LockOpen, MessageSquareOff, MessagesSquare, MoreHorizontal, Pencil } from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
 import { maybeSession } from '../app/session.ts';
 import { setDocs, useDocs } from '../app/store.ts';
@@ -17,6 +17,12 @@ import { setTopBar } from './store.ts';
 import { countEditor, countLines } from './word-count.ts';
 
 const ICON = 'size-4 text-chrome-muted';
+
+/**
+ * A row that is on or off: its icon, or a check in its place while on. A check column of its own (the menu item's
+ * `checked`) would push these rows' icons out of line with the others.
+ */
+const toggleIcon = (on: boolean, icon: ReactNode): ReactNode => (on ? <Check className="size-4 text-chrome-accent" strokeWidth={2.25} /> : icon);
 
 /** The open tab’s words and characters (or the selection’s), counted as the menu opens; nothing while it can’t be edited. */
 function WordCount(): ReactNode {
@@ -65,8 +71,7 @@ export function MoreMenu(): ReactNode {
       ) : null}
       {hasComments ? (
         <ChromeMenuItem
-          icon={<MessagesSquare className={ICON} strokeWidth={1.5} />}
-          checked={comments === 'all'}
+          icon={toggleIcon(comments === 'all', <MessagesSquare className={ICON} strokeWidth={1.5} />)}
           onSelect={() => setDocs({ comments: comments === 'all' ? 'margin' : 'all' })}
         >
           Show all comments
@@ -81,7 +86,7 @@ export function MoreMenu(): ReactNode {
           {comments === 'hidden' ? 'Show comments' : 'Hide comments'}
         </ChromeMenuItem>
       ) : null}
-      <ChromeMenuItem icon={<History className={ICON} strokeWidth={1.5} />} checked={history} onSelect={() => setDocs({ history: !history })}>
+      <ChromeMenuItem icon={toggleIcon(history, <History className={ICON} strokeWidth={1.5} />)} onSelect={() => setDocs({ history: !history })}>
         Version history
       </ChromeMenuItem>
       {mayLock() ? (

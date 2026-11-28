@@ -31,9 +31,13 @@ Or start with no agent: on the home page, click **New artifact**, pick **Docs**,
 
 ### Edit, review suggestions & export
 - **Write & organize**: Edit directly in the rich-text editor, add tabs/subtabs in the sidebar, insert dates, dropdowns, or checklists.
+- **Table of contents**: Type `/` and pick **Table of contents**. It lists the tab's headings (down to level 3) as links and follows them as you rename, add or remove headings. Select it to reach its bar (or press F6), and press Esc to leave it.
+- **Word count**: The **More** menu (⋯) shows the words and characters of the open tab, and of the selection when there is one. Chinese and Japanese text is counted word by word.
+- **Link to a selection**: Select some words and click **Copy link to selection** (⌘/Ctrl+Alt+L). Opening the link scrolls to those words and highlights them.
 - **Review suggestions**: Accept or reject proposed edits inline, or pin comments on words/suggestions and click **Send to agent**. If the connection drops, Docs sends your comment or reply when it reconnects. A new comment keeps the selection you made when you sent it.
+- **Comments**: `@` mentions a person or the agent (a comment that mentions the agent goes to it). Assign a thread from its menu, or check **Assign to** when your comment mentions one person. The comments list filters by **Open**, **Involving you**, **Resolved** and **All**, and marks replies you haven't read.
 - **Import files**: Ask your agent to import an existing `.md`, `.docx`, or `.pdf` as a new tab.
-- **Export**: Open **Share → Export** to download Markdown, Word (`.docx`), PDF, or HTML.
+- **Export**: Open **Share → Export** to download Markdown, Word (`.docx`), PDF, or HTML. In a doc with several tabs, Word and PDF ask whether to export the open tab or all tabs.
 
 ## How to use (for agents)
 

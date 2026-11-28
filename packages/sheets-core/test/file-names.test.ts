@@ -32,3 +32,14 @@ test('a long title is cut between graphemes, by characters and by bytes', () => 
   assert.equal(accented, 'a'.repeat(MOST_FILE_NAME_CHARACTERS - 1));
   assert.equal(fileNameStemOf('...', '.xlsx'), null);
 });
+
+test('every kind the engine leaves out of an .xlsx file is told in words, never as its code', async () => {
+  const { excelDifferences } = await import('../src/agent/index.ts');
+  const { readFileSync } = await import('node:fs');
+  const engine = readFileSync(new URL('../../../crates/open-artifact-sheets/src/session/reads/xlsx.rs', import.meta.url), 'utf8');
+  const list = engine.slice(engine.indexOf('let not_carried_over'), engine.indexOf('.into_iter()', engine.indexOf('let not_carried_over')));
+  const kinds = [...list.matchAll(/"([A-Za-z]+)"\)/g)].map((match) => match[1]!);
+  assert.ok(kinds.includes('defaultValues') && kinds.includes('editorsOfProtections'), kinds.join(', '));
+  const words = excelDifferences(kinds);
+  kinds.forEach((kind, i) => assert.notEqual(words[i], kind, `${kind} has no words`));
+});

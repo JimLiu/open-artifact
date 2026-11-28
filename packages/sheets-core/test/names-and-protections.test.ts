@@ -89,7 +89,7 @@ test('readSheets tells of hidden sheets, protections and named ranges', () => {
   const asked: EngineMessage[] = [];
   const answer = (request: EngineMessage): EngineMessage => {
     asked.push(request);
-    if (request.kind === 'readNamedRanges') return { kind: 'namedRanges', namedRanges: [{ namedRange: { name: 'Prices' }, address: 'Sheet1!B2:B9' }, { namedRange: { name: 'Old' } }, 'junk'] };
+    if (request.kind === 'readNamedRanges') return { kind: 'namedRanges', namedRanges: [{ namedRange: { name: 'Prices' }, address: 'Sheet1!B2:B9', liveCells: {} }, { namedRange: { name: 'Old' } }, { namedRange: { name: 'Gone' }, address: '#REF!', liveCells: null }, 'junk'] };
     if (request.kind === 'readCellsChangedFromTheirDefaults') return { kind: 'cellsChanged', cells: [{ address: 'B2', held: 5, defaultValue: 0 }] };
     return { kind: 'refused' };
   };
@@ -103,6 +103,7 @@ test('readSheets tells of hidden sheets, protections and named ranges', () => {
   assert.deepEqual(read.namedRanges, [
     { name: 'Prices', address: 'Sheet1!B2:B9' },
     { name: 'Old', address: null },
+    { name: 'Gone', address: null },
   ]);
   assert.deepEqual(Object.keys(read).slice(0, 4), ['revision', 'sheets', 'namedRanges', 'locale']);
   assert.deepEqual(readWorkbook({ kind: 'readNamedRanges' }, context), { revision: 3, namedRanges: read.namedRanges });

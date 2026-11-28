@@ -172,6 +172,31 @@ describe('mentions', () => {
       { text: ' now', mention: false },
     ]);
   });
+
+  it('reads @names in Chinese text: after a Han letter or punctuation, and before full-width punctuation or more words', () => {
+    const named: MentionCandidate[] = [
+      { key: '宝', name: '宝', kind: 'person' },
+      { key: '宝玉', name: '宝玉', kind: 'person' },
+      { key: 'Ann', name: 'Ann', kind: 'person' },
+      { key: 'agent', name: 'Agent', kind: 'agent' },
+    ];
+    assert.deepEqual(mentionsIn('@宝玉，请看一下', named), ['宝玉']);
+    assert.deepEqual(mentionsIn('请@宝玉看一下。', named), ['宝玉']);
+    assert.deepEqual(mentionsIn('（@宝）好的', named), ['宝']);
+    assert.deepEqual(mentionsIn('@Agent，帮我改一下', named), ['agent']);
+    assert.deepEqual(mentionsIn('谢谢@Ann。', named), ['Ann']);
+    // A name of a script with spaces still ends at its last letter, and an address names no one.
+    assert.deepEqual(mentionsIn('@Anna 和 ann@Ann.com', named), []);
+    assert.deepEqual(mentionQuery('请@宝', 3), { start: 1, query: '宝' });
+    assert.equal(mentionQuery('ann@an', 6), null);
+    assert.deepEqual(splitMentions('请@宝玉看，@Ann。', ['宝', '宝玉', 'Ann']), [
+      { text: '请', mention: false },
+      { text: '@宝玉', mention: true },
+      { text: '看，', mention: false },
+      { text: '@Ann', mention: true },
+      { text: '。', mention: false },
+    ]);
+  });
 });
 
 describe('threads', () => {

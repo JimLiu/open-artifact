@@ -39,6 +39,7 @@ function createDraftSession(current: () => PageDraft | null): PageEditSession & 
       draft.settle(true);
       return draft.text();
     },
+    typing: () => current()?.visit() != null,
     count: () => current()?.count() ?? 0,
     revert() {
       current()?.revert();

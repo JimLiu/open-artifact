@@ -6,7 +6,11 @@ const CODE = 'rounded bg-chrome-hover px-1 py-px font-mono text-[12px] [overflow
 
 /** An @mention, as the card marks it. */
 export function MentionChip({ text }: { text: string }): ReactNode {
-  return <span className="font-medium text-chrome-accent">{text}</span>;
+  return (
+    <span className="font-medium text-chrome-accent" data-mention="">
+      {text}
+    </span>
+  );
 }
 
 export function MarkdownInline({ nodes }: { nodes: readonly MdInline[] }): ReactNode {

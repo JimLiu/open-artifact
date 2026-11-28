@@ -92,6 +92,10 @@ describe('comment Markdown: mentions', () => {
     // As for who a message asks (mentionsIn): an @name starts the text or follows a space.
     assert.deepEqual(inline('**@Agent** please', ['Agent']), [{ t: 'strong', c: [text('@Agent')] }, text(' please')]);
   });
+
+  it('marks @names in Chinese text, touching the words and full-width punctuation around them', () => {
+    assert.deepEqual(inline('请@宝玉看，@Agent。', ['宝玉', 'Agent']), [text('请'), { t: 'mention', text: '@宝玉' }, text('看，'), { t: 'mention', text: '@Agent' }, text('。')]);
+  });
 });
 
 describe('comment Markdown: blocks', () => {

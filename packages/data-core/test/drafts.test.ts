@@ -133,6 +133,16 @@ describe('drafts', () => {
     assert.deepEqual(shown.files.map((file) => file.name), ['chart.js', 'index.html']);
   });
 
+  it('keeps every source of a draft over the dashboard when the page prepares it again', () => {
+    const content = prepareDashboardContent(composeDashboardDocuments(base).content);
+    // A draft of the page alone: the shown content is the dashboard's sources with the draft's page.
+    const shown = applyDraftToContent(content, composeDraft(new Map([['files/index.html', { text: '<main>Draft</main>' }]])));
+    assert.equal(shown.datasets.length, content.datasets.length);
+    assert.equal(prepareDashboardContent(shown), shown);
+    assert.equal(parseDashboardContent(shown), shown);
+    assert.deepEqual(prepareDashboardContent(shown).datasets.map((dataset) => dataset.id), content.datasets.map((dataset) => dataset.id));
+  });
+
   it('plan a save: datasets, then dash, then files, the entry page last; old files removed', () => {
     const content = prepareDashboardContent(composeDashboardDocuments(base).content);
     const plan = planDraftSave(content.files, docs);

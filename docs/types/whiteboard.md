@@ -69,7 +69,8 @@ systems you already draw, by icon collections under an open licence, or drawn by
 - **Remove one**: open the library's **⋯** menu (it also shows the source and the licence) and choose **Remove from
   this board**. Shapes you already placed stay, because each placed shape carries its own drawing.
 
-A `.shapes.json` file looks like this (`source`, `license`, `tags`, `w` and `h` are optional):
+A `.shapes.json` file looks like this (`source`, `license`, `tags`, `w` and `h` are optional; with only one of `w`
+and `h`, the other follows the drawing's proportions):
 
 ```json
 {
@@ -95,8 +96,9 @@ Drawings that use `currentColor` follow the board's ink, so they read well in li
 added and names each one left out with the reason. A shape is left out when its drawing uses something a board drawing
 cannot have: text (turn it into outlines first), scripts, embedded or linked images, `<use>` references, clip paths
 other than one around the whole drawing, or anything outside plain SVG shapes, groups and gradients. A drawing with no
-size, or over 16,000 characters once cleaned, is left out too. A file over 4 MB is refused; past 500 shapes the rest
-are not read. These limits keep every placed shape small, self-contained and safe to show to everyone on the board.
+size, nested more than 256 levels deep, or over 16,000 characters once cleaned, is left out too. A file over 4 MB is
+refused; past 500 shapes the rest are not read, and when the cleaned library would pass 4 MB, the shapes past that are
+left out. These limits keep every placed shape small, self-contained and safe to show to everyone on the board.
 
 ## How to use (for agents)
 

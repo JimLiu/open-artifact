@@ -15,6 +15,7 @@ import {
 } from './paths.ts';
 import { composeDashboardDocuments } from './records.ts';
 import { fillDatasetParameters, prepareDashboardContent } from './fill.ts';
+import { markParsedContent } from './model.ts';
 
 /** One of the dashboard type's own formats a draft can be remixed into. */
 export type RemixForm = DashboardForm;
@@ -288,7 +289,7 @@ export function applyDraftToContent(content: DashboardContent, draft: DraftCompo
     ...content.datasets.map((dataset) => byId.get(dataset.id) ?? dataset),
     ...draft.datasets.filter((dataset) => !ids.has(dataset.id)),
   ].map((dataset) => fillDatasetParameters(dataset, params));
-  return { ...content, params, datasets, files: draft.files };
+  return markParsedContent({ ...content, params, datasets, files: draft.files });
 }
 
 /** Saving a draft: its documents in order with the entry page last, and the page files it no longer has. */

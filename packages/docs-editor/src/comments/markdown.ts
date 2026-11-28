@@ -1,3 +1,4 @@
+import { mayStartMention, mentionSource } from './mentions.ts';
 
 export type MdInline =
   | { t: 'text'; text: string }
@@ -71,12 +72,10 @@ interface Context {
   mentions: RegExp | null;
 }
 
-const escapeRegex = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
 /** `@name` at the start of the rest of a text, for the names given (longest first, as splitMentions does). */
 function mentionPattern(names: readonly string[]): RegExp | null {
-  const sorted = [...new Set(names.filter(Boolean))].sort((a, b) => b.length - a.length);
-  return sorted.length ? new RegExp(`^@(?:${sorted.map(escapeRegex).join('|')})(?=$|[\\s.,;:!?)\\]])`, 'i') : null;
+  const source = mentionSource(names);
+  return source ? new RegExp(`^${source}`, 'iu') : null;
 }
 
 // ---- blocks ------------------------------------------------------------------------------------------------------
@@ -417,7 +416,7 @@ function parseInline(text: string, depth: number, context: Context, inLink = fal
         continue;
       }
     }
-    if (ch === '@' && context.mentions && (before === undefined || SPACE.test(before))) {
+    if (ch === '@' && context.mentions && mayStartMention(before)) {
       const mention = context.mentions.exec(text.slice(at));
       if (mention) {
         flush();

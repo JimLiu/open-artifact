@@ -2,7 +2,7 @@
   "slug": "docs",
   "name": "Docs",
   "title": "Docs (living documents)",
-  "description": "Living documents kept as a folder: doc/doc.json names the doc and its tabs, and each tab's text is blocks and characters with ids (headings, lists and checklists, tables, code, quotes, pictures, dates, @-mentions and dropdowns). Edited in a local page where people type, comment, react and decide on the agent's suggested edits, with tabs and subtabs, find and replace, version history, imports from Markdown, Word and PDF, and exports to Markdown, Word, PDF and HTML.",
+  "description": "Living documents kept as a folder: doc/doc.json names the doc and its tabs, and each tab's text is blocks and characters with ids (headings, tables of contents, lists and checklists, tables, code, quotes, pictures, dates, @-mentions and dropdowns). Edited in a local page where people type, comment, assign, react and decide on the agent's suggested edits, with tabs and subtabs, find and replace, word counts, links to a selection, version history, imports from Markdown, Word and PDF, and exports to Markdown, Word, PDF and HTML.",
   "summary": "A living doc: tabs of rich text people and the agent write, comment on and suggest edits to together.",
   "artifactTitle": "Untitled doc",
   "category": "Documents",

@@ -2022,6 +2022,45 @@ describe(`${TYPE} in Chrome: the comments button's news, refused replies on sugg
       await browser.close();
     }
   });
+
+  it('a reply in Chinese names someone with no space before the @ and a full-width comma after the name', T, async () => {
+    assert.equal((await ctx.cli.run(['comment-add', ctx.root, '谁来订渡轮票？', '--on', 'nine'])).code, 0);
+    let nine = await threadOn('nine');
+    const file = path.join(ctx.root, 'comments.json');
+    const saved0 = JSON.parse(fs.readFileSync(file, 'utf8'));
+    saved0.threads.find(thread => thread.id === nine.id).messages.push({ id: 'm_ana_zh', author: { kind: 'user', name: 'Ana' }, text: '我这周看看。', at: new Date().toISOString() });
+    fs.writeFileSync(file, JSON.stringify(saved0, null, 2));
+    assert.ok(await until(async () => (nine = await threadOn('nine')).messages.length === 2, 10000), 'the server did not take Ana’s reply');
+    const { url } = await ctx.cli.json(['open', ctx.root, '--json']);
+    const browser = await launch();
+    try {
+      const page = await browser.load(url, { ready: textIn('The ferry leaves'), settle: 1000, ignore: [/\/favicon\.ico$/] });
+      assert.ok(await page.waitFor(card(nine.id), 10000), 'no card for the thread');
+      await clickInEditor(page, `${card(nine.id)}.querySelector('[data-comment-message]')`);
+      assert.ok(await page.waitFor(`${card(nine.id)}?.matches('[data-open]')`, 5000), 'the card did not open');
+      const reply = `${card(nine.id)}.querySelector('[data-comment-composer] textarea')`;
+      const assignBox = `${card(nine.id)}.querySelector('[data-assign-box]')`;
+      const list = `document.querySelector('[data-comment-composer] [role="listbox"]')`;
+      await clickInEditor(page, reply);
+      assert.ok(await page.waitFor(`document.activeElement === ${reply}`, 3000), 'the reply box has no focus');
+      // An @ right after a Han letter opens the list of people, as one after a space does.
+      await page.cdp('Input.insertText', { text: '麻烦@A' });
+      assert.ok(await page.waitFor(`[...(${list})?.querySelectorAll('[role="option"]') ?? []].some(option => option.textContent.includes('Ana'))`, 5000), 'no list of people after 麻烦@');
+      await page.press('Escape');
+      await page.cdp('Input.insertText', { text: 'na，订一下票' });
+      assert.ok(await page.waitFor(`${assignBox}?.textContent.trim() === 'Assign to Ana'`, 5000), 'a Chinese reply naming @Ana offers no Assign to Ana');
+      await clickOnTop(page, `${assignBox}.querySelector('input')`);
+      assert.ok(await page.waitFor(`${assignBox}?.querySelector('input').checked`, 2000), 'the box did not check');
+      await page.press('Enter');
+      assert.ok(await page.waitFor(`${card(nine.id)}?.querySelector('[data-assigned="Ana"]')`, 8000), 'the reply did not assign Ana');
+      assert.ok(await page.waitFor(`[...${card(nine.id)}.querySelectorAll('[data-mention]')].some(chip => chip.textContent === '@Ana')`, 2000), '@Ana is not drawn as a mention');
+      const saved = await threadOn('nine');
+      assert.deepEqual([saved.messages.at(-1).text, saved.messages.at(-1).to, saved.messages.at(-1).assignee], ['麻烦@Ana，订一下票', ['Ana'], 'Ana']);
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await browser.close();
+    }
+  });
 });
 
 describe(`${TYPE} in Chrome: word count in the More menu`, { skip: skip() || chromeSkip() }, () => {
@@ -2057,6 +2096,10 @@ describe(`${TYPE} in Chrome: word count in the More menu`, { skip: skip() || chr
       // "Count", four words, three words.
       assert.deepEqual(await openMore(), ['8 words in this tab', '47 characters']);
       assert.ok(await until(() => said('8 words in this tab, 47 characters'), 5000), 'the count was not said');
+      // Rows that turn something on or off (Show all comments, Version history) keep their icons in line with the rest.
+      const iconLefts = (await page.evaluateAll(`[...document.querySelectorAll('[role=menuitem] [data-chrome-icon]')].map(icon => Math.round(icon.getBoundingClientRect().left))`)).find(list => list?.length) ?? [];
+      assert.ok(iconLefts.length >= 4, `too few menu icons: ${iconLefts}`);
+      assert.equal(new Set(iconLefts).size, 1, `the More menu's icons are not in line: ${iconLefts}`);
       await page.press('Escape');
       assert.ok(await until(async () => (await lines()).length === 0, 5000), 'Escape did not close the menu');
 

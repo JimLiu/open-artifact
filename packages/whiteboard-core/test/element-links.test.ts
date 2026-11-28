@@ -11,10 +11,10 @@ import {
 } from '../src/anchors.ts';
 import { checkBoardDocuments } from '../src/check.ts';
 import { artifactClipboardHtml, boardClipboardPayload, boardClipboardCopy, parseArtifactClipboardHtml } from '../src/clipboard.ts';
-import { linkCardFromPaste, pasteElements } from '../src/edits.ts';
+import { duplicateSelection, linkCardFromPaste, pasteElements } from '../src/edits.ts';
 import { artifactAddressOfUrl, artifactAddressParts, elementAnchorId, normalizeImageHref, normalizeLinkHref } from '../src/links.ts';
 import { parseBoardContent } from '../src/normalize.ts';
-import type { BoardContent, BoardElement, ContainerElement, LinkElement, NoteElement, TableElement } from '../src/schema.ts';
+import { MAX_BOARD_ELEMENTS, type BoardContent, type BoardElement, type ContainerElement, type LinkElement, type NoteElement, type TableElement } from '../src/schema.ts';
 import { markdownLinkUrls } from '../src/text/inline-markdown.ts';
 import { tableFromGrid } from '../src/table.ts';
 
@@ -140,6 +140,40 @@ describe('copies keep their links pointing where they should', () => {
     assert.ok(copySection && copyCard);
     assert.notEqual(copySection.id, 's1');
     assert.equal(copyCard.href, `#element=${copySection.id}`);
+  });
+
+  it('points links to a copied arrow at the arrow’s copy, in a duplicate and in a paste', () => {
+    const arrow: BoardElement = { type: 'arrow', id: 'arr', from: 'a', to: 'b' } as BoardElement;
+    const source = [note('a', 'A'), note('b', 'B'), arrow, card('l1', '#element=arr'), note('n1', '[flow](#element=arr) [start](#element=a)')];
+    const ids = new Set(source.map((element) => element.id));
+    for (const added of [
+      duplicateSelection(content(source), ids).content.elements.slice(source.length),
+      pasteElements(content([]), source, 0, 0, false, { from: BOARD, here: OTHER }).content.elements,
+    ]) {
+      const copyArrow = added.find((element) => element.type === 'arrow');
+      const copyA = added.find((element) => element.type === 'note' && element.text === 'A');
+      assert.ok(copyArrow && copyA);
+      assert.notEqual(copyArrow.id, 'arr');
+      assert.equal((added.find((element) => element.type === 'link') as LinkElement).href, `#element=${copyArrow.id}`);
+      assert.equal((added.find((element) => element.type === 'note' && element.text.startsWith('[flow]')) as NoteElement).text, `[flow](#element=${copyArrow.id}) [start](#element=${copyA.id})`);
+    }
+  });
+
+  it('moves the board’s links to a cut arrow onto its pasted copy', () => {
+    const arrow: BoardElement = { type: 'arrow', id: 'arr', from: 'a', to: 'b' } as BoardElement;
+    const board = content([card('l1', '#element=arr')]);
+    const result = pasteElements(board, [note('a', 'A'), note('b', 'B'), arrow], 0, 0, true, { from: BOARD, here: BOARD });
+    const copyArrow = result.content.elements.find((element) => element.type === 'arrow');
+    assert.ok(copyArrow);
+    assert.equal((result.content.elements.find((element) => element.id === 'l1') as LinkElement).href, `#element=${copyArrow.id}`);
+  });
+
+  it('leaves a link to an element whose copy did not fit on the board pointing at the original', () => {
+    const fill = Array.from({ length: MAX_BOARD_ELEMENTS - 1 }, (_, index) => note(`f${index}`, ''));
+    const result = pasteElements(content(fill), [card('l1', '#element=s1'), section('s1', 'A')], 0, 0);
+    const added = result.content.elements.slice(fill.length);
+    assert.equal(added.length, 1);
+    assert.equal((added[0] as LinkElement).href, '#element=s1');
   });
 
   it('carries the source board in the clipboard', () => {

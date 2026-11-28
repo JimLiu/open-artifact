@@ -51,8 +51,10 @@ export type { EditAnswer, EditDialogKind, EditState } from './edit-state.ts';
 
 /** The page editor's side of an edit, registered while edit mode is on. */
 export interface PageEditSession {
-  /** The page's HTML as edited now. */
+  /** The page's HTML as edited now (ends any typing first). */
   text(): string;
+  /** True while words are being typed: reading `text()` then would end the typing. */
+  typing?(): boolean;
   /** Unsaved changes. */
   count(): number;
   /** Puts the page back as stored. */
@@ -218,7 +220,10 @@ export function startPageEdit(options: { editable: () => boolean; misparsed?: bo
   dispatch({ type: 'pencil', editable: options.editable() });
 }
 
-/** Joint mode: writes the edited page to the draft once edits rest. */
+/**
+ * Joint mode: writes the edited page to the draft once edits rest. Words being typed wait for the typing to end (it
+ * makes a step, which comes back here): keeping them sooner would end the typing under the person's caret.
+ */
 function scheduleKeep(): void {
   if (!jointBegun) {
     jointBegun = true;
@@ -228,7 +233,7 @@ function scheduleKeep(): void {
   if (keepTimer !== undefined) clearTimeout(keepTimer);
   keepTimer = setTimeout(() => {
     keepTimer = undefined;
-    if (useEditFlow.getState().phase === 'editing') void keepNow();
+    if (useEditFlow.getState().phase === 'editing' && current?.typing?.() !== true) void keepNow();
   }, SHARED_KEEP_MS);
 }
 

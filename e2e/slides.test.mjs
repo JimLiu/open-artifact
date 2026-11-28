@@ -2324,4 +2324,118 @@ describe('slides', { skip: skipFor('slides') }, () => {
       await tab.close();
     }
   });
+
+  it('keeps each element on its own tag when it is edited after a save that moved elements in the file', { skip: browserSkip }, async () => {
+    // A source deck whose boxes take their size and first colour from deck.css. Each save after a restack or a delete
+    // moves the elements in the file; the next edit must still land on the element it was made on.
+    const deck = tmpDir('slides-edit-after-save');
+    const project = path.join(deck, 'project');
+    fs.mkdirSync(path.join(project, 'slides'), { recursive: true });
+    fs.writeFileSync(path.join(project, 'deck.json'), JSON.stringify({
+      v: 5, lists: 'css', title: 'Boxes', order: ['boxes'],
+      format: { v: 1, shared: ['project/deck.css'] }, createdOnFiles: { v: 1, at: '2026-11-27T00:00:00Z' },
+      sections: {}, faces: {}, designSystems: [],
+    }));
+    fs.writeFileSync(path.join(project, 'deck.css'), '.box { position: absolute; width: 300px; height: 200px; background: #2670a0; color: #fff; }');
+    const slideFile = path.join(project, 'slides', 'boxes.html');
+    const written = '<section id="boxes"><div class="box" style="left:200px;top:300px">One</div><div class="box" style="left:700px;top:500px;background:#a02670">Two</div>' +
+      '<div class="box" style="left:1200px;top:300px;background:#26a070">Three</div></section>';
+    fs.writeFileSync(slideFile, written);
+    /** The boxes of the file in order: their tag, words and own style. */
+    const boxes = () => [...fs.readFileSync(slideFile, 'utf8').matchAll(/<(\w+)( class="box")?(?: style="([^"]*)")?>(One|Two|Three)<\/\1>/g)].map(m => `${m[4]}:${m[1]}${m[2] ? '.box' : ''}|${m[3] ?? ''}`).join(' ');
+    const { url: deckPublic } = await run.json(['open', deck, '--json']);
+    const tab = await browser.load(new URL('index.html', deckPublic).href, { ready: `${stageNode(2)} !== null` });
+    try {
+      const mac = await tab.evaluate("navigator.platform.includes('Mac')");
+      const select = async at => {
+        await tab.press('Escape');
+        await tab.click(...(await middle(tab, stageNode(at))));
+        assert.ok(await tab.waitFor(`${selectedCount} === 1`), `box ${at} was not selected`);
+      };
+      const ONE = 'One:div.box|left:200px;top:300px';
+      const TWO = 'Two:div.box|left:700px;top:500px;background:#a02670';
+      const THREE = 'Three:div.box|left:1200px;top:300px;background:#26a070';
+      // Back one layer, saved; forward again: the file is as it was. Before the fix, One took Two's tag and the
+      // colour its class gives it was written inline.
+      await select(1);
+      await chord(tab, '[', 'BracketLeft', 219, { mod: true, mac });
+      assert.ok(await until(() => boxes() === `${TWO} ${ONE} ${THREE}`), boxes());
+      await chord(tab, ']', 'BracketRight', 221, { mod: true, mac });
+      assert.ok(await until(() => boxes() === `${ONE} ${TWO} ${THREE}`), boxes());
+      // One deleted, saved; Three nudged: it moves on its own tag. Before the fix, it was written as a <p> with
+      // every style inline and no class.
+      await select(0);
+      await tab.press('Delete');
+      assert.ok(await until(() => boxes() === `${TWO} ${THREE}`), boxes());
+      await select(1);
+      await tab.press('ArrowRight');
+      const nudged = new RegExp(`^${TWO.replace(/[.|]/g, '\\$&')} Three:div\\.box\\|left:12(?!00)\\d\\dpx;top:300px;background:#26a070$`);
+      assert.ok(await until(() => nudged.test(boxes())), boxes());
+      assert.deepEqual(tab.problems, []);
+    } finally {
+      // Not stopped: the deck under test shares its server (the suite stops it at the end).
+      await tab.close();
+    }
+  });
+
+  // What changed on disk while the page's event stream was down reaches the open deck once it is back, with the
+  // slide on the stage and its selection kept.
+  it('catches up on slides changed on disk while its event stream was down, keeping the slide and the selection', { skip: browserSkip }, async () => {
+    const deck = tmpDir('slides-gap');
+    const project = path.join(deck, 'project');
+    fs.mkdirSync(path.join(project, 'slides'), { recursive: true });
+    const index = order => JSON.stringify({
+      v: 5, lists: 'css', title: 'Gap', order,
+      format: { v: 1, shared: ['project/deck.css'] }, createdOnFiles: { v: 1, at: '2026-11-27T00:00:00Z' },
+      sections: {}, faces: {}, designSystems: [],
+    });
+    fs.writeFileSync(path.join(project, 'deck.json'), index(['one', 'two']));
+    fs.writeFileSync(path.join(project, 'deck.css'), 'section { padding: 96px; } .box { position: absolute; left: 600px; top: 500px; width: 300px; height: 200px; background: #2670a0; }');
+    const slideFile = id => path.join(project, 'slides', id + '.html');
+    fs.writeFileSync(slideFile('one'), '<section id="one"><h1>First</h1><div class="box"></div></section>');
+    fs.writeFileSync(slideFile('two'), '<section id="two"><h1>Second</h1></section>');
+    const { url: deckPublic } = await run.json(['open', deck, '--json']);
+    const tab = await browser.load(new URL('index.html', deckPublic).href, { ready: `document.querySelectorAll('${rail}').length === 2` });
+    // Keep each WebSocket, and while `__holdStream` is set send new ones to a port nobody listens on, so the page
+    // keeps trying to reconnect and hears nothing.
+    const watch = `(() => {
+      const Native = window.WebSocket;
+      window.__streams = [];
+      window.__holdStream = false;
+      window.WebSocket = class extends Native {
+        constructor(url, protocols) {
+          super(window.__holdStream ? 'ws://127.0.0.1:9/' : url, protocols);
+          window.__streams.push(this);
+        }
+      };
+    })()`;
+    const heading = `document.querySelector('[data-open-artifact-mode="edit"][data-open-artifact-slide="one"] h1')`;
+    try {
+      await tab.cdp('Page.addScriptToEvaluateOnNewDocument', { source: watch });
+      await tab.cdp('Page.reload', {});
+      assert.ok(await tab.waitFor(`document.querySelectorAll('${rail}').length === 2 && ${heading} !== null`, 15000), 'the deck loaded again');
+      assert.ok(await tab.waitFor('window.__streams?.some(s => s.readyState === 1)', 15000), 'its event stream is open');
+      await tab.click(...(await middle(tab, stageNode(1))));
+      assert.ok(await tab.waitFor(`${selectedCount} === 1`), 'the box was not selected');
+
+      await tab.evaluate('window.__holdStream = true; for (const s of window.__streams ?? []) s.close()');
+      assert.ok(await until(async () => !(await tab.evaluate('window.__streams.some(s => s.readyState === 1)')), 5000));
+      // The agent retitles the first slide and adds a third while the page hears nothing.
+      fs.writeFileSync(slideFile('one'), '<section id="one"><h1>First, updated</h1><div class="box"></div></section>');
+      fs.writeFileSync(slideFile('three'), '<section id="three"><h1>Third</h1></section>');
+      fs.writeFileSync(path.join(project, 'deck.json'), index(['one', 'two', 'three']));
+      await new Promise(resolve => setTimeout(resolve, 1500)); // the server's watcher has sent its events to no one
+      assert.equal(await tab.evaluate(`${heading}?.textContent`), 'First', 'the page heard the change while its stream was down');
+
+      await tab.evaluate('window.__holdStream = false');
+      assert.ok(await tab.waitFor(`${heading}?.textContent === 'First, updated'`, 15000), 'the reconnected editor did not read the slide it missed');
+      assert.ok(await tab.waitFor(`document.querySelectorAll('${rail}').length === 3`), 'nor the slide added meanwhile');
+      assert.ok(await tab.waitFor(`${selectedCount} === 1`), 'the box is no longer selected');
+      assert.equal(fs.readFileSync(slideFile('one'), 'utf8'), '<section id="one"><h1>First, updated</h1><div class="box"></div></section>', 'the page wrote over the change');
+      assert.deepEqual(tab.problems, []);
+    } finally {
+      // Not stopped: the deck under test shares its server (the suite stops it at the end).
+      await tab.close();
+    }
+  });
 });

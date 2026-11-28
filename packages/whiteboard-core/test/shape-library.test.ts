@@ -80,6 +80,26 @@ describe('shape library files', () => {
     assert.match(read.ok ? '' : read.reason, /larger than 4 MB/);
   });
 
+  it('leaves out from the end the shapes that would make the stored file larger than 4 MB, so it reads back', () => {
+    // Each drawing stays under the input limits, but 500 of them cleaned come to well over 4 MB.
+    const busy = `<svg xmlns="${NS}" viewBox="0 0 100 100"><path d="${Array.from({ length: 1100 }, (_, index) => `M${index % 97} ${index % 89}h1`).join('')}"/></svg>`;
+    const read = shapeLibraryFromSvgFiles(Array.from({ length: 500 }, (_, index) => ({ fileName: `s${index}.svg`, text: busy })), 'Busy');
+    assert.ok(read.library.shapes.length > 0 && read.library.shapes.length < 500);
+    assert.equal(read.library.shapes.length + read.overLimit, 500);
+    assert.deepEqual(read.leftOut, []);
+    const stored = serializeShapeLibrary(read.library);
+    assert.ok(new TextEncoder().encode(stored).length <= SHAPE_LIBRARY_LIMITS.bytes);
+    const again = readShapeLibrary(stored);
+    assert.ok(again.ok, again.ok ? '' : again.reason);
+    assert.equal(again.library.shapes.length, read.library.shapes.length);
+  });
+
+  it('names a loose SVG file too large to read as too large', () => {
+    const read = shapeLibraryFromSvgFiles([{ fileName: 'huge.svg', text: '', tooLarge: 500_000 }, { fileName: 'ok.svg', text: SQUARE }], 'Mine');
+    assert.deepEqual(read.leftOut, [{ name: 'huge', reason: 'is too large to read (500k characters)' }]);
+    assert.equal(read.library.shapes.length, 1);
+  });
+
   it('reads at most 500 shapes and counts the rest', () => {
     const read = readShapeLibrary(library(Array.from({ length: 501 }, (_, index) => ({ name: `S${index}`, svg: SQUARE }))));
     assert.ok(read.ok);
@@ -126,6 +146,17 @@ describe('shape library files', () => {
     ]));
     assert.ok(read.ok);
     assert.deepEqual(read.library.shapes.map((shape) => [shape.w, shape.h]), [[96, 48], [30, 10], [24, 24]]);
+  });
+
+  it('keeps the drawing’s proportions when the file gives only w or only h', () => {
+    const wide = `<svg xmlns="${NS}" viewBox="0 0 30 10"><rect width="30" height="10"/></svg>`;
+    const read = readShapeLibrary(library([
+      { name: 'W', w: 48, svg: SQUARE },
+      { name: 'H', h: 20, svg: wide },
+      { name: 'W wide', w: 60, h: 'x', svg: wide },
+    ]));
+    assert.ok(read.ok);
+    assert.deepEqual(read.library.shapes.map((shape) => [shape.w, shape.h]), [[48, 48], [60, 20], [60, 20]]);
   });
 
   it('drops a bad outline and keeps the shape', () => {
@@ -193,6 +224,14 @@ describe('cleaning shape drawings', () => {
     assert.match(svg, /<rect[^>]*opacity=".5"/);
     assert.match(svg, /<circle[^>]*stroke-width="2"/);
     assert.doesNotMatch(svg, /green|black/);
+  });
+
+  it('keeps the first rule after @charset, @import and @namespace', () => {
+    const svg = cleaned(
+      `<svg xmlns="${NS}" viewBox="0 0 10 10"><style>@charset "UTF-8"; @import url(x.css); @namespace svg url(${NS}); .a{fill:#ff0000}</style><rect class="a" width="10" height="10"/></svg>`,
+    );
+    assert.match(svg, /<rect[^>]*fill="#ff0000"/);
+    assert.doesNotMatch(svg, /x\.css|charset/);
   });
 
   it('turns style attributes into presentation attributes, over the stylesheet and attributes', () => {
@@ -285,6 +324,15 @@ describe('cleaning shape drawings', () => {
     assert.match(refusal('<html/>'), /not an SVG/);
     assert.match(refusal(''), /no drawing/);
     assert.match(refusal(`<!DOCTYPE svg [<!ENTITY x "boom">]><svg xmlns="${NS}" viewBox="0 0 1 1"><title>&x;</title></svg>`), /well-formed/);
+  });
+
+  it('leaves out a drawing nested too deep to read, and reads the rest of its library', () => {
+    const deep = `<svg xmlns="${NS}" viewBox="0 0 10 10">${'<g>'.repeat(50_000)}<rect width="1" height="1"/>${'</g>'.repeat(50_000)}</svg>`;
+    assert.match(refusal(deep), /not a drawing the board can read/);
+    const read = readShapeLibrary(library([{ name: 'Deep', svg: deep }, { name: 'Fine', svg: SQUARE }]));
+    assert.ok(read.ok);
+    assert.deepEqual(read.library.shapes.map((shape) => shape.name), ['Fine']);
+    assert.deepEqual(read.leftOut.map((shape) => shape.name), ['Deep']);
   });
 });
 

@@ -84,7 +84,9 @@ export function namedRangesListing(workbook: WorkbookContents, answer: (request:
   const out: EngineMessage[] = [];
   for (const entry of listed) {
     if (!isObject(entry) || !isObject(entry.namedRange) || typeof entry.namedRange.name !== 'string') continue;
-    out.push({ name: entry.namedRange.name, address: typeof entry.address === 'string' ? entry.address : null });
+    // The engine reads a name whose cells are gone as `#REF!` with no live cells: that is no address.
+    const isGone = entry.liveCells === null || entry.address === '#REF!';
+    out.push({ name: entry.namedRange.name, address: typeof entry.address === 'string' && !isGone ? entry.address : null });
   }
   return out;
 }

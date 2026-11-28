@@ -524,7 +524,8 @@ export const FoldToolbar = forwardRef<HTMLDivElement, FoldToolbarProps>(function
         <FoldContext.Provider value={foldable ? context : null}>
           {children}
           {foldable ? (
-            <span data-fold-toggle-group="" className="flex shrink-0 items-center data-[fold-gone]:hidden">
+            // Hidden until a measure folds the strip, so a measure put off by an open popup never shows it on a strip that fits.
+            <span data-fold-toggle-group="" data-fold-gone={folded ? undefined : ''} className="flex shrink-0 items-center data-[fold-gone]:hidden">
               <Tip label={MORE_TOOLS} side={placed === 'below' ? 'bottom' : 'top'}>
                 <ChromeButton
                   ref={toggleRef}
