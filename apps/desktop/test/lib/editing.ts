@@ -71,7 +71,9 @@ export const TYPES: Record<'docs' | 'sheets' | 'slides' | 'whiteboard', EditingC
         frame,
         `[...document.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'Add slide' || b.textContent.trim() === 'Add slide').click(), true`,
       );
-      // Add slide adds a blank slide at once (no layout to pick).
+      const blank = `[...document.querySelectorAll('[role="listbox"][aria-label="Layouts"] [role="option"]')].find((b) => b.textContent.trim() === 'Blank')`;
+      assert.ok(await view.waitInFrame(frame, `!!(${blank})`), 'Add slide did not offer the Blank layout');
+      await view.inFrame(frame, `${blank}.click(), true`);
     },
     onDisk: (root) => {
       try {
