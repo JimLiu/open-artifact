@@ -76,9 +76,10 @@ export async function until(fn, ms = 5000, step = 100) {
 
 /**
  * A 2×2 PNG, made here so the fixtures hold no binary files. `rgb` colours its first pixel: uploads are stored by their
- * bytes, so a case that needs an upload of its own gives a colour of its own.
+ * bytes, so a case that needs an upload of its own gives a colour of its own. With a `size`, it is that many pixels
+ * across and down, all in `rgb`.
  */
-export function png(rgb = [194, 86, 43]) {
+export function png(rgb = [194, 86, 43], size = null) {
   const table = [];
   for (let n = 0; n < 256; n++) {
     let c = n;
@@ -99,11 +100,13 @@ export function png(rgb = [194, 86, 43]) {
     return Buffer.concat([len, body, sum]);
   };
   const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(2, 0);
-  ihdr.writeUInt32BE(2, 4);
+  ihdr.writeUInt32BE(size?.width ?? 2, 0);
+  ihdr.writeUInt32BE(size?.height ?? 2, 4);
   ihdr[8] = 8; // bit depth
   ihdr[9] = 2; // RGB
-  const rows = Buffer.from([0, ...rgb, 251, 247, 241, 0, 251, 247, 241, 194, 86, 43]);
+  const rows = size
+    ? Buffer.concat(Array.from({ length: size.height }, () => Buffer.from([0, ...Array.from({ length: size.width }, () => rgb).flat()])))
+    : Buffer.from([0, ...rgb, 251, 247, 241, 0, 251, 247, 241, 194, 86, 43]);
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     chunk('IHDR', ihdr),

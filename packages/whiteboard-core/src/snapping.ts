@@ -68,7 +68,8 @@ export function snapRectToGuidesStraight(rect: Box, guides: readonly SnapGuide[]
 
 /**
  * Snaps the dragged edges of a resize to edge guides within `threshold`.
- * Returns the adjusted drag deltas.
+ * Returns the whole adjusted drag (`dx, dy` themselves when no guide is
+ * near), unlike {@link snapRectToGuides}, which returns a correction to add.
  */
 export function snapResizeEdgesToGuides(rect: Box, edges: ResizeEdges, dx: number, dy: number, guides: readonly SnapGuide[], threshold: number): SnapResult {
   return decodeSnap(wbGeom().snap_resize_edges_to_guides(encodeRect(rect), edgeCode(edges.x), edgeCode(edges.y), dx, dy, encodeGuides(guides), threshold), guides);

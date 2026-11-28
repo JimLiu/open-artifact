@@ -582,7 +582,16 @@ export function applyResizeDrag(elements: readonly BoardElement[], drag: ResizeD
       const prior = drag.before.elements.find((other) => other.id === element.id);
       const points = (prior?.type === 'stroke' ? prior.points : element.points).map((coord, index) => coord * (index % 2 === 0 ? scaleX : scaleY));
       const strokeWidth = prior?.type === 'stroke' ? prior.width : element.width;
-      return { ...element, x, y, points, width: Math.min(40, Math.max(1, (strokeWidth * (scaleX + scaleY)) / 2)) };
+      const next = { ...element, x, y, points, width: Math.min(40, Math.max(1, (strokeWidth * (scaleX + scaleY)) / 2)) };
+      // A stroke's box reaches half a line past its points, so `x, y` (where the box goes) is not where its points start:
+      // line the drawn box up with the target on the side that stays, or every resize nudges the stroke by half its width.
+      const drawn = elementLayoutBox(next);
+      if (!drawn) return next;
+      const w = member.w * scaleX;
+      const h = member.h * scaleY;
+      const shiftX = drag.edge.x === 'left' ? x + w - (drawn.x + drawn.w) : x - drawn.x;
+      const shiftY = drag.edge.y === 'top' ? y + h - (drawn.y + drawn.h) : y - drawn.y;
+      return { ...next, x: next.x + shiftX, y: next.y + shiftY };
     }
     const keepH =
       (element.type === 'note' || element.type === 'container') && drag.edge.y === null ? element.h : container && toH === start.h ? container.h : undefined;

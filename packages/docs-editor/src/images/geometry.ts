@@ -130,6 +130,52 @@ export function clampWidth(width: number, room: number): number {
 }
 
 /**
+ * The width a side handle's drag asks for, from the width at the press and how far the pointer went (`delta`, screen
+ * px). A picture sits in its line by the line's `text-align`, so a centered one grows by both sides at once and its
+ * edge moves half as far as its width changes: the width changes by as much as keeps the dragged edge under the
+ * pointer. A handle on the side that stays put (the left one of a left-aligned picture) changes the width by `delta`.
+ */
+export function draggedWidth(side: 'e' | 'w', startWidth: number, delta: number, textAlign: string, direction: string): number {
+  const rtl = direction === 'rtl';
+  const share =
+    textAlign === 'center' || textAlign === '-webkit-center'
+      ? 0.5
+      : textAlign === 'right' || textAlign === '-webkit-right' || (textAlign === 'end' && !rtl) || ((textAlign === 'start' || textAlign === 'justify') && rtl)
+        ? 1
+        : 0;
+  // How far the dragged edge moves for each pixel of width.
+  const follows = side === 'e' ? 1 - share : share;
+  const grow = side === 'e' ? delta : -delta;
+  return startWidth + (follows > 0 ? grow / follows : grow);
+}
+
+/**
+ * The width that puts a picture's dragged edge at `target` (screen px). `edgeAt` draws the picture at a width and
+ * says where that edge then is; the answer starts from `guess` ({@link draggedWidth}) and follows the line through
+ * the last two tries, as a picture in a cell that widens with it moves differently from one in a fixed column. Null
+ * when the edge does not move as the width changes (it is the side that stays put).
+ */
+export function widthForEdge(
+  target: number,
+  edgeAt: (width: number) => number,
+  start: { width: number; edge: number },
+  guess: number,
+  clamp: (width: number) => number,
+): number | null {
+  let [width, edge] = [start.width, start.edge];
+  let next = clamp(guess);
+  for (let tries = 0; tries < 4; tries++) {
+    const landed = edgeAt(next);
+    if (Math.abs(landed - target) < 0.5) return next;
+    if (Math.abs(landed - edge) < 0.01) return next === width ? next : null;
+    const better = clamp(next + ((target - landed) * (next - width)) / (landed - edge));
+    if (better === next) return next;
+    [width, edge, next] = [next, landed, better];
+  }
+  return next;
+}
+
+/**
  * The width a picture keeps after a crop: a size name stays (it is a share of the column); otherwise the picture keeps
  * its scale, so it is the whole picture's shown width times the part kept.
  */

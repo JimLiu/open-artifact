@@ -195,6 +195,47 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
     } finally { await p.close(); }
   });
 
+  it('keeps a resize handle under the pointer while it drags', { skip: noBrowser }, async () => {
+    // 2026-11-27: the resize added the snapped drag onto the pointer's drag, so a handle ran twice as far as the mouse.
+    const p = await browser.load(url, { ready });
+    try {
+      const pointer = (type, x, y, buttons, modifiers = 0) => p.cdp('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons, clickCount: 1, modifiers });
+      const centerOf = (selector) => p.evaluate(`(() => {
+        const node = document.querySelector('${selector}');
+        if (!node) return null;
+        const box = node.getBoundingClientRect();
+        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      })()`);
+      assert.ok(await p.waitFor(`document.querySelector('#wb-box')`));
+      const body = await centerOf('#wb-box');
+      await pointer('mousePressed', body.x, body.y, 1);
+      await pointer('mouseReleased', body.x, body.y, 0);
+      // ⌘ turns snapping off, so the handle sits exactly under the pointer; without it a guide may pull it up to 8 px.
+      for (const [modifiers, within] of [[4, 1.5], [0, 8.5]]) {
+        for (const handle of ['se', 'e', 's', 'nw']) {
+          const selector = `.wb-handle[data-handle="${handle}"]`;
+          assert.ok(await p.waitFor(`document.querySelector('${selector}')`), `the ${handle} handle shows`);
+          const grab = await centerOf(selector);
+          await pointer('mousePressed', grab.x, grab.y, 1, modifiers);
+          let at = grab;
+          for (const [dx, dy] of [[37, 23], [96, 61], [12, 9]]) {
+            const step = { x: grab.x + (handle === 'nw' ? -dx : handle === 's' ? 0 : dx), y: grab.y + (handle === 'nw' ? -dy : handle === 'e' ? 0 : dy) };
+            for (let i = 1; i <= 4; i++) await pointer('mouseMoved', at.x + (step.x - at.x) * i / 4, at.y + (step.y - at.y) * i / 4, 1, modifiers);
+            at = step;
+            assert.ok(await p.waitFor(`(() => {
+              const node = document.querySelector('${selector}');
+              if (!node) return false;
+              const box = node.getBoundingClientRect();
+              return Math.abs(box.x + box.width / 2 - ${at.x}) <= ${within} && Math.abs(box.y + box.height / 2 - ${at.y}) <= ${within};
+            })()`, 3000), `the ${handle} handle stays under the pointer: ${JSON.stringify({ modifiers, pointer: at, handle: await centerOf(selector) })}`);
+          }
+          await pointer('mouseReleased', at.x, at.y, 0, modifiers);
+        }
+      }
+      assert.deepEqual(p.problems, []);
+    } finally { await p.close(); }
+  });
+
   it('undoes a drag with repeated positions and a pause in one step', { skip: noBrowser }, async () => {
     const dragRoot = tmpDir('whiteboard-drag-undo');
     for (const folder of ['db', '_blobs']) fs.cpSync(path.join(root, folder), path.join(dragRoot, folder), { recursive: true });

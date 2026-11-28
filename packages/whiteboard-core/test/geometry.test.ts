@@ -20,7 +20,7 @@ import { elementsInMarquee, hitTestElement, topElementAt } from '../src/hit-test
 import { createOccupancyIndex, findFreeSpots, planSectionGrowth, sectionGrowthForContents } from '../src/layout.ts';
 import { orderElementsForReading } from '../src/reading-order.ts';
 import type { ArrowElement, BoardElement, ContainerElement, NoteElement, ShapeElement, StickerElement, TextElement } from '../src/schema.ts';
-import { snapRectToGuides, snapRectToGuidesStraight, snapRotationDegrees, straightDragAxis } from '../src/snapping.ts';
+import { snapRectToGuides, snapRectToGuidesStraight, snapResizeEdgesToGuides, snapRotationDegrees, straightDragAxis } from '../src/snapping.ts';
 import { followStickerHosts, rebindStickersToHosts } from '../src/sticker-hosts.ts';
 
 const note = (id: string, x: number, y: number, extra: Partial<NoteElement> = {}): NoteElement => ({
@@ -170,6 +170,15 @@ describe('layout helpers', () => {
     const snapped = snapRectToGuides({ x: 103, y: 0, w: 50, h: 50 }, [{ axis: 'x', pos: 100, kind: 'edge' }], 5);
     assert.equal(snapped.dx, -3);
     assert.equal(snapRotationDegrees(44, true), 45);
+  });
+
+  it('answers a resize snap with the whole drag, not a correction to add', () => {
+    const rect = { x: 0, y: 0, w: 100, h: 60 };
+    const corner = { x: 'right', y: 'bottom' } as const;
+    const free = snapResizeEdgesToGuides(rect, corner, 37, 23, [], 5);
+    assert.deepEqual([free.dx, free.dy], [37, 23], 'with nothing near, the pointer drag comes back as it is');
+    const near = snapResizeEdgesToGuides(rect, corner, 37, 23, [{ axis: 'x', pos: 140, kind: 'edge' }], 5);
+    assert.deepEqual([near.dx, near.dy], [40, 23], 'a guide moves the dragged edge onto it');
   });
 
   it('holds one axis still on a straight drag', () => {

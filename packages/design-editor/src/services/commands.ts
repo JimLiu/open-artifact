@@ -47,6 +47,7 @@ import {
   type TemplateModel,
 } from '@open-artifact/dc';
 import { withRectRadius } from '../lib/note-look.ts';
+import { placedPx } from '../lib/placed-px.ts';
 import { recalledRadius } from './radius-memory.ts';
 import { toast } from '@open-artifact/ui';
 import { detachMarkup, detachRefusal, instanceProps } from '../lib/detach.ts';
@@ -755,10 +756,6 @@ export function selectAllSiblings(): void {
 
 /* -------------------------------- moving -------------------------------- */
 
-const px = (value: string | undefined): number => {
-  const number = parseFloat(value ?? '');
-  return Number.isFinite(number) ? number : 0;
-};
 const round = (value: number): string => `${Math.round(value * 100) / 100}px`;
 
 /**
@@ -794,12 +791,12 @@ function elementMoveEdits(selected: ResolvedGroup, dx: number, dy: number, optio
     if (position !== 'absolute' && position !== 'fixed') return 'flow';
     const patch: Record<string, string> = {};
     if (dx) {
-      if (inline.right && !inline.left) patch.right = round(px(inline.right) - dx);
-      else patch.left = round(px(inline.left || computed.left) + dx);
+      if (inline.right && !inline.left) patch.right = round(placedPx(inline.right, computed.right) - dx);
+      else patch.left = round(placedPx(inline.left, computed.left) + dx);
     }
     if (dy) {
-      if (inline.bottom && !inline.top) patch.bottom = round(px(inline.bottom) - dy);
-      else patch.top = round(px(inline.top || computed.top) + dy);
+      if (inline.bottom && !inline.top) patch.bottom = round(placedPx(inline.bottom, computed.bottom) - dy);
+      else patch.top = round(placedPx(inline.top, computed.top) + dy);
     }
     edits.push({ target: addressIn(selected.model, element), patch });
   }
@@ -925,8 +922,8 @@ export function alignSelection(action: AlignAction): boolean {
     const inline = styleMap(attributeValue(element, 'style') ?? '');
     const computed = api?.inspect(tids[index]!)?.computed ?? {};
     const patch: Record<string, string> = {};
-    if (dx) patch.left = round(px(inline.left || computed.left) + dx);
-    if (dy) patch.top = round(px(inline.top || computed.top) + dy);
+    if (dx) patch.left = round(placedPx(inline.left, computed.left) + dx);
+    if (dy) patch.top = round(placedPx(inline.top, computed.top) + dy);
     return [{ target: addressIn(selected.model, element), patch }];
   });
   if (!edits.length || !edit(selected.board, { kind: 'styles', edits })) return false;

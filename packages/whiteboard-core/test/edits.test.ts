@@ -42,7 +42,8 @@ import {
   topLevelSelectedIds,
   type TextResizeFitting,
 } from '../src/selection.ts';
-import type { ArrowElement, ContainerElement, ShapeElement, BoardContent, BoardElement, HtmlElement, NoteElement, StickerElement } from '../src/schema.ts';
+import { elementLayoutBox } from '../src/geometry.ts';
+import type { ArrowElement, ContainerElement, ShapeElement, StrokeElement, BoardContent, BoardElement, HtmlElement, NoteElement, StickerElement } from '../src/schema.ts';
 import { FACE_STICKER_ART, MAX_BOARD_ELEMENTS } from '../src/schema.ts';
 
 const note = (id: string, x: number, y: number, extra: Partial<NoteElement> = {}): NoteElement => ({
@@ -282,6 +283,20 @@ describe('selection', () => {
     const box = { x: 0, y: 0, w: 200, h: 100 };
     const resized = applyResizeDrag(content.elements, { before: content, members: new Map([['s', box]]), start: box, edge: { x: 'right', y: 'bottom' }, freeEnds: new Map() }, { x: 0, y: 0, w: 400, h: 50 }, fitting);
     assert.deepEqual([(resized[0] as ShapeElement).w, (resized[0] as ShapeElement).h], [400, 50]);
+  });
+
+  it('keeps a resized pen stroke on the box the handles drag', () => {
+    // 2026-11-27: the stroke took its box's corner as its own position, so every resize nudged it by half its line width.
+    const stroke: StrokeElement = { id: 'p', type: 'stroke', x: 100, y: 100, points: [0, 0, 80, 40, 160, 0], width: 8, color: 'ink' };
+    const content: BoardContent = { elements: [stroke] };
+    const fitting: TextResizeFitting = { fitTextToWidth: (element) => element, minResizeSizeForText: (_element, _frame, w, h) => ({ w, h }) };
+    const box = elementLayoutBox(stroke)!;
+    assert.deepEqual(box, { x: 96, y: 96, w: 168, h: 48 });
+    const drawn = (edge: { x: 'left' | 'right'; y: 'top' | 'bottom' }, to: typeof box) =>
+      elementLayoutBox(applyResizeDrag(content.elements, { before: content, members: new Map([['p', box]]), start: box, edge, freeEnds: new Map() }, to, fitting)[0]!);
+    assert.deepEqual(drawn({ x: 'right', y: 'bottom' }, box), box, 'a press with no movement leaves it where it is');
+    assert.deepEqual(drawn({ x: 'right', y: 'bottom' }, { x: 96, y: 96, w: 336, h: 96 }), { x: 96, y: 96, w: 336, h: 96 });
+    assert.deepEqual(drawn({ x: 'left', y: 'top' }, { x: 12, y: 72, w: 252, h: 72 }), { x: 12, y: 72, w: 252, h: 72 }, 'from the top-left corner too');
   });
 
   it('picks selection chrome by state and tool', () => {

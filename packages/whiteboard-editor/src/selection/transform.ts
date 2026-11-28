@@ -171,8 +171,9 @@ export function resizeGesture(sample: PointerSample, handle: HandleName): Gestur
       else {
         const candidates = hasModifier(next.event) ? [] : snapCandidatesNear(still, start, context.view, context.zoom);
         const snap = snapResizeEdgesToGuides(start, edge, dx, dy, candidates, snapDistanceFor(start, context.zoom));
-        dx += snap.dx;
-        dy += snap.dy;
+        // The snap answers the whole drag (the pointer's deltas, moved onto a guide when one is near), not a correction to add.
+        dx = snap.dx;
+        dy = snap.dy;
         box = resizeRectFromEdges(start, edge, dx, dy, min, max);
         useInteraction.getState().setGuides(guideLines(guidesTouchingEdges(box, edge, candidates), still, box, context.view, context.zoom));
       }

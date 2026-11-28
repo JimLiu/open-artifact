@@ -2426,6 +2426,28 @@ editorSuite({
       } finally { await page.close(); }
     });
 
+    it('dragging a box placed in % and rem moves it from where it is drawn, with no jump', T, async () => {
+      // 2026-11-27: `left: 50%` read as 50px and `top: 2rem` as 2px, so the first step of a drag threw the box across the artboard.
+      const { root, url } = await ctx.openNew('unit-drag', (_ctx, root) => {
+        copyFixture('design', root);
+        fs.writeFileSync(path.join(root, BOARD), fs.readFileSync(path.join(root, BOARD), 'utf8').replace(/<x-dc>[\s\S]*?<\/x-dc>/, `<x-dc><helmet><style>html{font-size:16px}body{margin:0}</style></helmet><div style="position: relative; width: 880px; height: 560px"><div id="u" style="position: absolute; left: 50%; top: 2rem; width: 120px; height: 80px; background-color: rgb(0, 0, 200)"></div></div></x-dc>`));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#u')`, settle: 800 });
+      const style = () => new RegExp('id="u" style="([^"]*)"').exec(fs.readFileSync(path.join(root, BOARD), 'utf8'))?.[1] ?? '';
+      const px = side => Number(new RegExp(`${side}: (-?[\\d.]+)px`).exec(style())?.[1]);
+      try {
+        await page.click(...await page.evaluate(middleIn('Main.dc.html', '#u')));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the box is selected');
+        const zoom = await page.evaluate(`(() => { const frame = document.querySelector('iframe[data-board="Main.dc.html"]'); return frame.getBoundingClientRect().width / frame.offsetWidth; })()`);
+        const [fromX, fromY] = await page.evaluate(middleIn('Main.dc.html', '#u'));
+        await page.dragMouse([fromX, fromY], [fromX + 60, fromY + 30]);
+        const want = [440 + 60 / zoom, 32 + 30 / zoom];
+        const near = (value, to) => Math.abs(value - to) <= 2;
+        assert.ok(await until(() => near(px('left'), want[0]) && near(px('top'), want[1]), 10000), `the box moved by the drag from where it was drawn: ${style()} (want left ${want[0]}, top ${want[1]})`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
     // Two artboards with a box each and a rectangle note: the start of the tests of a selection across files.
     const positionedBox = (color, extra = '') => `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="position: relative; width: 880px; height: 560px"><div id="box" style="position: absolute; left: 100px; top: 100px; width: 160px; height: 80px; background-color: ${color}${extra}"></div></div></x-dc>`;
     const acrossFiles = (change = () => {}) => (_ctx, root) => {

@@ -105,7 +105,8 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
   - Pages → Add page writes the page to `canvas.json`;
   - a rectangle dragged on an artboard is written into its page with its `width` and `height` once each (the dragged size replaces the template's 120 px). Before, the style named both twice, so a later Width edit in the panel changed the first, hidden one and the box kept its drawn size;
   - a right-button drag that starts on an element of the artboard pans the canvas by the distance dragged, keeps the selection where it was, and opens no menu; a right-click without travel still opens the menu;
-  - an unreadable `canvas.json` shows the banner, and the file is left unchanged.
+  - an unreadable `canvas.json` shows the banner, and the file is left unchanged;
+  - a box placed with `left: 50%; top: 2rem` and dragged 60 × 30 px is saved at its drawn place plus the drag (`left` about 440 px plus the drag at the canvas's zoom). Before, the move read `50%` as 50 px and `2rem` as 2 px, so the first step threw the box across the artboard.
 
 **Design system only** (`design-system.test.mjs`)
 
@@ -236,6 +237,10 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - A 26-column table starts at the text's left edge, and its wrapper reaches to 24 px from the page's left edge. Scrolled by the width of the space left of the text, it is drawn there (a cell is under a point 40 px from the page's edge) and is cut off on both sides (`data-clip="left right"`, with the left edge drawn); at its right end only on the left. An 8-column table wider than the text that fits the room beside it starts at the text and does not scroll. Before the fix for issue #26, the wrapper stopped 48 px left of the text, so a scrolled table was cut off there and the space left of the centred text stayed empty.
 
 **Data: claude.ai token names** (`data.test.mjs`, a check case each way and one case in Chrome)
+**Docs: a picture's side handles** (`docs.test.mjs`, one case in the "wide tables and folded sections" group, Chrome only)
+
+- A 120 × 60 picture uploaded into a centered table column is clicked, and its right and left handles are dragged out and back in small steps: each handle stays within 1.5 px of the pointer. Before, the width changed by exactly the pointer's travel, so a centered picture (which grows on both sides) moved its handles half as far as the pointer.
+
 
 - A page whose CSS writes the names of the dashboards on claude.ai (`--cds-pad-lg`, `--cds-gap-md`, `--cds-radius`, `--font-anthropic-serif`, `--cds-chart-status-critical`) passes `check`; a claude.ai name with nothing behind it here (`--cds-text-accent`) fails it with an error saying only the names in `reference/design-defaults.md` are set.
 - In Chrome, the fixture dashboard opens under a `dash/look` with its own light colors and 4px corners. In light and in dark mode, every claude.ai name computes to the value of the token it stands for, and a probe drawn with the claude.ai names draws as its twin drawn with the tokens: 16px padding, the look's corners, the serif font, the critical chart color and the popover surface, which is the look's card in light and the dark theme's own in dark. Before, most of those names were set nowhere and fell back to nothing.
@@ -419,6 +424,10 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - A right-click on a shape that is not selected selects it and opens its menu: the selection bar's **More actions** is not shown as open, and the bar, which fits, shows no **More tools** while the menu is open or after Escape closes it. Before, the bar took the right-click menu for its own, put off measuring itself while it was "open", and showed **More tools** on a bar with nothing folded.
 
 **A whiteboard that missed events** (`whiteboard.test.mjs`, one case, Chrome only)
+**Whiteboard: a resize handle under the pointer** (`whiteboard.test.mjs`, one case, Chrome only)
+
+- A selected shape's `se`, `e`, `s` and `nw` handles are dragged with the real mouse in steps out and back. With ⌘ held (no snapping) each handle stays within 1.5 px of the pointer; without it, within the 8 px a guide may pull it. Before, the resize added the snapped drag onto the pointer's drag, so a handle ran about twice as far as the mouse.
+
 
 - A board of its own. The page's event stream (a WebSocket, wrapped before the page's scripts run) is closed, and its reconnects are sent to a port nobody listens on. Meanwhile the agent edits one element's file and deletes another's, and the page still shows the old board.
 - Once reconnects are let through, the page shows the edit and drops the deleted element with no reload: the stream's first event says where the store stands, and the page reads the board again because it missed something.

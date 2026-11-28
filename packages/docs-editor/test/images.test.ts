@@ -8,6 +8,8 @@ import {
   FULL_CROP,
   MAX_IMAGE_BYTES,
   clampWidth,
+  draggedWidth,
+  widthForEdge,
   cleanAlt,
   dragCropEdge,
   judgeImageFile,
@@ -63,6 +65,35 @@ describe('picture sizes and alt text', () => {
     assert.equal(clampWidth(10, 600), 40);
     assert.equal(clampWidth(900, 600), 600);
     assert.equal(clampWidth(300.4, 600), 300);
+  });
+
+  it('widens a picture so the dragged edge stays under the pointer', () => {
+    // 2026-11-27: a centered picture grows on both sides, so its handles moved half as far as the pointer.
+    assert.equal(draggedWidth('e', 200, 30, 'left', 'ltr'), 230, 'left-aligned: the right edge moves with the width');
+    assert.equal(draggedWidth('w', 200, -30, 'left', 'ltr'), 230, 'the left handle of a left-aligned picture changes it by as much');
+    assert.equal(draggedWidth('e', 200, 30, 'center', 'ltr'), 260, 'centered: each edge moves half the change');
+    assert.equal(draggedWidth('w', 200, -30, 'center', 'ltr'), 260);
+    assert.equal(draggedWidth('w', 200, -30, 'right', 'ltr'), 230, 'right-aligned: the left edge moves with the width');
+    assert.equal(draggedWidth('e', 200, 30, 'right', 'ltr'), 230, 'the right handle of a right-aligned picture changes it by as much');
+    assert.equal(draggedWidth('w', 200, -30, 'start', 'rtl'), 230, 'start is the right in a right-to-left line');
+    assert.equal(draggedWidth('e', 200, 30, 'end', 'ltr'), 230);
+  });
+
+  it('finds the width that puts the dragged edge under the pointer, however the cell moves it', () => {
+    const clamp = (width: number) => clampWidth(width, 600);
+    const solve = (edgeAt: (width: number) => number, target: number, guess: number) => widthForEdge(target, edgeAt, { width: 200, edge: edgeAt(200) }, guess, clamp);
+    // Centered in a fixed column 400 wide from x = 100: the right edge is at 300 + w / 2.
+    const fixed = (width: number) => 300 + width / 2;
+    assert.equal(solve(fixed, 430, 260), 260, 'the guess from text-align lands at once');
+    // Centered in a cell that grows with the picture: its left edge stays at 100, so the right edge moves with the width.
+    const growing = (width: number) => 100 + width;
+    assert.equal(solve(growing, 330, 260), 230, 'a cell that widens with the picture moves its edge one for one');
+    // A column that starts growing once the picture is wider than 240.
+    const both = (width: number) => (width <= 240 ? 300 + width / 2 : 420 + (width - 240));
+    const width = solve(both, 470, 260)!;
+    assert.ok(Math.abs(both(width) - 470) < 0.5, `the edge lands on the pointer: ${width} → ${both(width)}`);
+    // The left edge of a left-aligned picture does not move: nothing to solve.
+    assert.equal(solve(() => 100, 70, 230), null);
   });
 });
 

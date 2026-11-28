@@ -640,6 +640,54 @@ describe(`${TYPE} in Chrome: wide tables and folded sections`, { skip: skip() ||
 
   // GitHub issue #26: a table too wide for the room beside the text was cut off 48 px left of the text when scrolled, so
   // the space left of the centred text was never used. It starts at the text's left edge, and scrolls into that space.
+  it('a picture in a centered table cell keeps its side handles under the pointer while it widens', T, async () => {
+    // 2026-11-27: a centered picture grows on both sides, so its handles moved half as far as the pointer.
+    const root = path.join(tmpDir('docs-picture'), 'pictures');
+    const source = path.join(tmpDir('docs-picture-src'), 'pictures.md');
+    fs.writeFileSync(source, '# Pictures\n\nAbove the table.\n');
+    const tab = (await ctx.cli.json(['create', root, '--markdown', source, '--name', 'Pictures'])).lids.f;
+    const picture = path.join(path.dirname(source), 'red.png');
+    fs.writeFileSync(picture, png([200, 30, 30], { width: 120, height: 60 }));
+    const blob = /\/_blob\/([0-9a-f]+)/.exec((await ctx.cli.run(['upload', root, picture])).stdout)?.[1];
+    assert.ok(blob, 'the picture is uploaded');
+    await ctx.cli.json(['update', root, JSON.stringify({ tab, ops: [{ op: 'insert', target: { kind: 'root' }, source: { markdown: `| Left | A centered column, wide enough to give the picture room to grow |\n| :--- | :---: |\n| a | ![Red](blob/${blob}) |` } }] })]);
+    const { url } = await ctx.cli.json(['open', root, '--json']);
+    const browser = await launch();
+    // Points on the page from boxes in the editor's frame.
+    const onPage = selector => `(() => {
+      const frame = document.querySelector('iframe[name="open-artifact-shell"]');
+      const box = frame?.contentDocument?.querySelector(${JSON.stringify(selector)})?.getBoundingClientRect();
+      const outer = frame?.getBoundingClientRect();
+      return box?.width ? { x: outer.x + box.x + box.width / 2, y: outer.y + box.y + box.height / 2 } : null;
+    })()`;
+    const pointer = (page, type, x, y, buttons) => page.cdp('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons, clickCount: 1 });
+    try {
+      const page = await browser.load(url, { ready: textIn('Above the table.'), ignore: [/\/favicon\.ico$/] });
+      const image = 'td[data-align="center"] .doc-media';
+      assert.ok(await page.waitFor(`!!${onPage(image)}`, 10000), 'the picture shows in the centered cell');
+      const at = await page.evaluate(onPage(image));
+      await page.click(at.x, at.y);
+      for (const [side, step] of [['e', 12], ['w', -10], ['e', -8]]) {
+        const handle = `.doc-image-handle-${side}`;
+        assert.ok(await page.waitFor(`!!${onPage(handle)}`, 5000), `the ${side} handle shows`);
+        const grab = await page.evaluate(onPage(handle));
+        await pointer(page, 'mousePressed', grab.x, grab.y, 1);
+        let x = grab.x;
+        for (let i = 1; i <= 3; i++) {
+          x = grab.x + step * i;
+          await pointer(page, 'mouseMoved', x, grab.y, 1);
+          assert.ok(await until(async () => Math.abs((await page.evaluate(onPage(handle)))?.x - x) <= 1.5, 3000),
+            `the ${side} handle stays under the pointer: ${JSON.stringify({ pointer: x, handle: await page.evaluate(onPage(handle)) })}`);
+        }
+        await pointer(page, 'mouseReleased', x, grab.y, 0);
+      }
+      assert.deepEqual(page.problems, []);
+    } finally {
+      await browser.close();
+      await ctx.cli.run(['stop', root]);
+    }
+  });
+
   it('a table wider than the page starts at the text and scrolls into the space left of it; one that fits does not move', T, async () => {
     const root = path.join(tmpDir('docs-lead'), 'lead');
     const row = cells => `| ${cells.join(' | ')} |`;
