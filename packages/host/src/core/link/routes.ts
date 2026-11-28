@@ -325,6 +325,10 @@ export function linkApiRoutes<C extends BaseCtx>(router: Router<C>, services: Li
       const userId = agent.user.id;
       const cursorText = new URL(request.url).searchParams.get('after') ?? request.headers.get('last-event-id') ?? '';
       let cursor = /^\d{1,15}$/.test(cursorText.trim()) ? Number(cursorText.trim()) : 0;
+      // A message never sent behind the cursor (a site before `outbox.seq` handed its id out again): start before it.
+      // Rows sent and not acknowledged in between go again, as on any reconnect.
+      const unsent = cursor > 0 ? await ctx.catalog.firstUnsentOutbox(userId, cursor) : undefined;
+      if (unsent !== undefined) cursor = unsent - 1;
       const encoder = new TextEncoder();
       let closed = false;
       let off: (() => void) | null = null;

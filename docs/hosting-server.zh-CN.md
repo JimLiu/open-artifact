@@ -385,6 +385,7 @@ curl -s -o /dev/null -D - -H 'cookie: __Host-oa_session=a; __Host-oa_session=b' 
 | 作品页面打不开 | `dig +short anything.<内容域名>` 不是这台服务器；或者用按需证书时，`docker compose logs caddy` 显示 ask 接口拒绝了某个名字（作品不存在或在回收站里）。 |
 | 在你的代理后面实时编辑不工作 | 没有放行 WebSocket 升级。 |
 | 列表和 Link 的更新来得很慢 | 代理在缓冲 `text/event-stream`。 |
+| 永久删除一个作品后，发给 agent 的评论和请求再也收不到 | 0.18.0 及更早的站点会把删掉的作品用过的消息编号再发一次，落在电脑上的 Link 已经收到的位置之前。更新站点：在等的消息会在 Link 下次连上时发出。还有没收到的，在那台电脑上运行 `open-artifact daemon restart`。 |
 
 ## 限制
 

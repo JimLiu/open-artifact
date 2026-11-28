@@ -51,6 +51,8 @@ export const DEFAULT_ARTIFACT_SETTINGS: ArtifactSettings = { viewersCanExport: t
 const EPOCH_KEY = 'epoch';
 /** The `site` key of the plugins' access generation (see {@link Catalog.accessStamp}). */
 const ACCESS_GENERATION_KEY = 'plugins.access_generation';
+/** The last outbox id handed out (migration 11); ids never come back, even after their rows are deleted. */
+const OUTBOX_SEQ_KEY = 'outbox.seq';
 
 /** Who to match grants against: a user's id, verified email and groups. */
 export interface GrantSubjectQuery {
@@ -1192,21 +1194,30 @@ export class Catalog {
   // -------------------------------------------------------------------------
   // Outbox (messages to a user's agent, delivered over Link)
 
-  /** Queues a message for a user's agent; ids increase. */
+  /**
+   * Queues a message for a user's agent. Ids only increase, also across deleted artifacts (whose rows go): a Link
+   * keeps the last id it handled and asks for the ones after it, so an id handed out again would never reach it.
+   */
   async appendOutbox(input: { artifactId: string; toUser: string; kind: string; payload: unknown }): Promise<OutboxRecord> {
     const payload = JSON.stringify(input.payload ?? null);
-    for (let attempt = 0; ; attempt++) {
-      const top = await this.driver.get<{ n: number | null }>('SELECT MAX(id) AS n FROM outbox');
-      const id = Number(top?.n ?? 0) + 1;
-      try {
-        await this.driver.run('INSERT INTO outbox (id, artifact_id, to_user, kind, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)', [id, input.artifactId, input.toUser, input.kind, payload, this.#iso()]);
-        const row = await this.driver.get<OutboxRow>('SELECT * FROM outbox WHERE id = ?', [id]);
-        return toOutbox(row!);
-      } catch (error) {
-        // Another append took this id first: try the next.
-        if (attempt >= 4) throw error;
-      }
-    }
+    const [taken] = await this.driver.all<{ value: string }>(
+      "INSERT INTO site (key, value) VALUES (?, '1') ON CONFLICT (key) DO UPDATE SET value = CAST(CAST(site.value AS INTEGER) + 1 AS TEXT) RETURNING value",
+      [OUTBOX_SEQ_KEY],
+    );
+    const id = Number(taken!.value);
+    await this.driver.run('INSERT INTO outbox (id, artifact_id, to_user, kind, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)', [id, input.artifactId, input.toUser, input.kind, payload, this.#iso()]);
+    const row = await this.driver.get<OutboxRow>('SELECT * FROM outbox WHERE id = ?', [id]);
+    return toOutbox(row!);
+  }
+
+  /**
+   * The smallest id at or below `upTo` of a user's message that was never sent nor acknowledged, if any. Such a row is
+   * behind a Link's saved cursor only when its id was handed out again (before ids came from `outbox.seq`): a stream
+   * starts before it so that it is sent.
+   */
+  async firstUnsentOutbox(toUser: string, upTo: number): Promise<number | undefined> {
+    const row = await this.driver.get<{ n: number | null }>('SELECT MIN(id) AS n FROM outbox WHERE to_user = ? AND id <= ? AND delivered_at IS NULL AND acked_at IS NULL', [toUser, upTo]);
+    return row?.n == null ? undefined : Number(row.n);
   }
 
   /** A user's messages not yet acknowledged, after the cursor `after` (an id), oldest first. */
