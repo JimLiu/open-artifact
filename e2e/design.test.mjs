@@ -4602,7 +4602,8 @@ editorSuite({
                 return [outer.left + r.left + r.width / 2, outer.top + r.top + r.height / 2];
               })()`);
               await page.click(...at);
-              await new Promise(resolve => setTimeout(resolve, 400));
+              // The second time the item opens right under the resting pointer: a click that soon after opening is ignored.
+          await new Promise(resolve => setTimeout(resolve, 400));
               assert.equal(await page.evaluate(`!!${inside}.querySelector('[data-note-bar], [data-selection-bar]')`), false, `${role}: no strip on ${id}`);
             }
           } finally { await page.close(); }
@@ -4677,6 +4678,28 @@ editorSuite({
         assert.equal(pages.length, 1, 'the editor runs in one frame of the shell');
         // The editor posts its uploads next to its own page: under the daemon, that is the type server it started.
         assert.equal(await post(new URL(pages[0])), 200, 'the type server the daemon started takes it');
+      });
+    });
+
+    it('moves the canvas toolbar to the bottom and back from the artifact menu', T, async () => {
+      const root = tmpDir('design-toolbar-menu');
+      copyFixture('design', root);
+      await withDesignShell(ctx, root, `document.querySelector('[data-board-title="Main.dc.html"]')`, async shell => {
+        // The editor runs in a frame of the Shell: read where its tools sit there, and the choice it keeps.
+        const tools = async () => (await shell.evaluateAll(`(() => {
+          const bar = document.querySelector('[role=toolbar][aria-label="Canvas tools"]');
+          return bar ? { top: bar.getBoundingClientRect().top < innerHeight / 2, kept: localStorage.getItem('mc-toolbar/top') } : null;
+        })()`)).find(Boolean);
+        assert.deepEqual(await tools(), { top: true, kept: null }, 'the toolbar starts at the top');
+        for (const [label, top] of [['Move toolbar to bottom', false], ['Move toolbar to top', true]]) {
+          await clickOn(shell, buttonNamed('Artifact options'));
+          await new Promise(resolve => setTimeout(resolve, 400));
+          await clickOn(shell, buttonNamed(label), label);
+          assert.ok(await until(async () => (await tools())?.top === top), `${label}: the toolbar moved`);
+          assert.equal((await tools()).kept, top ? '1' : '0', `${label}: the choice is kept`);
+          // The menu closes after the choice; open it again only once it has.
+          assert.ok(await shell.waitFor(`!document.querySelector('[role=menuitem], button[aria-label="Artifact options"][data-popup-open]')`), `${label}: the menu closed`);
+        }
       });
     });
 
