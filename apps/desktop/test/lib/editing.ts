@@ -24,8 +24,14 @@ export const WORD = 'Ferry';
 export function treeText(dir: string) {
   let text = '';
   for (const name of readdirSync(dir)) {
+    // Autosave writes a temporary file and atomically renames it; check only committed contents.
+    if (name.endsWith('.tmp')) continue;
     const path = join(dir, name);
-    text += statSync(path).isDirectory() ? treeText(path) : readFileSync(path, 'utf8');
+    try {
+      text += statSync(path).isDirectory() ? treeText(path) : readFileSync(path, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
   }
   return text;
 }
