@@ -350,6 +350,49 @@ test('outbox: append, list after a cursor, deliver, ack', async () => {
   assert.equal(await catalog.ackOutbox(me, []), 0);
 });
 
+// 2026-11-28: deleting an artifact deleted its outbox rows and the next id came from MAX(id) again, at or below the
+// cursor a Link had saved, so the message was never sent.
+test('outbox: ids keep increasing after an artifact and its rows are deleted', async () => {
+  const me = await owner('Purge');
+  const gone = newArtifactId(clock);
+  const first = await catalog.appendOutbox({ artifactId: gone, toUser: me, kind: 'files', payload: { paths: ['x'] } });
+  await catalog.ackOutbox(me, [first.id]);
+  const cursor = first.id;
+  await catalog.deleteArtifact(gone);
+  const second = await catalog.appendOutbox({ artifactId: newArtifactId(clock), toUser: me, kind: 'wake', payload: { requests: [{ text: 'hi' }] } });
+  assert.ok(second.id > cursor);
+  assert.deepEqual((await catalog.listOutbox(me, cursor)).map((e) => e.id), [second.id]);
+});
+
+test('outbox: the first message behind a cursor that was never sent', async () => {
+  const me = await owner('Behind');
+  const art = newArtifactId(clock);
+  const sent = await catalog.appendOutbox({ artifactId: art, toUser: me, kind: 'files', payload: { paths: ['a'] } });
+  const unsent = await catalog.appendOutbox({ artifactId: art, toUser: me, kind: 'files', payload: { paths: ['b'] } });
+  const acked = await catalog.appendOutbox({ artifactId: art, toUser: me, kind: 'files', payload: { paths: ['c'] } });
+  await catalog.markOutboxDelivered([sent.id]);
+  await catalog.ackOutbox(me, [acked.id]);
+  assert.equal(await catalog.firstUnsentOutbox(me, acked.id), unsent.id);
+  assert.equal(await catalog.firstUnsentOutbox(me, sent.id), undefined, 'only at or below the cursor');
+  await catalog.ackOutbox(me, [unsent.id]);
+  assert.equal(await catalog.firstUnsentOutbox(me, acked.id), undefined, 'acknowledged ones are done');
+});
+
+test('migration 11 starts outbox ids after the largest one there', async () => {
+  const dir2 = await mkdtemp(join(tmpdir(), 'open-artifact-host-outbox-seq-'));
+  const old = openSqlite(join(dir2, 'catalog.db'));
+  try {
+    await migrate(old, MIGRATIONS.filter((m) => m.version < 11));
+    for (const id of [3, 7]) await old.run("INSERT INTO outbox (id, artifact_id, to_user, kind, payload_json, created_at) VALUES (?, 'art_x', 'usr_x', 'files', 'null', '2026-01-01T00:00:00.000Z')", [id]);
+    assert.deepEqual(await migrate(old), [11]);
+    const next = await new Catalog(old, { signingKeys: KEYS }).appendOutbox({ artifactId: 'art_x', toUser: 'usr_x', kind: 'files', payload: null });
+    assert.equal(next.id, 8);
+  } finally {
+    old.close();
+    await rm(dir2, { recursive: true, force: true });
+  }
+});
+
 test('audit: append and list, newest first, by artifact', async () => {
   const art = newArtifactId(clock);
   await catalog.appendAudit({ actorKind: 'user', actorId: 'usr_a', artifactId: art, action: 'share.grant', detail: { role: 'editor' }, ip: '203.0.113.1' });

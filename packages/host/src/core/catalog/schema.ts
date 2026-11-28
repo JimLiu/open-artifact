@@ -301,6 +301,14 @@ export const MIGRATIONS: readonly Migration[] = [
       'CREATE INDEX types_publisher ON types (publisher_user)',
     ],
   },
+  {
+    version: 11,
+    name: 'outbox-seq',
+    // The last outbox id handed out, kept apart from the rows: deleting an artifact deletes its rows, and ids taken
+    // from MAX(id) then came back, at or below the cursor a Link had saved, so its messages were never sent. It starts
+    // at the largest id still there (`Catalog.appendOutbox`).
+    statements: ["INSERT INTO site (key, value) SELECT 'outbox.seq', CAST(COALESCE(MAX(id), 0) AS TEXT) FROM outbox"],
+  },
 ];
 
 /** Applies the migrations not yet applied; returns the versions it applied. */

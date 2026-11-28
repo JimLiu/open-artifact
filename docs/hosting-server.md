@@ -407,6 +407,7 @@ line) were run here without Docker, on http names; the `__Host-` case is covered
 | Artifact pages do not load | `dig +short anything.<content domain>` is not the server; or, on demand, `docker compose logs caddy` shows the ask endpoint refusing a name (an artifact that does not exist or is in the trash). |
 | Live editing does not work behind your proxy | WebSocket upgrades are not passed. |
 | Lists and Link updates arrive late | The proxy buffers `text/event-stream`. |
+| Comments and requests for your agent stopped arriving after an artifact was deleted for good | A site on 0.18.0 or earlier handed the deleted artifact's message numbers out again, behind where the computer's Link had got to. Update the site: the waiting messages are sent the next time the Link connects. If one still does not arrive, run `open-artifact daemon restart` on that computer. |
 
 ## Limits
 

@@ -67,6 +67,46 @@ test('events: replay, live wakes, redelivery until ack, after=, two streams', as
   await b.reader.cancel();
 });
 
+// 2026-11-28: after an artifact was deleted for good, the next message got an id at or below the Link's saved cursor
+// and was never sent, on every reconnect.
+test('events: messages after an artifact is deleted for good still reach a Link that resumes from its cursor', async (t) => {
+  const host = await makeLinkHost();
+  t.after(() => host.close());
+  const { user: ada } = await host.person('Ada');
+  const token = await host.token(ada);
+  const gone = await host.artifact(ada);
+  const kept = await host.artifact(ada);
+  const first = await wake(host, gone.id, ada.id, 'before');
+  const a = await open(host, token.access);
+  assert.equal((await a.reader.next()).id, String(first));
+  assert.equal((await host.call('ack', token.access, { ids: [String(first)] })).status, 200);
+  await a.reader.cancel();
+  a.abort.abort();
+
+  await host.catalog.deleteArtifact(gone.id);
+  const b = await open(host, token.access, String(first));
+  const next = await wake(host, kept.id, ada.id, 'after');
+  assert.ok(next > first);
+  assert.deepEqual(await b.reader.next(), { id: String(next), type: 'wake', artifact: kept.id, threads: [{ id: 'after', text: 'after' }] });
+  await b.reader.cancel();
+});
+
+test('events: a message never sent behind the cursor is sent when the stream opens', async (t) => {
+  const host = await makeLinkHost();
+  t.after(() => host.close());
+  const { user: ada } = await host.person('Ada');
+  const token = await host.token(ada);
+  const art = await host.artifact(ada);
+  const sent = await wake(host, art.id, ada.id, 'sent');
+  const stuck = await wake(host, art.id, ada.id, 'stuck');
+  await host.catalog.markOutboxDelivered([sent]);
+  // A cursor ahead of both, as a Link kept it when a site before `outbox.seq` handed ids out again.
+  const a = await open(host, token.access, String(stuck + 5));
+  assert.equal((await a.reader.next()).id, String(stuck));
+  await a.reader.none();
+  await a.reader.cancel();
+});
+
 test('events: a person\'s edit is sent, the Link\'s own push is not; renames and trash', async (t) => {
   const host = await makeLinkHost();
   t.after(() => host.close());
