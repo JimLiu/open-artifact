@@ -1,16 +1,14 @@
-# Checks every pull request: the same three steps a contributor runs by hand and pastes into the PR body today.
-# `npm run check` is typecheck plus the unit tests, and it reads what `npm run build` wrote (`dist/server/`, the
-# editors, the Shell, the frame-host), so the steps stay in this order.
+# Checks every pull request and every push to main: `npm ci`, `npm run build`, then `npm run check` (typecheck plus the
+# unit tests). Some tests read what the build wrote (`dist/server/`, the editors, the Shell, the frame-host), so the
+# build comes first.
 #
-# Node 22 is the floor package.json declares (`engines: >=22.18`). #52's whiteboard IME failure is not a Node 24 problem:
-# it reproduces on 22.18 too, and its fix (a listener removed with a boolean capture argument) is a separate commit, not
-# this file. Both release workflows run Node 24 — raise this one with them once that fix is in and it is green on 24.
-#
-# End-to-end tests are not here yet: `npm run e2e` needs Chrome, which this job has not been set up for.
+# Node 24, the same as the release workflows. End-to-end tests (`npm run e2e`) need Chrome and are not run here.
 name: Check
 
 on:
   pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -18,7 +16,8 @@ permissions:
 
 concurrency:
   group: check-${{ github.ref }}
-  cancel-in-progress: true
+  # A new push to a pull request replaces its older run; every commit on main is checked.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
@@ -29,7 +28,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: 24
           cache: npm
 
       - run: npm ci

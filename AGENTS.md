@@ -44,6 +44,9 @@ cd apps/desktop && npm run package:release      # Developer ID signed, notarized
 
 Node.js **22.18+** is required.
 
+The Check workflow (`.github/workflows/ci.yml`) runs `npm ci`, `npm run build` and `npm run check` on Node 24 for every
+pull request and every push to `main`; it does not run `npm run e2e`.
+
 ## Documentation sync rule (mandatory)
 
 Whenever you **add, remove, or modify** a user-facing or agent-facing feature, you MUST update the corresponding

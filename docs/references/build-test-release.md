@@ -57,6 +57,10 @@ folder, and `e2e/run.mjs` does the same for the suites: a test that makes an art
 writes into the real `~/OpenArtifact`. Running one test file by hand, pass the same flag
 (`node --import ./scripts/test-env.mjs --test <file>`), or use `packages/daemon/test/helpers.ts`, which sets it too.
 
+The Check workflow (`.github/workflows/ci.yml`) runs `npm ci`, `npm run build` and `npm run check` on Node 24 for
+every pull request and every push to `main`. It does not run the E2E suites, which need Chrome; run those yourself
+for the types a change touches.
+
 E2E tests copy built `artifact-types/` folders into isolated temporary directories outside the repo and drive them with Node's WebSocket client over Chrome DevTools Protocol (see `e2e/README.md`).
 
 ### Desktop app
