@@ -128,6 +128,30 @@ export const APPS = [
     guide: ghFile('plugins/pi/README.md'),
   },
   {
+    id: 'omp',
+    name: 'OMP',
+    sub: { en: 'From npm', zh: '从 npm 安装' },
+    zip: false,
+    steps: {
+      en: ['Install the package, then start a new OMP session.'],
+      zh: ['安装这个包，然后开一个新的 OMP 会话。'],
+    },
+    code: 'omp plugin install npm:omp-open-artifact',
+    guide: ghFile('plugins/omp/README.md'),
+  },
+  {
+    id: 'hermes',
+    name: 'Hermes Agent',
+    sub: { en: 'CLI and gateway', zh: 'CLI 与网关' },
+    zip: true,
+    steps: {
+      en: ['Link the extracted hermes/ folder as ~/.hermes/plugins/open-artifact and enable it, let it start turns so page comments reach the session, then install the skill.'],
+      zh: ['把解压出的 hermes/ 链接为 ~/.hermes/plugins/open-artifact 并启用；允许它发起新回合，页面评论才能回到会话；最后安装 skill。'],
+    },
+    code: `ln -s "${ZIP}/hermes" ~/.hermes/plugins/open-artifact\nhermes plugins enable open-artifact\nhermes config set plugins.entries.open-artifact.allow_gateway_injection true\nnode ~/.hermes/plugins/open-artifact/skills/open-artifact/scripts/open-artifact.mjs skill install --command open-artifact --dir ~/.hermes/skills --harness hermes`,
+    guide: ghFile('plugins/hermes/README.md'),
+  },
+  {
     id: 'other',
     name: 'Any other agent',
     nameZh: '其他任何 Agent',

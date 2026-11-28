@@ -307,8 +307,8 @@
       }
     ],
     "made": {
-      "en": "The launch week is on one board: the five days as a timeline with the goals beside it, the customer journey as a flow, the standup risks as stickies and a go / no-go table. Comment on anything you want changed.",
-      "zh": "发布周已经排到一块白板上：五天排成时间线，旁边是目标，用户旅程画成流程图，站会上的风险贴成便签，还有一张 Go / no-go 表。想改哪里，直接在上面评论。"
+      "en": "The launch week is on one board: the five days as a timeline with the goals beside it, the customer journey as a flow whose dashes move the way customers go, the standup risks as stickies and a go / no-go table. Comment on anything you want changed.",
+      "zh": "发布周已经排到一块白板上：五天排成时间线，旁边是目标，用户旅程画成流程图，箭头上的虚线顺着用户前进的方向流动，站会上的风险贴成便签，还有一张 Go / no-go 表。想改哪里，直接在上面评论。"
     },
     "comment": {
       "text": {

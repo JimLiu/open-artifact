@@ -24,6 +24,7 @@ export default async function whiteboard(browser) {
     check('db listing served from memory', (await page.evaluate(`${store}.listDocs('elements').length`)) === 60);
     check('every element is in the board’s order', await page.evaluate(`(o => o.length === 60 && o.every(id => ${store}.getDoc('elements/' + id)))(${store}.getDoc('board/meta').order)`));
     check('the drawing and the stickers show', await page.waitFor(IN_FRAME("document.querySelectorAll('.wb-sticker').length === 7 && document.querySelectorAll('.wb-el img, .wb-el svg, .wb-el canvas').length > 0"), 10000));
+    check('the customer journey’s six arrows flow (moving dashes)', await page.waitFor(IN_FRAME("document.querySelectorAll('.wb-arrow-flow').length === 6 && getComputedStyle(document.querySelector('.wb-arrow-flow')).animationName === 'wb-arrow-flow'"), 10000));
     await shot(page, '01-whiteboard-loaded');
 
     // A change through the page's own runtime (the real broker path): move a goal.

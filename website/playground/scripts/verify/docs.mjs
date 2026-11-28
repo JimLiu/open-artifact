@@ -67,6 +67,7 @@ export default async function docs(browser) {
       numbered: await page.evaluate(COUNT_BLOCKS('Brief', "b => b.type === 'list' && b.attrs?.kind === 'ordered'")),
       quotes: await page.evaluate(COUNT_BLOCKS('Brief', "b => b.type === 'blockquote'")),
       diagrams: await page.evaluate(COUNT_BLOCKS('Brief', "b => b.type === 'codeBlock' && b.attrs?.language === 'mermaid'")),
+      contents: await page.evaluate(COUNT_BLOCKS('Brief', "b => b.type === 'codeBlock' && b.attrs?.language === 'toc'")),
       pending: await page.evaluate(COUNT_BLOCKS('Brief', "b => b.type === 'pending'")),
       dates: await page.evaluate(COUNT_CHIPS('Brief', 'date')),
       dropdowns: await page.evaluate(COUNT_CHIPS('Brief', 'dropdown')),
@@ -81,6 +82,8 @@ export default async function docs(browser) {
     // …and as the editor draws it.
     check('the editor draws the chips: dates, coloured statuses, links to the tabs', await page.waitFor(IN_FRAME("document.querySelectorAll('[data-date]').length === 9 && document.querySelectorAll('.doc-dropdown[data-color]').length === 12 && [...document.querySelectorAll('.doc-mention-tab')].map(e => e.textContent).join('|') === 'Launch checklist|FAQ'"), 6000));
     check('the editor draws the diagram (its own renderer, nothing fetched elsewhere)', await page.waitFor(IN_FRAME("!!document.querySelector('.code-block[data-live=mermaid] .code-block-output svg')?.textContent.includes('Brew guide in the app')"), 15000));
+    check('the brief opens with a table of contents', made.contents === 1, JSON.stringify(made));
+    check('the editor draws the table of contents as links to the brief’s headings', await page.waitFor(IN_FRAME("(l => !!l && ['Goals', 'What ships', 'Timeline', 'Risks', 'Open questions'].every(h => l.textContent.includes(h)))(document.querySelector('.contents-block .contents-list'))"), 6000));
     check('the editor draws the risk as a warning panel', await page.evaluate(IN_FRAME("!!document.querySelector('.doc-callout[data-callout=warning]')?.textContent.includes('App store review is the one date we do not control.')")));
     await shot(page, '23-docs-loaded');
 

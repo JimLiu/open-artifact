@@ -92,6 +92,9 @@ const OUTLINE = {
     '',
     'Last updated <?oa block asof?> · Owner <?oa block me?> · <?oa block review?>',
     '',
+    '```toc',
+    '```',
+    '',
     '<?oa block summary?>',
     '',
     '## Goals',
@@ -481,8 +484,8 @@ const demo = {
     start,
     steps,
     made: {
-      en: 'The brief is written: “Brief” has the goals, what ships, the timeline, a diagram of how the bag leads into the app, and the risks; “Launch checklist” and “FAQ” are its other two tabs. Select any words and comment to have me change them.',
-      zh: '简报写好了：“Brief”里有目标、发布内容、时间表、一张从咖啡袋到 App 的流程图和风险；另外两个标签页是“Launch checklist”和“FAQ”。选中任意文字留评论，我就来改。',
+      en: 'The brief is written: “Brief” opens with a table of contents, then the goals, what ships, the timeline, a diagram of how the bag leads into the app, and the risks; “Launch checklist” and “FAQ” are its other two tabs. Select any words and comment to have me change them.',
+      zh: '简报写好了：“Brief”开头是目录，后面是目标、发布内容、时间表、一张从咖啡袋到 App 的流程图和风险；另外两个标签页是“Launch checklist”和“FAQ”。选中任意文字留评论，我就来改。',
     },
     comment: {
       text: {

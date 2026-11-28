@@ -2,79 +2,79 @@
   "rev": 2,
   "blocks": [
     {
-      "id": "kr0483lpxzq.3092",
+      "id": "kr0483lpxzq.3093",
       "type": "paragraph",
       "attrs": {
         "heading": 1
       },
       "inline": [
         {
-          "id": "kr0483lpxzq.3093",
+          "id": "kr0483lpxzq.3094",
           "text": "Launch checklist"
         }
       ]
     },
     {
-      "id": "kr0483lpxzq.3109",
+      "id": "kr0483lpxzq.3110",
       "type": "paragraph",
       "inline": [
         {
-          "id": "kr0483lpxzq.3110",
+          "id": "kr0483lpxzq.3111",
           "text": "Everything that has to be true before First Light ships on "
         },
         {
-          "id": "kr0483lpxzq.3169",
+          "id": "kr0483lpxzq.3170",
           "atom": "date",
           "attrs": {
             "ts": "2027-04-14"
           }
         },
         {
-          "id": "kr0483lpxzq.3170",
+          "id": "kr0483lpxzq.3171",
           "text": ". Tick a box when it is done; the owner is in bold."
         }
       ]
     },
     {
-      "id": "kr0483lpxzq.3221",
+      "id": "kr0483lpxzq.3222",
       "type": "paragraph",
       "attrs": {
         "heading": 2
       },
       "inline": [
         {
-          "id": "kr0483lpxzq.3222",
+          "id": "kr0483lpxzq.3223",
           "text": "Blend"
         }
       ]
     },
     {
-      "id": "kr0483lpxzq.3227",
+      "id": "kr0483lpxzq.3228",
       "type": "list",
       "attrs": {
         "kind": "check"
       },
       "children": [
         {
-          "id": "kr0483lpxzq.3228",
+          "id": "kr0483lpxzq.3229",
           "type": "listItem",
           "attrs": {
             "checked": true
           },
           "children": [
             {
-              "id": "kr0483lpxzq.3229",
+              "id": "kr0483lpxzq.3230",
               "type": "paragraph",
               "inline": [
                 {
-                  "id": "kr0483lpxzq.3230",
+                  "id": "kr0483lpxzq.3231",
                   "text": "Dana",
                   "marks": {
                     "bold": true
                   }
                 },
                 {
-                  "id": "kr0483lpxzq.3234",
+                  "id": "kr0483lpxzq.3235",
                   "text": " Lock the roast profile"
                 }
               ]
@@ -82,25 +82,25 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.3257",
+          "id": "kr0483lpxzq.3258",
           "type": "listItem",
           "attrs": {
             "checked": true
           },
           "children": [
             {
-              "id": "kr0483lpxzq.3258",
+              "id": "kr0483lpxzq.3259",
               "type": "paragraph",
               "inline": [
                 {
-                  "id": "kr0483lpxzq.3259",
+                  "id": "kr0483lpxzq.3260",
                   "text": "Dana",
                   "marks": {
                     "bold": true
                   }
                 },
                 {
-                  "id": "kr0483lpxzq.3263",
+                  "id": "kr0483lpxzq.3264",
                   "text": " Bring in green coffee for 6,000 bags"
                 }
               ]
@@ -108,25 +108,25 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.3300",
+          "id": "kr0483lpxzq.3301",
           "type": "listItem",
           "attrs": {
             "checked": false
           },
           "children": [
             {
-              "id": "kr0483lpxzq.3301",
+              "id": "kr0483lpxzq.3302",
               "type": "paragraph",
               "inline": [
                 {
-                  "id": "kr0483lpxzq.3302",
+                  "id": "kr0483lpxzq.3303",
                   "text": "Dana",
                   "marks": {
                     "bold": true
                   }
                 },
                 {
-                  "id": "kr0483lpxzq.3306",
+                  "id": "kr0483lpxzq.3307",
                   "text": " Sign off the bag artwork, code panel included"
                 }
               ]
@@ -134,29 +134,29 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.3352",
+          "id": "kr0483lpxzq.3353",
           "type": "listItem",
           "attrs": {
             "checked": false
           },
           "children": [
             {
-              "id": "kr0483lpxzq.3353",
+              "id": "kr0483lpxzq.3354",
               "type": "paragraph",
               "inline": [
                 {
-                  "id": "kr0483lpxzq.3354",
+                  "id": "kr0483lpxzq.3355",
                   "text": "Dana",
                   "marks": {
                     "bold": true
                   }
                 },
                 {
-                  "id": "kr0483lpxzq.3358",
+                  "id": "kr0483lpxzq.3359",
                   "text": " Roast and pack the first 2,000 bags by "
                 },
                 {
-                  "id": "kr0483lpxzq.3398",
+                  "id": "kr0483lpxzq.3399",
                   "atom": "date",
                   "attrs": {
                     "ts": "2027-04-09"
@@ -169,45 +169,45 @@
       ]
     },
     {
-      "id": "kr0483lpxzq.3399",
+      "id": "kr0483lpxzq.3400",
       "type": "paragraph",
       "attrs": {
         "heading": 2
       },
       "inline": [
         {
-          "id": "kr0483lpxzq.3400",
+          "id": "kr0483lpxzq.3401",
           "text": "App"
         }
       ]
     },
     {
-      "id": "kr0483lpxzq.3403",
+      "id": "kr0483lpxzq.3404",
       "type": "list",
       "attrs": {
         "kind": "check"
       },
       "children": [
         {
-          "id": "kr0483lpxzq.3404",
+          "id": "kr0483lpxzq.3405",
           "type": "listItem",
           "attrs": {
             "checked": true
           },
           "children": [
             {
-              "id": "kr0483lpxzq.3405",
+              "id": "kr0483lpxzq.3406",
               "type": "paragraph",
               "inline": [
                 {
-                  "id": "kr0483lpxzq.3406",
+                  "id": "kr0483lpxzq.3407",
                   "text": "Priya",
                   "marks": {
                     "bold": true
                   }
                 },
                 {
-                  "id": "kr0483lpxzq.3411",
+                  "id": "kr0483lpxzq.3412",
                   "text": " Freeze features"
                 }
               ]
@@ -215,29 +215,29 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.3427",
+          "id": "kr0483lpxzq.3428",
           "type": "listItem",
           "attrs": {
             "checked": false
           },
           "children": [
             {
-              "id": "kr0483lpxzq.3428",
+              "id": "kr0483lpxzq.3429",
               "type": "paragraph",
               "inline": [
                 {
-                  "id": "kr0483lpxzq.3429",
+                  "id": "kr0483lpxzq.3430",
                   "text": "Priya",
                   "marks": {
                     "bold": true
                   }
                 },
                 {
-                  "id": "kr0483lpxzq.3434",
+                  "id": "kr0483lpxzq.3435",
                   "text": " Submit to both stores by "
                 },
                 {
-                  "id": "kr0483lpxzq.3460",
+                  "id": "kr0483lpxzq.3461",
                   "atom": "date",
                   "attrs": {
                     "ts": "2027-03-24"
@@ -248,29 +248,29 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.3461",
+          "id": "kr0483lpxzq.3462",
           "type": "listItem",
           "attrs": {
             "checked": false
           },
           "children": [
             {
-              "id": "kr0483lpxzq.3462",
+              "id": "kr0483lpxzq.3463",
               "type": "paragraph",
               "inline": [
                 {
-                  "id": "kr0483lpxzq.3463",
+                  "id": "kr0483lpxzq.3464",
                   "text": "Priya",
                   "marks": {
                     "bold": true
                   }
                 },
                 {
-                  "id": "kr0483lpxzq.3468",
+                  "id": "kr0483lpxzq.3469",
                   "text": " Open the beta to 500 subscribers on "
                 },
                 {
-                  "id": "kr0483lpxzq.3505",
+                  "id": "kr0483lpxzq.3506",
                   "atom": "date",
                   "attrs": {
                     "ts": "2027-03-31"
@@ -281,25 +281,25 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.3506",
+          "id": "kr0483lpxzq.3507",
           "type": "listItem",
           "attrs": {
             "checked": false
           },
           "children": [
             {
-              "id": "kr0483lpxzq.3507",
+              "id": "kr0483lpxzq.3508",
               "type": "paragraph",
               "inline": [
                 {
-                  "id": "kr0483lpxzq.3508",
+                  "id": "kr0483lpxzq.3509",
                   "text": "Priya",
                   "marks": {
                     "bold": true
                   }
                 },
                 {
-                  "id": "kr0483lpxzq.3513",
+                  "id": "kr0483lpxzq.3514",
                   "text": " Try the bag code on ten real bags"
                 }
               ]
@@ -309,45 +309,45 @@
       ]
     },
     {
-      "id": "kr0483lpxzq.3547",
+      "id": "kr0483lpxzq.3548",
       "type": "paragraph",
       "attrs": {
         "heading": 2
       },
       "inline": [
         {
-          "id": "kr0483lpxzq.3548",
+          "id": "kr0483lpxzq.3549",
           "text": "Customers"
         }
       ]
     },
     {
-      "id": "kr0483lpxzq.3557",
+      "id": "kr0483lpxzq.3558",
       "type": "list",
       "attrs": {
         "kind": "check"
       },
       "children": [
         {
-          "id": "kr0483lpxzq.3558",
+          "id": "kr0483lpxzq.3559",
           "type": "listItem",
           "attrs": {
             "checked": true
           },
           "children": [
             {
-              "id": "kr0483lpxzq.3559",
+              "id": "kr0483lpxzq.3560",
               "type": "paragraph",
               "inline": [
                 {
-                  "id": "kr0483lpxzq.3560",
+                  "id": "kr0483lpxzq.3561",
                   "text": "Mina",
                   "marks": {
                     "bold": true
                   }
                 },
                 {
-                  "id": "kr0483lpxzq.3564",
+                  "id": "kr0483lpxzq.3565",
                   "text": " Pick the 40 writers and cafe partners for press kits"
                 }
               ]
@@ -355,29 +355,29 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.3617",
+          "id": "kr0483lpxzq.3618",
           "type": "listItem",
           "attrs": {
             "checked": false
           },
           "children": [
             {
-              "id": "kr0483lpxzq.3618",
+              "id": "kr0483lpxzq.3619",
               "type": "paragraph",
               "inline": [
                 {
-                  "id": "kr0483lpxzq.3619",
+                  "id": "kr0483lpxzq.3620",
                   "text": "Mina",
                   "marks": {
                     "bold": true
                   }
                 },
                 {
-                  "id": "kr0483lpxzq.3623",
+                  "id": "kr0483lpxzq.3624",
                   "text": " Send the press kits on "
                 },
                 {
-                  "id": "kr0483lpxzq.3647",
+                  "id": "kr0483lpxzq.3648",
                   "atom": "date",
                   "attrs": {
                     "ts": "2027-03-17"
@@ -388,29 +388,29 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.3648",
+          "id": "kr0483lpxzq.3649",
           "type": "listItem",
           "attrs": {
             "checked": false
           },
           "children": [
             {
-              "id": "kr0483lpxzq.3649",
+              "id": "kr0483lpxzq.3650",
               "type": "paragraph",
               "inline": [
                 {
-                  "id": "kr0483lpxzq.3650",
+                  "id": "kr0483lpxzq.3651",
                   "text": "Leo",
                   "marks": {
                     "bold": true
                   }
                 },
                 {
-                  "id": "kr0483lpxzq.3653",
+                  "id": "kr0483lpxzq.3654",
                   "text": " Brief the support team by "
                 },
                 {
-                  "id": "kr0483lpxzq.3680",
+                  "id": "kr0483lpxzq.3681",
                   "atom": "date",
                   "attrs": {
                     "ts": "2027-04-07"
@@ -421,29 +421,29 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.3681",
+          "id": "kr0483lpxzq.3682",
           "type": "listItem",
           "attrs": {
             "checked": false
           },
           "children": [
             {
-              "id": "kr0483lpxzq.3682",
+              "id": "kr0483lpxzq.3683",
               "type": "paragraph",
               "inline": [
                 {
-                  "id": "kr0483lpxzq.3683",
+                  "id": "kr0483lpxzq.3684",
                   "text": "Leo",
                   "marks": {
                     "bold": true
                   }
                 },
                 {
-                  "id": "kr0483lpxzq.3686",
+                  "id": "kr0483lpxzq.3687",
                   "text": " Load the reply templates from "
                 },
                 {
-                  "id": "kr0483lpxzq.3717",
+                  "id": "kr0483lpxzq.3718",
                   "atom": "mention",
                   "attrs": {
                     "principal": null,
@@ -455,25 +455,25 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.3718",
+          "id": "kr0483lpxzq.3719",
           "type": "listItem",
           "attrs": {
             "checked": false
           },
           "children": [
             {
-              "id": "kr0483lpxzq.3719",
+              "id": "kr0483lpxzq.3720",
               "type": "paragraph",
               "inline": [
                 {
-                  "id": "kr0483lpxzq.3720",
+                  "id": "kr0483lpxzq.3721",
                   "text": "Mina",
                   "marks": {
                     "bold": true
                   }
                 },
                 {
-                  "id": "kr0483lpxzq.3724",
+                  "id": "kr0483lpxzq.3725",
                   "text": " Schedule the launch email for 7:00 on launch day"
                 }
               ]
@@ -483,42 +483,42 @@
       ]
     },
     {
-      "id": "kr0483lpxzq.3773",
+      "id": "kr0483lpxzq.3774",
       "type": "paragraph",
       "attrs": {
         "heading": 2
       },
       "inline": [
         {
-          "id": "kr0483lpxzq.3774",
+          "id": "kr0483lpxzq.3775",
           "text": "Launch morning"
         }
       ]
     },
     {
-      "id": "kr0483lpxzq.3788",
+      "id": "kr0483lpxzq.3789",
       "type": "list",
       "attrs": {
         "kind": "ordered"
       },
       "children": [
         {
-          "id": "kr0483lpxzq.3789",
+          "id": "kr0483lpxzq.3790",
           "type": "listItem",
           "children": [
             {
-              "id": "kr0483lpxzq.3790",
+              "id": "kr0483lpxzq.3791",
               "type": "paragraph",
               "inline": [
                 {
-                  "id": "kr0483lpxzq.3791",
+                  "id": "kr0483lpxzq.3792",
                   "text": "6:00",
                   "marks": {
                     "bold": true
                   }
                 },
                 {
-                  "id": "kr0483lpxzq.3795",
+                  "id": "kr0483lpxzq.3796",
                   "text": " Dana confirms the first boxes have left the roastery."
                 }
               ]
@@ -526,22 +526,22 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.3849",
+          "id": "kr0483lpxzq.3850",
           "type": "listItem",
           "children": [
             {
-              "id": "kr0483lpxzq.3850",
+              "id": "kr0483lpxzq.3851",
               "type": "paragraph",
               "inline": [
                 {
-                  "id": "kr0483lpxzq.3851",
+                  "id": "kr0483lpxzq.3852",
                   "text": "7:00",
                   "marks": {
                     "bold": true
                   }
                 },
                 {
-                  "id": "kr0483lpxzq.3855",
+                  "id": "kr0483lpxzq.3856",
                   "text": " The launch email goes to all 4,180 subscribers."
                 }
               ]
@@ -549,22 +549,22 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.3903",
+          "id": "kr0483lpxzq.3904",
           "type": "listItem",
           "children": [
             {
-              "id": "kr0483lpxzq.3904",
+              "id": "kr0483lpxzq.3905",
               "type": "paragraph",
               "inline": [
                 {
-                  "id": "kr0483lpxzq.3905",
+                  "id": "kr0483lpxzq.3906",
                   "text": "7:30",
                   "marks": {
                     "bold": true
                   }
                 },
                 {
-                  "id": "kr0483lpxzq.3909",
+                  "id": "kr0483lpxzq.3910",
                   "text": " Priya releases the app in both stores."
                 }
               ]
@@ -572,22 +572,22 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.3948",
+          "id": "kr0483lpxzq.3949",
           "type": "listItem",
           "children": [
             {
-              "id": "kr0483lpxzq.3949",
+              "id": "kr0483lpxzq.3950",
               "type": "paragraph",
               "inline": [
                 {
-                  "id": "kr0483lpxzq.3950",
+                  "id": "kr0483lpxzq.3951",
                   "text": "9:00",
                   "marks": {
                     "bold": true
                   }
                 },
                 {
-                  "id": "kr0483lpxzq.3954",
+                  "id": "kr0483lpxzq.3955",
                   "text": " Leo opens the launch inbox. First stand-up at noon."
                 }
               ]
@@ -597,45 +597,45 @@
       ]
     },
     {
-      "id": "kr0483lpxzq.4006",
+      "id": "kr0483lpxzq.4007",
       "type": "paragraph",
       "attrs": {
         "heading": 2
       },
       "inline": [
         {
-          "id": "kr0483lpxzq.4007",
+          "id": "kr0483lpxzq.4008",
           "text": "Follow-ups from review"
         }
       ]
     },
     {
-      "id": "kr0483lpxzq.4029",
+      "id": "kr0483lpxzq.4030",
       "type": "list",
       "attrs": {
         "kind": "check"
       },
       "children": [
         {
-          "id": "kr0483lpxzq.4030",
+          "id": "kr0483lpxzq.4031",
           "type": "listItem",
           "attrs": {
             "checked": false
           },
           "children": [
             {
-              "id": "kr0483lpxzq.4031",
+              "id": "kr0483lpxzq.4032",
               "type": "paragraph",
               "inline": [
                 {
-                  "id": "kr0483lpxzq.4032",
+                  "id": "kr0483lpxzq.4033",
                   "text": "Dana",
                   "marks": {
                     "bold": true
                   }
                 },
                 {
-                  "id": "kr0483lpxzq.4036",
+                  "id": "kr0483lpxzq.4037",
                   "text": " Confirm what gift subscriptions get in their first box"
                 }
               ]

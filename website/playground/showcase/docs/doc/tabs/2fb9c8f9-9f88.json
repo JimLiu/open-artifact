@@ -56,58 +56,66 @@
       ]
     },
     {
-      "id": "kr0483lpxzq.148",
+      "id": "kr0483lpxzq.65",
+      "type": "codeBlock",
+      "attrs": {
+        "language": "toc"
+      },
+      "inline": []
+    },
+    {
+      "id": "kr0483lpxzq.149",
       "type": "paragraph",
       "inline": [
         {
-          "id": "kr0483lpxzq.149",
+          "id": "kr0483lpxzq.150",
           "text": "On "
         },
         {
-          "id": "kr0483lpxzq.152",
+          "id": "kr0483lpxzq.153",
           "text": "Wednesday, April 14",
           "marks": {
             "bold": true
           }
         },
         {
-          "id": "kr0483lpxzq.171",
+          "id": "kr0483lpxzq.172",
           "text": ", Juniper ships two things on the same morning: "
         },
         {
-          "id": "kr0483lpxzq.219",
+          "id": "kr0483lpxzq.220",
           "text": "First Light",
           "marks": {
             "bold": true
           }
         },
         {
-          "id": "kr0483lpxzq.230",
+          "id": "kr0483lpxzq.231",
           "text": ", our spring seasonal blend, and the "
         },
         {
-          "id": "kr0483lpxzq.267",
+          "id": "kr0483lpxzq.268",
           "text": "Juniper app",
           "marks": {
             "bold": true
           }
         },
         {
-          "id": "kr0483lpxzq.278",
+          "id": "kr0483lpxzq.279",
           "text": " for iPhone and Android. This brief is the one place for what ships, who owns each piece, and what a good launch looks like."
         }
       ]
     },
     {
-      "id": "kr0483lpxzq.402",
+      "id": "kr0483lpxzq.403",
       "type": "paragraph",
       "inline": [
         {
-          "id": "kr0483lpxzq.403",
+          "id": "kr0483lpxzq.404",
           "text": "The day-by-day list is in "
         },
         {
-          "id": "kr0483lpxzq.429",
+          "id": "kr0483lpxzq.430",
           "atom": "mention",
           "attrs": {
             "principal": null,
@@ -115,11 +123,11 @@
           }
         },
         {
-          "id": "kr0483lpxzq.430",
+          "id": "kr0483lpxzq.431",
           "text": ", and what we tell customers is in "
         },
         {
-          "id": "kr0483lpxzq.465",
+          "id": "kr0483lpxzq.466",
           "atom": "mention",
           "attrs": {
             "principal": null,
@@ -127,48 +135,48 @@
           }
         },
         {
-          "id": "kr0483lpxzq.466",
+          "id": "kr0483lpxzq.467",
           "text": "."
         }
       ]
     },
     {
-      "id": "kr0483lpxzq.66",
+      "id": "kr0483lpxzq.67",
       "type": "paragraph",
       "attrs": {
         "heading": 2
       },
       "inline": [
         {
-          "id": "kr0483lpxzq.67",
+          "id": "kr0483lpxzq.68",
           "text": "Goals"
         }
       ]
     },
     {
-      "id": "kr0483lpxzq.467",
+      "id": "kr0483lpxzq.468",
       "type": "list",
       "attrs": {
         "kind": "ordered"
       },
       "children": [
         {
-          "id": "kr0483lpxzq.468",
+          "id": "kr0483lpxzq.469",
           "type": "listItem",
           "children": [
             {
-              "id": "kr0483lpxzq.469",
+              "id": "kr0483lpxzq.470",
               "type": "paragraph",
               "inline": [
                 {
-                  "id": "kr0483lpxzq.470",
+                  "id": "kr0483lpxzq.471",
                   "text": "Grow the base.",
                   "marks": {
                     "bold": true
                   }
                 },
                 {
-                  "id": "kr0483lpxzq.484",
+                  "id": "kr0483lpxzq.485",
                   "text": " A seasonal blend should bring in subscriptions, not one-off bags."
                 }
               ]
@@ -176,22 +184,22 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.550",
+          "id": "kr0483lpxzq.551",
           "type": "listItem",
           "children": [
             {
-              "id": "kr0483lpxzq.551",
+              "id": "kr0483lpxzq.552",
               "type": "paragraph",
               "inline": [
                 {
-                  "id": "kr0483lpxzq.552",
+                  "id": "kr0483lpxzq.553",
                   "text": "Move people into the app.",
                   "marks": {
                     "bold": true
                   }
                 },
                 {
-                  "id": "kr0483lpxzq.577",
+                  "id": "kr0483lpxzq.578",
                   "text": " Skipping or moving a delivery should take two taps, not an email to support."
                 }
               ]
@@ -199,22 +207,22 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.654",
+          "id": "kr0483lpxzq.655",
           "type": "listItem",
           "children": [
             {
-              "id": "kr0483lpxzq.655",
+              "id": "kr0483lpxzq.656",
               "type": "paragraph",
               "inline": [
                 {
-                  "id": "kr0483lpxzq.656",
+                  "id": "kr0483lpxzq.657",
                   "text": "Keep the promise.",
                   "marks": {
                     "bold": true
                   }
                 },
                 {
-                  "id": "kr0483lpxzq.673",
+                  "id": "kr0483lpxzq.674",
                   "text": " Three days from the roaster to the doorstep, launch week included."
                 }
               ]
@@ -224,39 +232,39 @@
       ]
     },
     {
-      "id": "kr0483lpxzq.73",
+      "id": "kr0483lpxzq.74",
       "type": "paragraph",
       "attrs": {
         "heading": 2
       },
       "inline": [
         {
-          "id": "kr0483lpxzq.74",
+          "id": "kr0483lpxzq.75",
           "text": "What ships"
         }
       ]
     },
     {
-      "id": "kr0483lpxzq.740",
+      "id": "kr0483lpxzq.741",
       "type": "table",
       "children": [
         {
-          "id": "kr0483lpxzq.741",
+          "id": "kr0483lpxzq.742",
           "type": "tableRow",
           "children": [
             {
-              "id": "kr0483lpxzq.742",
+              "id": "kr0483lpxzq.743",
               "type": "cell",
               "attrs": {
                 "header": true
               },
               "children": [
                 {
-                  "id": "kr0483lpxzq.743",
+                  "id": "kr0483lpxzq.744",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.744",
+                      "id": "kr0483lpxzq.745",
                       "text": "What"
                     }
                   ]
@@ -264,18 +272,18 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.748",
+              "id": "kr0483lpxzq.749",
               "type": "cell",
               "attrs": {
                 "header": true
               },
               "children": [
                 {
-                  "id": "kr0483lpxzq.749",
+                  "id": "kr0483lpxzq.750",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.750",
+                      "id": "kr0483lpxzq.751",
                       "text": "In one line"
                     }
                   ]
@@ -283,18 +291,18 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.761",
+              "id": "kr0483lpxzq.762",
               "type": "cell",
               "attrs": {
                 "header": true
               },
               "children": [
                 {
-                  "id": "kr0483lpxzq.762",
+                  "id": "kr0483lpxzq.763",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.763",
+                      "id": "kr0483lpxzq.764",
                       "text": "Owner"
                     }
                   ]
@@ -302,18 +310,18 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.768",
+              "id": "kr0483lpxzq.769",
               "type": "cell",
               "attrs": {
                 "header": true
               },
               "children": [
                 {
-                  "id": "kr0483lpxzq.769",
+                  "id": "kr0483lpxzq.770",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.770",
+                      "id": "kr0483lpxzq.771",
                       "text": "Status"
                     }
                   ]
@@ -323,19 +331,19 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.776",
+          "id": "kr0483lpxzq.777",
           "type": "tableRow",
           "children": [
             {
-              "id": "kr0483lpxzq.777",
+              "id": "kr0483lpxzq.778",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.778",
+                  "id": "kr0483lpxzq.779",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.779",
+                      "id": "kr0483lpxzq.780",
                       "text": "First Light",
                       "marks": {
                         "bold": true
@@ -346,15 +354,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.790",
+              "id": "kr0483lpxzq.791",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.791",
+                  "id": "kr0483lpxzq.792",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.792",
+                      "id": "kr0483lpxzq.793",
                       "text": "A light roast of Ethiopia Guji and Colombia Huila: apricot, jasmine, wildflower honey. 340 g, $19, in every box through June."
                     }
                   ]
@@ -362,15 +370,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.917",
+              "id": "kr0483lpxzq.918",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.918",
+                  "id": "kr0483lpxzq.919",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.919",
+                      "id": "kr0483lpxzq.920",
                       "text": "Dana · Roastery"
                     }
                   ]
@@ -378,15 +386,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.934",
+              "id": "kr0483lpxzq.935",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.935",
+                  "id": "kr0483lpxzq.936",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.936",
+                      "id": "kr0483lpxzq.937",
                       "atom": "dropdown",
                       "attrs": {
                         "enum": "690af4c5-c745",
@@ -400,19 +408,19 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.937",
+          "id": "kr0483lpxzq.938",
           "type": "tableRow",
           "children": [
             {
-              "id": "kr0483lpxzq.938",
+              "id": "kr0483lpxzq.939",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.939",
+                  "id": "kr0483lpxzq.940",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.940",
+                      "id": "kr0483lpxzq.941",
                       "text": "Juniper app",
                       "marks": {
                         "bold": true
@@ -423,15 +431,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.951",
+              "id": "kr0483lpxzq.952",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.952",
+                  "id": "kr0483lpxzq.953",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.953",
+                      "id": "kr0483lpxzq.954",
                       "text": "Skip, pause or move a delivery in two taps, a brew guide with a timer for every bag, roast-day and delivery alerts."
                     }
                   ]
@@ -439,15 +447,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1068",
+              "id": "kr0483lpxzq.1069",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1069",
+                  "id": "kr0483lpxzq.1070",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1070",
+                      "id": "kr0483lpxzq.1071",
                       "text": "Priya · Product"
                     }
                   ]
@@ -455,15 +463,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1085",
+              "id": "kr0483lpxzq.1086",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1086",
+                  "id": "kr0483lpxzq.1087",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1087",
+                      "id": "kr0483lpxzq.1088",
                       "atom": "dropdown",
                       "attrs": {
                         "enum": "690af4c5-c745",
@@ -477,19 +485,19 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.1088",
+          "id": "kr0483lpxzq.1089",
           "type": "tableRow",
           "children": [
             {
-              "id": "kr0483lpxzq.1089",
+              "id": "kr0483lpxzq.1090",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1090",
+                  "id": "kr0483lpxzq.1091",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1091",
+                      "id": "kr0483lpxzq.1092",
                       "text": "Code on the bag",
                       "marks": {
                         "bold": true
@@ -500,15 +508,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1106",
+              "id": "kr0483lpxzq.1107",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1107",
+                  "id": "kr0483lpxzq.1108",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1108",
+                      "id": "kr0483lpxzq.1109",
                       "text": "Every First Light bag carries a code that opens its brew guide in the app."
                     }
                   ]
@@ -516,15 +524,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1182",
+              "id": "kr0483lpxzq.1183",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1183",
+                  "id": "kr0483lpxzq.1184",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1184",
+                      "id": "kr0483lpxzq.1185",
                       "text": "Dana · Roastery"
                     }
                   ]
@@ -532,15 +540,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1199",
+              "id": "kr0483lpxzq.1200",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1200",
+                  "id": "kr0483lpxzq.1201",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1201",
+                      "id": "kr0483lpxzq.1202",
                       "atom": "dropdown",
                       "attrs": {
                         "enum": "690af4c5-c745",
@@ -554,19 +562,19 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.1202",
+          "id": "kr0483lpxzq.1203",
           "type": "tableRow",
           "children": [
             {
-              "id": "kr0483lpxzq.1203",
+              "id": "kr0483lpxzq.1204",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1204",
+                  "id": "kr0483lpxzq.1205",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1205",
+                      "id": "kr0483lpxzq.1206",
                       "text": "Support playbook",
                       "marks": {
                         "bold": true
@@ -577,15 +585,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1221",
+              "id": "kr0483lpxzq.1222",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1222",
+                  "id": "kr0483lpxzq.1223",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1223",
+                      "id": "kr0483lpxzq.1224",
                       "text": "Answers and reply templates for launch week."
                     }
                   ]
@@ -593,15 +601,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1267",
+              "id": "kr0483lpxzq.1268",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1268",
+                  "id": "kr0483lpxzq.1269",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1269",
+                      "id": "kr0483lpxzq.1270",
                       "text": "Leo · Customer care"
                     }
                   ]
@@ -609,15 +617,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1288",
+              "id": "kr0483lpxzq.1289",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1289",
+                  "id": "kr0483lpxzq.1290",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1290",
+                      "id": "kr0483lpxzq.1291",
                       "atom": "dropdown",
                       "attrs": {
                         "enum": "690af4c5-c745",
@@ -633,25 +641,25 @@
       ]
     },
     {
-      "id": "kr0483lpxzq.1291",
+      "id": "kr0483lpxzq.1292",
       "type": "blockquote",
       "children": [
         {
-          "id": "kr0483lpxzq.1292",
+          "id": "kr0483lpxzq.1293",
           "type": "paragraph",
           "inline": [
             {
-              "id": "kr0483lpxzq.1293",
+              "id": "kr0483lpxzq.1294",
               "text": "“It tastes like the first warm morning of the year. I ordered a second bag before I finished the first cup.”"
             }
           ]
         },
         {
-          "id": "kr0483lpxzq.1401",
+          "id": "kr0483lpxzq.1402",
           "type": "paragraph",
           "inline": [
             {
-              "id": "kr0483lpxzq.1402",
+              "id": "kr0483lpxzq.1403",
               "text": "Maya Okafor, tasting panel, subscriber since 2024"
             }
           ]
@@ -659,49 +667,49 @@
       ]
     },
     {
-      "id": "kr0483lpxzq.1451",
+      "id": "kr0483lpxzq.1452",
       "type": "paragraph",
       "inline": [
         {
-          "id": "kr0483lpxzq.1452",
+          "id": "kr0483lpxzq.1453",
           "text": "Of the 60 subscribers on the tasting panel in February, 51 asked when they could buy it."
         }
       ]
     },
     {
-      "id": "kr0483lpxzq.85",
+      "id": "kr0483lpxzq.86",
       "type": "paragraph",
       "attrs": {
         "heading": 2
       },
       "inline": [
         {
-          "id": "kr0483lpxzq.86",
+          "id": "kr0483lpxzq.87",
           "text": "Timeline"
         }
       ]
     },
     {
-      "id": "kr0483lpxzq.1540",
+      "id": "kr0483lpxzq.1541",
       "type": "table",
       "children": [
         {
-          "id": "kr0483lpxzq.1541",
+          "id": "kr0483lpxzq.1542",
           "type": "tableRow",
           "children": [
             {
-              "id": "kr0483lpxzq.1542",
+              "id": "kr0483lpxzq.1543",
               "type": "cell",
               "attrs": {
                 "header": true
               },
               "children": [
                 {
-                  "id": "kr0483lpxzq.1543",
+                  "id": "kr0483lpxzq.1544",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1544",
+                      "id": "kr0483lpxzq.1545",
                       "text": "When"
                     }
                   ]
@@ -709,18 +717,18 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1548",
+              "id": "kr0483lpxzq.1549",
               "type": "cell",
               "attrs": {
                 "header": true
               },
               "children": [
                 {
-                  "id": "kr0483lpxzq.1549",
+                  "id": "kr0483lpxzq.1550",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1550",
+                      "id": "kr0483lpxzq.1551",
                       "text": "Milestone"
                     }
                   ]
@@ -728,18 +736,18 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1559",
+              "id": "kr0483lpxzq.1560",
               "type": "cell",
               "attrs": {
                 "header": true
               },
               "children": [
                 {
-                  "id": "kr0483lpxzq.1560",
+                  "id": "kr0483lpxzq.1561",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1561",
+                      "id": "kr0483lpxzq.1562",
                       "text": "Owner"
                     }
                   ]
@@ -747,18 +755,18 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1566",
+              "id": "kr0483lpxzq.1567",
               "type": "cell",
               "attrs": {
                 "header": true
               },
               "children": [
                 {
-                  "id": "kr0483lpxzq.1567",
+                  "id": "kr0483lpxzq.1568",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1568",
+                      "id": "kr0483lpxzq.1569",
                       "text": "Status"
                     }
                   ]
@@ -768,19 +776,19 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.1574",
+          "id": "kr0483lpxzq.1575",
           "type": "tableRow",
           "children": [
             {
-              "id": "kr0483lpxzq.1575",
+              "id": "kr0483lpxzq.1576",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1576",
+                  "id": "kr0483lpxzq.1577",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1577",
+                      "id": "kr0483lpxzq.1578",
                       "atom": "date",
                       "attrs": {
                         "ts": "2027-03-03"
@@ -791,15 +799,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1578",
+              "id": "kr0483lpxzq.1579",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1579",
+                  "id": "kr0483lpxzq.1580",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1580",
+                      "id": "kr0483lpxzq.1581",
                       "text": "Roast locked, green coffee in for 6,000 bags"
                     }
                   ]
@@ -807,15 +815,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1624",
+              "id": "kr0483lpxzq.1625",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1625",
+                  "id": "kr0483lpxzq.1626",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1626",
+                      "id": "kr0483lpxzq.1627",
                       "text": "Dana"
                     }
                   ]
@@ -823,15 +831,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1630",
+              "id": "kr0483lpxzq.1631",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1631",
+                  "id": "kr0483lpxzq.1632",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1632",
+                      "id": "kr0483lpxzq.1633",
                       "atom": "dropdown",
                       "attrs": {
                         "enum": "690af4c5-c745",
@@ -845,19 +853,19 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.1633",
+          "id": "kr0483lpxzq.1634",
           "type": "tableRow",
           "children": [
             {
-              "id": "kr0483lpxzq.1634",
+              "id": "kr0483lpxzq.1635",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1635",
+                  "id": "kr0483lpxzq.1636",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1636",
+                      "id": "kr0483lpxzq.1637",
                       "atom": "date",
                       "attrs": {
                         "ts": "2027-03-17"
@@ -868,15 +876,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1637",
+              "id": "kr0483lpxzq.1638",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1638",
+                  "id": "kr0483lpxzq.1639",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1639",
+                      "id": "kr0483lpxzq.1640",
                       "text": "Press kits out: 40 tasting kits to writers and cafe partners"
                     }
                   ]
@@ -884,15 +892,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1699",
+              "id": "kr0483lpxzq.1700",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1700",
+                  "id": "kr0483lpxzq.1701",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1701",
+                      "id": "kr0483lpxzq.1702",
                       "text": "Mina"
                     }
                   ]
@@ -900,15 +908,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1705",
+              "id": "kr0483lpxzq.1706",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1706",
+                  "id": "kr0483lpxzq.1707",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1707",
+                      "id": "kr0483lpxzq.1708",
                       "atom": "dropdown",
                       "attrs": {
                         "enum": "690af4c5-c745",
@@ -922,19 +930,19 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.1708",
+          "id": "kr0483lpxzq.1709",
           "type": "tableRow",
           "children": [
             {
-              "id": "kr0483lpxzq.1709",
+              "id": "kr0483lpxzq.1710",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1710",
+                  "id": "kr0483lpxzq.1711",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1711",
+                      "id": "kr0483lpxzq.1712",
                       "atom": "date",
                       "attrs": {
                         "ts": "2027-03-24"
@@ -945,15 +953,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1712",
+              "id": "kr0483lpxzq.1713",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1713",
+                  "id": "kr0483lpxzq.1714",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1714",
+                      "id": "kr0483lpxzq.1715",
                       "text": "App submitted to both stores"
                     }
                   ]
@@ -961,15 +969,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1742",
+              "id": "kr0483lpxzq.1743",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1743",
+                  "id": "kr0483lpxzq.1744",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1744",
+                      "id": "kr0483lpxzq.1745",
                       "text": "Priya"
                     }
                   ]
@@ -977,15 +985,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1749",
+              "id": "kr0483lpxzq.1750",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1750",
+                  "id": "kr0483lpxzq.1751",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1751",
+                      "id": "kr0483lpxzq.1752",
                       "atom": "dropdown",
                       "attrs": {
                         "enum": "690af4c5-c745",
@@ -999,19 +1007,19 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.1752",
+          "id": "kr0483lpxzq.1753",
           "type": "tableRow",
           "children": [
             {
-              "id": "kr0483lpxzq.1753",
+              "id": "kr0483lpxzq.1754",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1754",
+                  "id": "kr0483lpxzq.1755",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1755",
+                      "id": "kr0483lpxzq.1756",
                       "atom": "date",
                       "attrs": {
                         "ts": "2027-03-31"
@@ -1022,15 +1030,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1756",
+              "id": "kr0483lpxzq.1757",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1757",
+                  "id": "kr0483lpxzq.1758",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1758",
+                      "id": "kr0483lpxzq.1759",
                       "text": "App beta opens to 500 subscribers"
                     }
                   ]
@@ -1038,15 +1046,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1791",
+              "id": "kr0483lpxzq.1792",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1792",
+                  "id": "kr0483lpxzq.1793",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1793",
+                      "id": "kr0483lpxzq.1794",
                       "text": "Priya"
                     }
                   ]
@@ -1054,15 +1062,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1798",
+              "id": "kr0483lpxzq.1799",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1799",
+                  "id": "kr0483lpxzq.1800",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1800",
+                      "id": "kr0483lpxzq.1801",
                       "atom": "dropdown",
                       "attrs": {
                         "enum": "690af4c5-c745",
@@ -1076,19 +1084,19 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.1801",
+          "id": "kr0483lpxzq.1802",
           "type": "tableRow",
           "children": [
             {
-              "id": "kr0483lpxzq.1802",
+              "id": "kr0483lpxzq.1803",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1803",
+                  "id": "kr0483lpxzq.1804",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1804",
+                      "id": "kr0483lpxzq.1805",
                       "atom": "date",
                       "attrs": {
                         "ts": "2027-04-07"
@@ -1099,15 +1107,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1805",
+              "id": "kr0483lpxzq.1806",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1806",
+                  "id": "kr0483lpxzq.1807",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1807",
+                      "id": "kr0483lpxzq.1808",
                       "text": "Support team briefed"
                     }
                   ]
@@ -1115,15 +1123,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1827",
+              "id": "kr0483lpxzq.1828",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1828",
+                  "id": "kr0483lpxzq.1829",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1829",
+                      "id": "kr0483lpxzq.1830",
                       "text": "Leo"
                     }
                   ]
@@ -1131,15 +1139,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1832",
+              "id": "kr0483lpxzq.1833",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1833",
+                  "id": "kr0483lpxzq.1834",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1834",
+                      "id": "kr0483lpxzq.1835",
                       "atom": "dropdown",
                       "attrs": {
                         "enum": "690af4c5-c745",
@@ -1153,19 +1161,19 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.1835",
+          "id": "kr0483lpxzq.1836",
           "type": "tableRow",
           "children": [
             {
-              "id": "kr0483lpxzq.1836",
+              "id": "kr0483lpxzq.1837",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1837",
+                  "id": "kr0483lpxzq.1838",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1838",
+                      "id": "kr0483lpxzq.1839",
                       "atom": "date",
                       "attrs": {
                         "ts": "2027-04-14"
@@ -1176,22 +1184,22 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1839",
+              "id": "kr0483lpxzq.1840",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1840",
+                  "id": "kr0483lpxzq.1841",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1841",
+                      "id": "kr0483lpxzq.1842",
                       "text": "Launch day:",
                       "marks": {
                         "bold": true
                       }
                     },
                     {
-                      "id": "kr0483lpxzq.1852",
+                      "id": "kr0483lpxzq.1853",
                       "text": " First Light ships, the app goes live"
                     }
                   ]
@@ -1199,15 +1207,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1889",
+              "id": "kr0483lpxzq.1890",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1890",
+                  "id": "kr0483lpxzq.1891",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1891",
+                      "id": "kr0483lpxzq.1892",
                       "text": "Everyone"
                     }
                   ]
@@ -1215,15 +1223,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1899",
+              "id": "kr0483lpxzq.1900",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1900",
+                  "id": "kr0483lpxzq.1901",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1901",
+                      "id": "kr0483lpxzq.1902",
                       "atom": "dropdown",
                       "attrs": {
                         "enum": "690af4c5-c745",
@@ -1237,19 +1245,19 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.1902",
+          "id": "kr0483lpxzq.1903",
           "type": "tableRow",
           "children": [
             {
-              "id": "kr0483lpxzq.1903",
+              "id": "kr0483lpxzq.1904",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1904",
+                  "id": "kr0483lpxzq.1905",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1905",
+                      "id": "kr0483lpxzq.1906",
                       "atom": "date",
                       "attrs": {
                         "ts": "2027-04-19"
@@ -1260,15 +1268,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1906",
+              "id": "kr0483lpxzq.1907",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1907",
+                  "id": "kr0483lpxzq.1908",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1908",
+                      "id": "kr0483lpxzq.1909",
                       "text": "Pop-up week begins: tasting bars in three cities"
                     }
                   ]
@@ -1276,15 +1284,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1956",
+              "id": "kr0483lpxzq.1957",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1957",
+                  "id": "kr0483lpxzq.1958",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1958",
+                      "id": "kr0483lpxzq.1959",
                       "text": "Mina"
                     }
                   ]
@@ -1292,15 +1300,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.1962",
+              "id": "kr0483lpxzq.1963",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.1963",
+                  "id": "kr0483lpxzq.1964",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.1964",
+                      "id": "kr0483lpxzq.1965",
                       "atom": "dropdown",
                       "attrs": {
                         "enum": "690af4c5-c745",
@@ -1316,75 +1324,75 @@
       ]
     },
     {
-      "id": "kr0483lpxzq.95",
+      "id": "kr0483lpxzq.96",
       "type": "paragraph",
       "attrs": {
         "heading": 2
       },
       "inline": [
         {
-          "id": "kr0483lpxzq.96",
+          "id": "kr0483lpxzq.97",
           "text": "How the two launches connect"
         }
       ]
     },
     {
-      "id": "kr0483lpxzq.1965",
+      "id": "kr0483lpxzq.1966",
       "type": "paragraph",
       "inline": [
         {
-          "id": "kr0483lpxzq.1966",
+          "id": "kr0483lpxzq.1967",
           "text": "The blend gives people a reason to open the box; the app gives them a reason to stay. The code on the bag ties the two together."
         }
       ]
     },
     {
-      "id": "kr0483lpxzq.2094",
+      "id": "kr0483lpxzq.2095",
       "type": "codeBlock",
       "attrs": {
         "language": "mermaid"
       },
       "inline": [
         {
-          "id": "kr0483lpxzq.2095",
+          "id": "kr0483lpxzq.2096",
           "text": "flowchart LR\n    box([First Light in the box]) --> code[Code on the bag]\n    code --> guide[Brew guide in the app]\n    guide --> account[Signed in]\n    account --> stay([Skip, pause or gift in two taps])"
         }
       ]
     },
     {
-      "id": "kr0483lpxzq.125",
+      "id": "kr0483lpxzq.126",
       "type": "paragraph",
       "attrs": {
         "heading": 2
       },
       "inline": [
         {
-          "id": "kr0483lpxzq.126",
+          "id": "kr0483lpxzq.127",
           "text": "Risks"
         }
       ]
     },
     {
-      "id": "kr0483lpxzq.2298",
+      "id": "kr0483lpxzq.2299",
       "type": "blockquote",
       "children": [
         {
-          "id": "kr0483lpxzq.2299",
+          "id": "kr0483lpxzq.2300",
           "type": "paragraph",
           "inline": [
             {
-              "id": "kr0483lpxzq.2300",
+              "id": "kr0483lpxzq.2301",
               "text": "⚠️ "
             },
             {
-              "id": "kr0483lpxzq.2303",
+              "id": "kr0483lpxzq.2304",
               "text": "App store review is the one date we do not control.",
               "marks": {
                 "bold": true
               }
             },
             {
-              "id": "kr0483lpxzq.2354",
+              "id": "kr0483lpxzq.2355",
               "text": " Submitting by March 24 keeps a three-week buffer. If review slips past April 7, the blend still ships on the 14th and the app follows."
             }
           ]
@@ -1392,26 +1400,26 @@
       ]
     },
     {
-      "id": "kr0483lpxzq.2489",
+      "id": "kr0483lpxzq.2490",
       "type": "table",
       "children": [
         {
-          "id": "kr0483lpxzq.2490",
+          "id": "kr0483lpxzq.2491",
           "type": "tableRow",
           "children": [
             {
-              "id": "kr0483lpxzq.2491",
+              "id": "kr0483lpxzq.2492",
               "type": "cell",
               "attrs": {
                 "header": true
               },
               "children": [
                 {
-                  "id": "kr0483lpxzq.2492",
+                  "id": "kr0483lpxzq.2493",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.2493",
+                      "id": "kr0483lpxzq.2494",
                       "text": "Risk"
                     }
                   ]
@@ -1419,18 +1427,18 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.2497",
+              "id": "kr0483lpxzq.2498",
               "type": "cell",
               "attrs": {
                 "header": true
               },
               "children": [
                 {
-                  "id": "kr0483lpxzq.2498",
+                  "id": "kr0483lpxzq.2499",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.2499",
+                      "id": "kr0483lpxzq.2500",
                       "text": "How likely"
                     }
                   ]
@@ -1438,18 +1446,18 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.2509",
+              "id": "kr0483lpxzq.2510",
               "type": "cell",
               "attrs": {
                 "header": true
               },
               "children": [
                 {
-                  "id": "kr0483lpxzq.2510",
+                  "id": "kr0483lpxzq.2511",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.2511",
+                      "id": "kr0483lpxzq.2512",
                       "text": "What we do"
                     }
                   ]
@@ -1459,19 +1467,19 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.2521",
+          "id": "kr0483lpxzq.2522",
           "type": "tableRow",
           "children": [
             {
-              "id": "kr0483lpxzq.2522",
+              "id": "kr0483lpxzq.2523",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.2523",
+                  "id": "kr0483lpxzq.2524",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.2524",
+                      "id": "kr0483lpxzq.2525",
                       "text": "Store review takes longer than two weeks"
                     }
                   ]
@@ -1479,15 +1487,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.2564",
+              "id": "kr0483lpxzq.2565",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.2565",
+                  "id": "kr0483lpxzq.2566",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.2566",
+                      "id": "kr0483lpxzq.2567",
                       "text": "High",
                       "marks": {
                         "textColor": "red",
@@ -1499,15 +1507,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.2570",
+              "id": "kr0483lpxzq.2571",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.2571",
+                  "id": "kr0483lpxzq.2572",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.2572",
+                      "id": "kr0483lpxzq.2573",
                       "text": "Submit by March 24 and keep the launch email free of app screenshots until approval."
                     }
                   ]
@@ -1517,19 +1525,19 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.2656",
+          "id": "kr0483lpxzq.2657",
           "type": "tableRow",
           "children": [
             {
-              "id": "kr0483lpxzq.2657",
+              "id": "kr0483lpxzq.2658",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.2658",
+                  "id": "kr0483lpxzq.2659",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.2659",
+                      "id": "kr0483lpxzq.2660",
                       "text": "Launch week doubles the support inbox"
                     }
                   ]
@@ -1537,15 +1545,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.2696",
+              "id": "kr0483lpxzq.2697",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.2697",
+                  "id": "kr0483lpxzq.2698",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.2698",
+                      "id": "kr0483lpxzq.2699",
                       "text": "Medium",
                       "marks": {
                         "textColor": "yellow",
@@ -1557,15 +1565,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.2704",
+              "id": "kr0483lpxzq.2705",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.2705",
+                  "id": "kr0483lpxzq.2706",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.2706",
+                      "id": "kr0483lpxzq.2707",
                       "text": "Brief the team on April 7 and load the reply templates first."
                     }
                   ]
@@ -1575,19 +1583,19 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.2767",
+          "id": "kr0483lpxzq.2768",
           "type": "tableRow",
           "children": [
             {
-              "id": "kr0483lpxzq.2768",
+              "id": "kr0483lpxzq.2769",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.2769",
+                  "id": "kr0483lpxzq.2770",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.2770",
+                      "id": "kr0483lpxzq.2771",
                       "text": "Green coffee runs short after 6,000 bags"
                     }
                   ]
@@ -1595,15 +1603,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.2810",
+              "id": "kr0483lpxzq.2811",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.2811",
+                  "id": "kr0483lpxzq.2812",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.2812",
+                      "id": "kr0483lpxzq.2813",
                       "text": "Low",
                       "marks": {
                         "textColor": "green",
@@ -1615,15 +1623,15 @@
               ]
             },
             {
-              "id": "kr0483lpxzq.2815",
+              "id": "kr0483lpxzq.2816",
               "type": "cell",
               "children": [
                 {
-                  "id": "kr0483lpxzq.2816",
+                  "id": "kr0483lpxzq.2817",
                   "type": "paragraph",
                   "inline": [
                     {
-                      "id": "kr0483lpxzq.2817",
+                      "id": "kr0483lpxzq.2818",
                       "text": "A second lot from Huila is on hold until March 20."
                     }
                   ]
@@ -1635,39 +1643,39 @@
       ]
     },
     {
-      "id": "kr0483lpxzq.132",
+      "id": "kr0483lpxzq.133",
       "type": "paragraph",
       "attrs": {
         "heading": 2
       },
       "inline": [
         {
-          "id": "kr0483lpxzq.133",
+          "id": "kr0483lpxzq.134",
           "text": "Open questions"
         }
       ]
     },
     {
-      "id": "kr0483lpxzq.2867",
+      "id": "kr0483lpxzq.2868",
       "type": "list",
       "attrs": {
         "kind": "bullet"
       },
       "children": [
         {
-          "id": "kr0483lpxzq.2868",
+          "id": "kr0483lpxzq.2869",
           "type": "listItem",
           "children": [
             {
-              "id": "kr0483lpxzq.2869",
+              "id": "kr0483lpxzq.2870",
               "type": "paragraph",
               "inline": [
                 {
-                  "id": "kr0483lpxzq.2870",
+                  "id": "kr0483lpxzq.2871",
                   "text": "Do gift subscriptions get First Light in their first box, or the house blend? "
                 },
                 {
-                  "id": "kr0483lpxzq.2948",
+                  "id": "kr0483lpxzq.2949",
                   "text": "Dana decides.",
                   "marks": {
                     "italic": true
@@ -1678,19 +1686,19 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.2961",
+          "id": "kr0483lpxzq.2962",
           "type": "listItem",
           "children": [
             {
-              "id": "kr0483lpxzq.2962",
+              "id": "kr0483lpxzq.2963",
               "type": "paragraph",
               "inline": [
                 {
-                  "id": "kr0483lpxzq.2963",
+                  "id": "kr0483lpxzq.2964",
                   "text": "Is the bag code single-use, or can a household share it? "
                 },
                 {
-                  "id": "kr0483lpxzq.3020",
+                  "id": "kr0483lpxzq.3021",
                   "text": "Priya decides.",
                   "marks": {
                     "italic": true
@@ -1701,19 +1709,19 @@
           ]
         },
         {
-          "id": "kr0483lpxzq.3034",
+          "id": "kr0483lpxzq.3035",
           "type": "listItem",
           "children": [
             {
-              "id": "kr0483lpxzq.3035",
+              "id": "kr0483lpxzq.3036",
               "type": "paragraph",
               "inline": [
                 {
-                  "id": "kr0483lpxzq.3036",
+                  "id": "kr0483lpxzq.3037",
                   "text": "Who answers the press on launch morning? "
                 },
                 {
-                  "id": "kr0483lpxzq.3077",
+                  "id": "kr0483lpxzq.3078",
                   "atom": "mention",
                   "attrs": {
                     "principal": "demo-visitor",
@@ -1721,18 +1729,18 @@
                   }
                 },
                 {
-                  "id": "kr0483lpxzq.3078",
+                  "id": "kr0483lpxzq.3079",
                   "text": " decides by "
                 },
                 {
-                  "id": "kr0483lpxzq.3090",
+                  "id": "kr0483lpxzq.3091",
                   "atom": "date",
                   "attrs": {
                     "ts": "2027-03-15"
                   }
                 },
                 {
-                  "id": "kr0483lpxzq.3091",
+                  "id": "kr0483lpxzq.3092",
                   "text": "."
                 }
               ]

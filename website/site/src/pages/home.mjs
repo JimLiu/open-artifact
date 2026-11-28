@@ -94,6 +94,83 @@ function liveStage(lang) {
 </section>`;
 }
 
+/** The agent apps Open Artifact plugs into, as one row under the live stage. */
+function worksWith(lang) {
+  const h = t(lang).home;
+  const names = APPS.filter((a) => a.id !== 'other' && a.id !== 'copilot-vscode')
+    .map((a) => `<li>${esc(a.id === 'copilot-cli' ? 'GitHub Copilot' : appName(a, lang))}</li>`)
+    .join('');
+  return `<div class="wrap works-with">
+  <p class="works-with-label">${esc(h.worksWith)}</p>
+  <ul class="works-with-list">${names}<li class="works-with-more"><a href="#agents">${esc(h.worksWithMore)}</a></li></ul>
+</div>`;
+}
+
+/** What each pillar card draws under its words. */
+const PILLAR_ART = {
+  agents: (p) => {
+    const apps = ['Claude Code', 'Codex', 'DeepSeek Harness', 'Antigravity', 'Cursor', 'Hermes Agent'];
+    return `<div class="pillar-art pa-agents" aria-hidden="true">
+  <ul class="pa-apps">${apps.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>
+  <span class="pa-wire"></span>
+  <div class="pa-hub">${mark(22)}<strong>${esc(p.hub)}</strong><span>${esc(p.hubSub)}</span></div>
+</div>`;
+  },
+  local: (p) => {
+    const [root, ...rest] = p.tree;
+    const rows = rest
+      .map((line) => {
+        const dir = line.endsWith('/');
+        return `<li class="${dir ? 'pa-dir' : 'pa-file'}">${dir ? icon.folder(13) : icon.file(13)}<span>${esc(line)}</span></li>`;
+      })
+      .join('');
+    return `<div class="pillar-art pa-local" aria-hidden="true">
+  <p class="pa-root">${icon.folder(13)}<span>${esc(root)}</span><em>127.0.0.1</em></p>
+  <ul class="pa-tree">${rows}</ul>
+</div>`;
+  },
+  together: (p) => {
+    const rows = p.thread
+      .map((m) => `<li class="${m.agent ? 'pa-agent' : ''}"><span class="pa-avatar">${m.agent ? icon.robot(13) : esc(m.who[0])}</span><p><b>${esc(m.who)}</b>${esc(m.text)}</p></li>`)
+      .join('');
+    return `<div class="pillar-art pa-together" aria-hidden="true">
+  <div class="pa-presence"><span class="pa-avatar">Y</span><span class="pa-avatar">M</span><span class="pa-avatar">T</span><span class="pa-avatar pa-agent">${icon.robot(13)}</span><i></i></div>
+  <ul class="pa-thread">${rows}</ul>
+</div>`;
+  },
+  host: (p) => {
+    const rows = p.options.map(([k, d]) => `<li><b>${esc(k)}</b><span>${esc(d)}</span></li>`).join('');
+    return `<div class="pillar-art pa-host" aria-hidden="true">
+  <ul class="pa-options">${rows}</ul>
+  <code>${esc(p.code)}</code>
+</div>`;
+  },
+};
+
+/** The four things that set Open Artifact apart: any agent, local files, working together, your own server. */
+function pillars(lang) {
+  const h = t(lang).home;
+  const cards = h.pillars
+    .map(
+      (p) => `<li class="pillar" id="pillar-${p.id}">
+  <span class="why-icon">${icon[p.icon](18)}</span>
+  <h3>${esc(p.k)}</h3>
+  <p>${esc(p.d)}</p>
+  ${PILLAR_ART[p.id](p)}
+  <a class="text-link" href="${href(lang, p.route)}">${esc(p.more)}${icon.arrow(13)}</a>
+</li>`,
+    )
+    .join('');
+  return `<section class="section" id="open">
+  <div class="wrap">
+    <p class="kicker">${esc(h.pillarsKicker)}</p>
+    <h2 class="section-title">${esc(h.pillarsTitle)}</h2>
+    <p class="section-lead">${esc(h.pillarsLead)}</p>
+    <ul class="pillar-grid">${cards}</ul>
+  </div>
+</section>`;
+}
+
 export function homePage(lang) {
   const s = t(lang);
   const h = s.home;
@@ -125,6 +202,9 @@ export function homePage(lang) {
 </section>
 
 ${liveStage(lang)}
+${worksWith(lang)}
+
+${pillars(lang)}
 
 <section class="band" id="how">
   <div class="wrap">

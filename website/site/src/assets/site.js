@@ -38,6 +38,117 @@
     btn.setAttribute('aria-expanded', String(open));
   });
 
+
+  // Tab strips, like the app's TabStrip (packages/ui/src/tab-strip.tsx): a row of tabs that keeps the one in front in
+  // sight, puts the tabs that do not fit into a list behind a ▾ button at the end of the row, and brings a tab picked
+  // there into the row. `row` holds the tabs (its element children); `isOn(tab)` says which one is in front; `detail`
+  // gives a tab's second line in the list. Without JavaScript the row simply scrolls.
+  var openMenu = null;
+  function closeMenu(refocus) {
+    if (!openMenu) return;
+    var m = openMenu; openMenu = null;
+    m.menu.remove();
+    m.more.setAttribute('aria-expanded', 'false');
+    if (refocus) m.more.focus();
+  }
+  d.addEventListener('pointerdown', function (e) { if (openMenu && !openMenu.menu.contains(e.target) && !openMenu.more.contains(e.target)) closeMenu(false); });
+  d.addEventListener('keydown', function (e) { if (e.key === 'Escape' && openMenu) { e.preventDefault(); closeMenu(true); } });
+  window.addEventListener('resize', function () { closeMenu(false); });
+  window.addEventListener('scroll', function () { closeMenu(false); }, { passive: true });
+
+  function tabStrip(row, isOn, detail) {
+    var tabs = Array.prototype.slice.call(row.children);
+    var start = 0;
+    var more = d.createElement('button');
+    more.type = 'button';
+    more.className = 'strip-more';
+    more.hidden = true;
+    more.setAttribute('aria-haspopup', 'menu');
+    more.setAttribute('aria-expanded', 'false');
+    more.title = zh ? '更多' : 'More';
+    more.setAttribute('aria-label', zh ? '更多标签' : 'More tabs');
+    more.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>';
+    row.appendChild(more);
+    row.classList.add('strip');
+
+    function fit() {
+      tabs.forEach(function (t) { t.hidden = false; });
+      more.hidden = true;
+      var gap = parseFloat(getComputedStyle(row).columnGap) || 0;
+      var widths = tabs.map(function (t) { return t.getBoundingClientRect().width; });
+      var total = widths.reduce(function (a, w) { return a + w; }, 0) + gap * (tabs.length - 1);
+      var pad = parseFloat(getComputedStyle(row).paddingLeft) + parseFloat(getComputedStyle(row).paddingRight);
+      var avail = row.clientWidth - pad;
+      if (total <= avail + 0.5) { start = 0; return; }
+      more.hidden = false;
+      var space = avail - more.getBoundingClientRect().width - gap;
+      var span = function (a, b) { var w = gap * (b - a); for (var k = a; k <= b; k++) w += widths[k]; return w; };
+      var front = Math.max(0, tabs.findIndex(isOn));
+      var first = Math.min(start, tabs.length - 1);
+      if (front < first) first = front;
+      else while (first < front && span(first, front) > space) first++;
+      var last = first;
+      while (last + 1 < tabs.length && span(first, last + 1) <= space) last++;
+      if (last === tabs.length - 1) while (first > 0 && span(first - 1, last) <= space) first--;
+      start = first;
+      tabs.forEach(function (t, k) { t.hidden = k < first || k > last; });
+    }
+
+    more.addEventListener('click', function () {
+      if (openMenu && openMenu.more === more) return closeMenu(false);
+      closeMenu(false);
+      var menu = d.createElement('div');
+      menu.className = 'strip-menu';
+      menu.setAttribute('role', 'menu');
+      tabs.forEach(function (t) {
+        if (!t.hidden) return;
+        var item = d.createElement('button');
+        item.type = 'button';
+        item.setAttribute('role', 'menuitem');
+        var icon = t.querySelector('.stage-tab-icon');
+        var sub = detail && detail(t);
+        item.innerHTML = (icon ? icon.outerHTML : '') + '<span><b></b>' + (sub ? '<small></small>' : '') + '</span>';
+        item.querySelector('b').textContent = (t.getAttribute('data-name') || t.textContent).trim();
+        if (sub) item.querySelector('small').textContent = sub;
+        if (t.style.cssText) item.style.cssText = t.style.cssText;
+        item.addEventListener('click', function () {
+          closeMenu(false);
+          t.hidden = false;
+          t.click();
+          fit();
+          t.focus();
+        });
+        menu.appendChild(item);
+      });
+      d.body.appendChild(menu);
+      var r = more.getBoundingClientRect();
+      var w = menu.offsetWidth;
+      menu.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + 'px';
+      menu.style.top = r.bottom + 6 + 'px';
+      menu.style.maxHeight = Math.max(160, innerHeight - r.bottom - 16) + 'px';
+      more.setAttribute('aria-expanded', 'true');
+      openMenu = { menu: menu, more: more };
+      var firstItem = menu.querySelector('[role=menuitem]');
+      if (firstItem) firstItem.focus();
+      menu.addEventListener('keydown', function (e) {
+        var items = Array.prototype.slice.call(menu.querySelectorAll('[role=menuitem]'));
+        var i = items.indexOf(d.activeElement);
+        var n = e.key === 'ArrowDown' ? i + 1 : e.key === 'ArrowUp' ? i - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : null;
+        if (n === null) { if (e.key === 'Tab') closeMenu(false); return; }
+        e.preventDefault();
+        items[(n + items.length) % items.length].focus();
+      });
+    });
+
+    if ('ResizeObserver' in window) new ResizeObserver(function () { fit(); }).observe(row.parentNode);
+    else window.addEventListener('resize', fit);
+    if ('MutationObserver' in window) new MutationObserver(function () { if (!tabs.some(function (t) { return isOn(t) && t.hidden; })) return; fit(); }).observe(row, { subtree: true, attributes: true, attributeFilter: ['aria-selected', 'aria-current'] });
+    if (d.fonts && d.fonts.ready) d.fonts.ready.then(fit);
+    fit();
+    row._fit = fit;
+    return fit;
+  }
+
   // Tabs (install picker). The chosen app is remembered across pages.
   var KEY = 'oa-app';
   function select(root, tab, focus) {
@@ -49,6 +160,8 @@
       var p = d.getElementById(tabs[i].getAttribute('aria-controls'));
       if (p) { if (on) p.removeAttribute('data-hidden'); else p.setAttribute('data-hidden', ''); }
     }
+    var list = root.querySelector('.tab-list');
+    if (list && list._fit && tab.hidden) list._fit();
     if (focus) tab.focus();
   }
   var roots = d.querySelectorAll('[data-tabs]');
@@ -56,6 +169,12 @@
   try { saved = localStorage.getItem(KEY); } catch (_) {}
   Array.prototype.forEach.call(roots, function (root) {
     var tabs = Array.prototype.slice.call(root.querySelectorAll('[role=tab]'));
+    var list = root.querySelector('.tab-list');
+    if (list) tabStrip(list, function (t) { return t.getAttribute('aria-selected') === 'true'; }, function (t) {
+      var p = d.getElementById(t.getAttribute('aria-controls'));
+      var small = p && p.querySelector('.tab-panel-title small');
+      return small ? small.textContent : '';
+    });
     if (saved) {
       var s = tabs.filter(function (x) { return x.id.slice(x.id.indexOf('-tab-') + 5) === saved; })[0];
       if (s) select(root, s, false);
@@ -118,6 +237,7 @@
     var again = stage.querySelector('[data-stage-replay]');
     var lang = /^zh/i.test(d.documentElement.lang || '') ? 'zh' : 'en';
     var tabs = Array.prototype.slice.call(stage.querySelectorAll('[data-demo]'));
+    tabStrip(stage.querySelector('.stage-tabs'), function (a) { return a.getAttribute('aria-current') === 'true'; }, null);
     var base = stage.getAttribute('data-base');
     var KEEP = 3;       // loaded demos kept alive (with what was done in them); the least recently shown one goes
     var frames = {};    // demo -> { el, ready, replay: what the demo says of its replay ('ready' | 'playing' | 'done') }
@@ -185,7 +305,7 @@
       stage.querySelector('[data-stage-line]').textContent = tab.getAttribute('data-line');
       stage.querySelector('[data-stage-icon]').innerHTML = tab.querySelector('svg').outerHTML.replace(/(width|height)="\d+"/g, '$1="28"');
       open.href = load.href = tab.href;
-      if (tab.scrollIntoView && tab.parentNode.scrollWidth > tab.parentNode.clientWidth) tab.parentNode.scrollLeft = tab.offsetLeft - tab.parentNode.offsetLeft - 40;
+      if (tab.parentNode._fit && tab.hidden) tab.parentNode._fit();
       if (wanted) ensure(demo);
       sync();
       return true;

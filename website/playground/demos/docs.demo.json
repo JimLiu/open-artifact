@@ -26,7 +26,7 @@
                 "target": {
                   "kind": "blocks",
                   "ids": [
-                    "kr0483lpxzq.148"
+                    "kr0483lpxzq.149"
                   ]
                 },
                 "side": "after",
@@ -53,7 +53,7 @@
                 "target": {
                   "kind": "blocks",
                   "ids": [
-                    "kr0483lpxzq.148"
+                    "kr0483lpxzq.149"
                   ]
                 },
                 "side": "after",
@@ -80,7 +80,7 @@
                 "target": {
                   "kind": "blocks",
                   "ids": [
-                    "kr0483lpxzq.4029"
+                    "kr0483lpxzq.4030"
                   ]
                 },
                 "side": "end",
@@ -129,7 +129,7 @@
                 },
                 "force": true,
                 "source": {
-                  "markdown": "# First Light: spring launch brief\n\nLast updated <?oa block asof?> · Owner <?oa block me?> · <?oa block review?>\n\n<?oa block summary?>\n\n## Goals\n\n<?oa block goals?>\n\n## What ships\n\n<?oa block ships?>\n\n## Timeline\n\n<?oa block timeline?>\n\n## How the two launches connect\n\n<?oa block connect?>\n\n## Risks\n\n<?oa block risks?>\n\n## Open questions\n\n<?oa block questions?>",
+                  "markdown": "# First Light: spring launch brief\n\nLast updated <?oa block asof?> · Owner <?oa block me?> · <?oa block review?>\n\n```toc\n```\n\n<?oa block summary?>\n\n## Goals\n\n<?oa block goals?>\n\n## What ships\n\n<?oa block ships?>\n\n## Timeline\n\n<?oa block timeline?>\n\n## How the two launches connect\n\n<?oa block connect?>\n\n## Risks\n\n<?oa block risks?>\n\n## Open questions\n\n<?oa block questions?>",
                   "blocks": {
                     "asof": {
                       "type": "date",
@@ -192,7 +192,7 @@
                 "target": {
                   "kind": "blocks",
                   "ids": [
-                    "kr0483lpxzq.65"
+                    "kr0483lpxzq.66"
                   ]
                 },
                 "source": {
@@ -220,7 +220,7 @@
                 "target": {
                   "kind": "blocks",
                   "ids": [
-                    "kr0483lpxzq.72"
+                    "kr0483lpxzq.73"
                   ]
                 },
                 "source": {
@@ -244,7 +244,7 @@
                 "target": {
                   "kind": "blocks",
                   "ids": [
-                    "kr0483lpxzq.84"
+                    "kr0483lpxzq.85"
                   ]
                 },
                 "source": {
@@ -290,7 +290,7 @@
                 "target": {
                   "kind": "blocks",
                   "ids": [
-                    "kr0483lpxzq.94"
+                    "kr0483lpxzq.95"
                   ]
                 },
                 "source": {
@@ -373,7 +373,7 @@
                 "target": {
                   "kind": "blocks",
                   "ids": [
-                    "kr0483lpxzq.124"
+                    "kr0483lpxzq.125"
                   ]
                 },
                 "source": {
@@ -397,7 +397,7 @@
                 "target": {
                   "kind": "blocks",
                   "ids": [
-                    "kr0483lpxzq.131"
+                    "kr0483lpxzq.132"
                   ]
                 },
                 "source": {
@@ -409,7 +409,7 @@
                 "target": {
                   "kind": "blocks",
                   "ids": [
-                    "kr0483lpxzq.147"
+                    "kr0483lpxzq.148"
                   ]
                 },
                 "source": {
@@ -516,20 +516,20 @@
       }
     ],
     "made": {
-      "en": "The brief is written: “Brief” has the goals, what ships, the timeline, a diagram of how the bag leads into the app, and the risks; “Launch checklist” and “FAQ” are its other two tabs. Select any words and comment to have me change them.",
-      "zh": "简报写好了：“Brief”里有目标、发布内容、时间表、一张从咖啡袋到 App 的流程图和风险；另外两个标签页是“Launch checklist”和“FAQ”。选中任意文字留评论，我就来改。"
+      "en": "The brief is written: “Brief” opens with a table of contents, then the goals, what ships, the timeline, a diagram of how the bag leads into the app, and the risks; “Launch checklist” and “FAQ” are its other two tabs. Select any words and comment to have me change them.",
+      "zh": "简报写好了：“Brief”开头是目录，后面是目标、发布内容、时间表、一张从咖啡袋到 App 的流程图和风险；另外两个标签页是“Launch checklist”和“FAQ”。选中任意文字留评论，我就来改。"
     },
     "comment": {
       "text": {
         "en": "Put numbers on this: what does a good launch look like by the end of June?",
         "zh": "这里要有数字：到 6 月底，怎样才算发布成功？"
       },
-      "anchor": "{\"tab\":\"2fb9c8f9-9f88\",\"range\":[\"kr0483lpxzq.372\",\"kr0483lpxzq.400\"]}",
+      "anchor": "{\"tab\":\"2fb9c8f9-9f88\",\"range\":[\"kr0483lpxzq.373\",\"kr0483lpxzq.401\"]}",
       "label": "what a good launch looks like",
       "detail": "On “what a good launch looks like” in: On Wednesday, April 14, Juniper ships two things on the same morning: First Light, our spring seasonal blend, and the Juniper app for iPhone and Android. This brief is the one place for what ships, who owns each piece, and what a good launch looks like.",
       "location": {
         "tab": "2fb9c8f9-9f88",
-        "block": "kr0483lpxzq.148"
+        "block": "kr0483lpxzq.149"
       },
       "at": [
         0.62,

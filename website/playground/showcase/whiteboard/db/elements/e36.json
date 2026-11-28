@@ -1,1 +1,1 @@
-{"type":"arrow","from":"e30","to":"e31","fromSide":"right","toSide":"left","head":"end","dash":false,"color":"ink","by":"agent"}
+{"type":"arrow","from":"e30","to":"e31","fromSide":"right","toSide":"left","head":"end","dash":true,"color":"ink","by":"agent","flow":true}

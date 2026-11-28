@@ -61,6 +61,13 @@ presses “Load the live demo”. A loaded demo sits under a veil until someone 
 while scrolling past; a press outside the stage, Escape, or scrolling away gives it back. The last three demos shown
 stay loaded, with what was done in them. “Try it live” on a type card shows that demo in the stage.
 
+Under the stage, a row names the agent apps (`site/src/data/apps.mjs`), and four cards say what sets Open Artifact apart:
+any agent harness, files kept on your own disk, people and agents working together, and a site on your own server
+(`pillars` in `site/src/i18n.mjs`). The stage's type tabs and the install picker's app tabs are tab strips, like the
+app's `TabStrip` (`packages/ui/src/tab-strip.tsx`), in `site.js`: the tab in front stays in the row, the tabs that do
+not fit go into a list behind ▾ at its end, and picking one there brings it into the row. Without JavaScript the row
+scrolls.
+
 The stage needs the playground on the same origin, so it only shows demos in the combined build
 (`node website/build.mjs`, then `npm run serve`). Under `site`'s own dev server there is no `/playground/`.
 
