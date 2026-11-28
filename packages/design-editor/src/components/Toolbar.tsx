@@ -19,6 +19,7 @@ import {
   Hand,
   Loader2,
   Lock,
+  MessageCircle,
   Play,
   Plus,
   SlidersHorizontal,
@@ -33,7 +34,8 @@ import { PEN_WEIGHTS, useView, type PenStyle, type Tool } from '../state/view.ts
 import { useAgent } from '../services/agent.ts';
 import { session } from '../services/session.ts';
 import { addBoardFromKeyboard, addPage, deletePage, movePage, redo, renamePage, stepPage, undo } from '../services/commands.ts';
-import { leaveCommentMode } from '../services/collab.ts';
+import { leaveCommentMode, toggleCommentMode } from '../services/collab.ts';
+import { canComment, useComments } from '../services/comments.ts';
 import { announce } from '../services/announce.ts';
 import { useCoarsePointer } from '../services/pointer.ts';
 import { dragScrollStep, dropLine, PAGE_DRAG_THRESHOLD, pageAfterDrop, pageDropIndex } from '../lib/page-order.ts';
@@ -739,7 +741,18 @@ function AskButton() {
   );
 }
 
-/** The foot toolbar. */
+/** Comment, in the toolbar at the bottom (at the top the Shell's Comments button is close by): comment mode, as C. */
+function CommentButton() {
+  const on = useComments((s) => s.on);
+  return (
+    <Tip label={on ? 'Done commenting' : 'Comment'} shortcut="C" side="top">
+      <ChromeButton size="lg" square pressed={on} aria-label="Comment" onClick={toggleCommentMode}>
+        <MessageCircle {...ICON} fill={on ? 'currentColor' : 'none'} />
+      </ChromeButton>
+    </Tip>
+  );
+}
+
 /** On touch screens, which have no ⌘Z: a button with Undo and Redo. */
 function UndoRedoButton() {
   const coarse = useCoarsePointer();
@@ -770,6 +783,7 @@ function UndoRedoButton() {
 export function FootToolbar({ compact = false }: { compact?: boolean }) {
   const readOnly = useDocument((s) => s.readOnly);
   const tool = useView((s) => s.tool);
+  const comment = useComments((s) => s.available) && canComment() && !compact;
   return (
     <div role="toolbar" aria-label="Canvas tools" data-focus-region="tools" className={cn("pointer-events-auto flex items-center text-chrome-fg", compact ? "dc-compact-tools gap-0.5" : "gap-1 rounded-[12px] bg-chrome p-1 shadow-chrome")}>
       <ToolButton spec={SELECT} />
@@ -786,6 +800,12 @@ export function FootToolbar({ compact = false }: { compact?: boolean }) {
           <UndoRedoButton />
         </>
       )}
+      {comment ? (
+        <>
+          <ChromeDivider className="mx-0" />
+          <CommentButton />
+        </>
+      ) : null}
       {readOnly ? null : <AskButton />}
     </div>
   );
