@@ -50,6 +50,10 @@ const BOTTOM = CHROME_BOTTOM + 24;
 const NOTES_ROOM = 72;
 /** Room kept around an element the keyboard brings into view, px. */
 const REVEAL_MARGIN = 16;
+/** Corner of the slide on the stage, screen px; shrinks with the slide so a small one stays nearly square. */
+const SLIDE_CORNER = 8;
+/** The most a slide corner covers at full size, slide px. */
+const SLIDE_CORNER_MAX = 36;
 
 /** True for the node kinds edited in place. */
 function editsInPlace(node: SlideNode): boolean {
@@ -315,6 +319,7 @@ export function Stage(): ReactNode {
 
   const width = SLIDE_WIDTH * scale;
   const height = SLIDE_HEIGHT * scale;
+  const corner = Math.min(SLIDE_CORNER, SLIDE_CORNER_MAX * scale);
   // The notes keep a readable width under a small slide, centered on it.
   const notesMin = Math.min(320, (size?.w ?? 0) - 24);
   const cursor = commentsOn ? COMMENT_CURSOR : tool !== 'select' ? 'crosshair' : undefined;
@@ -349,9 +354,9 @@ export function Stage(): ReactNode {
           className="flex min-h-full min-w-full flex-col items-center justify-center"
           style={{ paddingTop: TOP, paddingBottom: bottom + (showNotes ? NOTES_ROOM : 0), paddingLeft: SIDE, paddingRight: SIDE, width: 'max-content', height: 'max-content' }}
         >
-          <div className="relative shrink-0 shadow-[0_0_0_1px_rgb(0_0_0/0.06),0_1px_3px_rgb(0_0_0/0.08)]" style={{ width, height }}>
+          <div className="relative shrink-0 shadow-slide" style={{ width, height, borderRadius: corner }}>
             <div className="absolute left-0 top-0 origin-top-left" style={{ width: SLIDE_WIDTH, height: SLIDE_HEIGHT, transform: `scale(${scale})` }}>
-              <SlideView slide={slide} options={options} rootRef={rootRef} />
+              <SlideView slide={slide} options={options} rootRef={rootRef} style={{ borderRadius: corner / scale }} />
             </div>
             {ctx ? (
               <Overlay ctx={ctx} slide={slide}>
