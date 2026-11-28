@@ -17,6 +17,9 @@ import { session } from './session.ts';
 import { collabChromeReport, handleCollabCommand, subscribeCollab } from './collab.ts';
 import { leadMember } from '../lib/selection.ts';
 
+/** A page action the artifact menu lists. */
+type ChromeAction = NonNullable<ChromeReport['actions']>[number];
+
 /** What the Export tab (or, without a Shell, the focused view's Export menu) depends on now. */
 export function exportScene(): ExportScene {
   const view = useView.getState();
@@ -68,16 +71,28 @@ async function runFormat(shell: ShellConnection, request: string, format: string
   else shell.exportState(request, outcome.state);
 }
 
+/** The artifact menu's item that moves the canvas toolbar between the top and the bottom (this browser's choice). */
+const TOOLBAR_ACTION = 'toolbar_position';
+
+/** The artifact menu's toolbar item, named for what it does next. */
+export function toolbarAction(top: boolean): ChromeAction {
+  return { id: TOOLBAR_ACTION, label: top ? 'Move toolbar to bottom' : 'Move toolbar to top' };
+}
+
 /** Starts reporting to the Shell, if there is one. */
 export function startShellBridge(): void {
   const shell = session().shell;
   if (!shell) return;
   const report = chromeReporter(shell, () => {
     const doc = useDocument.getState();
-    const { mode, selection } = useView.getState();
+    const { mode, selection, toolbarTop } = useView.getState();
     const hasSelection = leadMember(selection) !== null;
+    const actions: ChromeAction[] = [];
+    if (mode === 'canvas' && hasSelection && useComments.getState().available && canComment()) actions.push({ id: 'comment_selection' });
+    // The toolbar is on the canvas only: the focused view has none to move.
+    if (mode === 'canvas') actions.push(toolbarAction(toolbarTop));
     return {
-      actions: mode === 'canvas' && hasSelection && useComments.getState().available && canComment() ? [{ id: 'comment_selection' }] : [],
+      actions,
       agent: agentChrome(useAgent.getState().status),
       exports: false,
       formats: mayExportHere(session().viewer.role, session().downloads) ? exportFormats(exportScene()) : [],
@@ -94,12 +109,17 @@ export function startShellBridge(): void {
   // Not on every camera move: only what changes which artboards the tab exports.
   useView.subscribe((state, previous) => {
     if (state.page !== previous.page) shell.currentDesignPage(state.page);
-    if (state.selection !== previous.selection || state.page !== previous.page || state.mode !== previous.mode || state.focused !== previous.focused || state.focusedExportWidth !== previous.focusedExportWidth) report();
+    if (state.selection !== previous.selection || state.page !== previous.page || state.mode !== previous.mode || state.focused !== previous.focused || state.focusedExportWidth !== previous.focusedExportWidth || state.toolbarTop !== previous.toolbarTop) report();
   });
   // The sync service merges remote changes live.
   shell.onFilesChanged(() => true);
   shell.onCommand((command) => {
     if (handleCollabCommand(command)) return;
+    if (command.cmd === 'action' && command.id === TOOLBAR_ACTION) {
+      const view = useView.getState();
+      view.setToolbarTop(!view.toolbarTop);
+      return;
+    }
     if (command.cmd === 'exports') return [];
     if (command.cmd === 'export_format') void runFormat(shell, command.request, command.format, command.variant);
   });
