@@ -37,7 +37,7 @@ describe('elements drawn inside an artboard', () => {
     const html = placedHtml('rect', { x: 10, y: 20, ...CLICK_SIZES.rect }, { radius: [12, 12, 12, 12] });
     assert.equal(
       styleOf(html),
-      'box-sizing: border-box; display: flex; flex-direction: column; width: 120px; height: 120px; background-color: #b6b0a7; border-radius: 12px; position: absolute; left: 10px; top: 20px; width: 120px; height: 120px',
+      'box-sizing: border-box; display: flex; flex-direction: column; background-color: #b6b0a7; border-radius: 12px; position: absolute; left: 10px; top: 20px; width: 120px; height: 120px',
     );
     assert.match(html, /^<div style="[^"]*"><\/div>$/);
   });
@@ -47,14 +47,17 @@ describe('elements drawn inside an artboard', () => {
     assert.equal(radiusCss([1, 2, 3, 4]), 'border-top-left-radius: 1px; border-top-right-radius: 2px; border-bottom-right-radius: 3px; border-bottom-left-radius: 4px');
   });
 
-  it('a dragged size is written after the template size, so it wins', () => {
+  it('a dragged size replaces the template size, so the style names each property once', () => {
     const style = styleOf(placedHtml('rect', { x: 5, y: 6, w: 200, h: 50 }));
-    assert.match(style, /width: 120px; height: 120px;.*position: absolute; left: 5px; top: 6px; width: 200px; height: 50px$/);
+    assert.match(style, /position: absolute; left: 5px; top: 6px; width: 200px; height: 50px$/);
+    assert.doesNotMatch(style, /120px/);
+    const names = style.split(';').map((d) => d.split(':')[0]!.trim());
+    assert.equal(new Set(names).size, names.length);
   });
 
   it('an oval is fully rounded and centres its content', () => {
     const style = styleOf(placedHtml('oval', { x: 0, y: 0, ...CLICK_SIZES.oval }));
-    assert.match(style, /align-items: center; justify-content: center; width: 96px; height: 96px; background-color: #b6b0a7; border-radius: 50%/);
+    assert.match(style, /align-items: center; justify-content: center; background-color: #b6b0a7; border-radius: 50%; position: absolute; left: 0px; top: 0px; width: 96px; height: 96px$/);
   });
 
   it('a frame has padding, a gap, a white fill and a soft shadow, sized only by the drag', () => {

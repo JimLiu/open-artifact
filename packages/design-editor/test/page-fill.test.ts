@@ -43,6 +43,13 @@ describe('page fill', () => {
     assert.equal(cleared, '<helmet><style>body { }</style></helmet>');
   });
 
+  it('removes a background-image when the background is written or removed', () => {
+    const solid = write('<helmet><style>body { background-image: linear-gradient(red, blue); margin: 0 }</style></helmet>', pageFillEdits({ color: 'red' }));
+    assert.equal(solid, '<helmet><style>body { margin: 0; background-color: red; }</style></helmet>');
+    const earlier = write('<helmet><style>body { background-image: url(a.png) }\nbody { margin: 0 }</style></helmet>', pageFillEdits({ image: 'linear-gradient(red, blue)' }));
+    assert.equal(earlier, '<helmet><style>body { }\nbody { margin: 0; background: linear-gradient(red, blue); }</style></helmet>');
+  });
+
   it('refuses a stylesheet with nested rules', () => {
     assert.equal(write('<helmet><style>.card { .title { color: red } }</style></helmet>', pageFillEdits({ color: 'red' })), null);
   });
@@ -63,6 +70,8 @@ describe('page fill', () => {
     assert.deepEqual(pageFillFromCopy({ 'background-image': 'linear-gradient(red, blue)', 'background-color': 'transparent' }), { image: 'linear-gradient(red, blue)' });
     assert.equal(pageFillFromCopy({ background: 'url(javascript:alert(1))' }), null);
     assert.equal(safePageFillValue('red; } body { display: none'), false);
+    // An unclosed comment would swallow the rest of the stylesheet.
+    assert.equal(safePageFillValue('red /* x'), false);
     assert.deepEqual(pageFillDeclarations({}), { 'background-color': '#ffffff' });
   });
 

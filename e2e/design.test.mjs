@@ -3282,6 +3282,10 @@ editorSuite({
         await mouse.drag({ x: centre.x + 3, y: centre.y }, { x: centre.x + 103, y: centre.y + 60 });
         assert.ok(await until(() => placed().length === 1, 10000), `a box was drawn: ${boardText()}`);
         assert.equal(placed()[0][0], 440, 'it starts on the centre line');
+        // The dragged size replaces the template's: a second `width` would win over later edits of the first.
+        const drawnStyle = /<div style="([^"]*position: absolute[^"]*)"><\/div>/.exec(boardText())?.[1] ?? '';
+        assert.equal((drawnStyle.match(/(?:^|; )width:/g) ?? []).length, 1, `the box names its width once: ${drawnStyle}`);
+        assert.equal((drawnStyle.match(/(?:^|; )height:/g) ?? []).length, 1, `the box names its height once: ${drawnStyle}`);
         await page.press('z', mod);
         assert.ok(await until(() => boardText() === before, 10000), 'undone');
         await leave();

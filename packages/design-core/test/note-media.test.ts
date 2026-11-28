@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { checkDesignProject, cleanCrop, emptyCanvas, normalizeCanvas, serializeCanvas, videoOptions } from '../src/index.ts';
+import { checkDesignProject, cleanCrop, cropApplies, emptyCanvas, normalizeCanvas, serializeCanvas, videoOptions } from '../src/index.ts';
 
 const BLOB = '/_blob/0123456789abcdef0123456789abcdef';
 
@@ -26,7 +26,12 @@ describe('an image note’s crop', () => {
   });
 
   it('is kept only while the picture covers the note', () => {
-    assert.deepEqual(read({ crop: { zoom: 2, x: 0.25, y: 1 } }).note.crop, { zoom: 2, x: 0.25, y: 1 });
+    assert.equal(cropApplies({ 'object-fit': 'cover' }), true);
+    for (const css of [undefined, {}, { 'object-fit': 'fill' }, { 'object-fit': 'contain' }, { 'object-fit': 'bogus' }]) assert.equal(cropApplies(css), false, JSON.stringify(css));
+    // Without a fit the picture fills the note (the default), so a crop there is dropped too.
+    const unset = read({ crop: { zoom: 2, x: 0.25, y: 1 } });
+    assert.equal(unset.note.crop, undefined);
+    assert.ok(unset.warnings.includes('Note "n" crop is ignored: object-fit is not cover.'), unset.warnings.join('\n'));
     assert.deepEqual(read({ crop: { zoom: 2, x: 0.25, y: 1 }, css: { 'object-fit': 'cover' } }).note.crop, { zoom: 2, x: 0.25, y: 1 });
     const contained = read({ crop: { zoom: 2, x: 0.25, y: 1 }, css: { 'object-fit': 'contain' } });
     assert.equal(contained.note.crop, undefined);

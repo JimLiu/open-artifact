@@ -13,6 +13,7 @@
 - **Data controls & rules**: Dropdown validation menus, checkboxes, and conditional formatting rules.
 - **Charts & interactive panels**: Embed charts drawn directly from cell ranges, plus custom **interactive panels** (sliders, buttons, and inputs on their own tab wired to live assumption cells and formulas).
 - **Real-time collaboration & history**: Live cursors, cell/range-anchored comments, full version history, and per-cell edit history.
+- **Connected tables**: A tab whose rows come from a connector call the agent makes. The owner's **Refresh** (or **Load data** before the first rows) asks the agent, which makes the call with its own tool and hands the records back with `refresh`, or says why there are none; the table's bar shows that reason. The first refresh of a call asks the owner to confirm.
 - **Imports & exports**: Import **CSV** files; export to **Excel (`.xlsx`)** or **CSV** (per worksheet) from **Share → Export** or CLI, plus portable `.zip` archives.
 
 ## How to use (for users)
@@ -35,7 +36,7 @@ Or start with no agent: on the home page, click **New artifact**, pick **Sheets*
 ## How to use (for agents)
 
 - **Type ID**: `sheets` (`type_url: "open-artifact://type/sheets"`)
-- **Storage model**: Structured operational workbook under `<root>/sheet/` (`sheet/sheet.json` + `sheet/edits.jsonl`). **Never edit these files directly**—always use the `read`, `update`, `batch`, and `widget` actions.
+- **Storage model**: Structured operational workbook under `<root>/sheet/` (`sheet/sheet.json` + `sheet/edits.jsonl`). **Never edit these files directly**—always use the `read`, `update`, `refresh`, `batch`, and `widget` actions.
 
 ### Workflow & commands
 
@@ -47,6 +48,7 @@ Or start with no agent: on the home page, click **New artifact**, pick **Sheets*
 | Add chart / interactive | `Artifact {action: "call", url, name: "batch", args: {calls: [...]}}` | `open-artifact batch <root> <file>` |
 | Inspect selection | `Artifact {action: "call", url, name: "context"}` | `open-artifact context <root> [--json]` |
 | Export XLSX / CSV | `Artifact {action: "call", url, name: "export", args: {file?: "<abs path>"}}` | `open-artifact export <root> [file.xlsx \| --csv --sheet <name>]` |
+| Refresh a connected table | `Artifact {action: "call", url, name: "refresh", args: {payload: {sheet, callDigest, records} \| {sheet, callDigest, failed: {why}}}}` | `open-artifact refresh <root> '<payload>'` |
 
 ### Key rules for agents
 1. Read `artifact-types/sheets/reference/core.md` (and `building.md` for tables, `charts.md` / `interactives.md` for visuals) before your first write.

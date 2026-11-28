@@ -52,7 +52,7 @@ describe('a cropped note’s style', () => {
 
   it('is always drawn by the DOM body, cropped or a video', () => {
     assert.equal(imageLook({ x: 0, y: 0, kind: 'image', src: BLOB }).engine, true);
-    assert.equal(imageLook({ x: 0, y: 0, kind: 'image', src: BLOB, crop: { zoom: 2, x: 0, y: 0 } }).engine, false);
+    assert.equal(imageLook({ x: 0, y: 0, kind: 'image', src: BLOB, crop: { zoom: 2, x: 0, y: 0 }, css: { 'object-fit': 'cover' } }).engine, false);
     assert.equal(imageLook({ x: 0, y: 0, kind: 'image', src: BLOB, video: BLOB }).engine, false);
     assert.equal((noteItem('v', { x: 0, y: 0, w: 10, h: 10, kind: 'image', src: BLOB, video: BLOB }, { z: 0, editable: true, locked: false } as Parameters<typeof noteItem>[2]) as { fill?: string }).fill, 'transparent');
   });

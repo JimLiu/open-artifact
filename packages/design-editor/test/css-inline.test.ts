@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { escapeTemplateBraces, scanCss } from '../src/lib/css-scan.ts';
-import { IMPORT_DEPTH, inlineCss, notCssWarning, unclosedWarning, type CssSources } from '../src/lib/css-inline.ts';
+import { IMPORT_DEPTH, inlineCss, notCssWarning, unclosedWarning, unhoistableWarning, type CssSources } from '../src/lib/css-inline.ts';
 
 const kinds = (css: string) => scanCss(css).pieces.map((piece) => piece.kind);
 
@@ -82,7 +82,7 @@ describe('inlining a stylesheet', () => {
 
   it('follows imports of imports from their own folders, and leaves a loop alone', () => {
     const { css } = run('@import "css/b.css";', { 'css/b.css': '@import "c.css"; .b{background:url(../img.png)}', 'css/c.css': '@import "b.css"; .c{}', 'img.png': new Uint8Array([1]) });
-    assert.equal(css, '/**//**/@import "b.css"; .c{}/**/ .b{background:url(data:bin,img.png)}/**/');
+    assert.equal(css, '@import "b.css";\n/**//**/ .c{}/**/ .b{background:url(data:bin,img.png)}/**/', 'the import that closes the loop stays an import, moved to the top');
   });
 
   it(`stops after ${IMPORT_DEPTH} levels`, () => {
@@ -101,6 +101,28 @@ describe('inlining a stylesheet', () => {
     assert.deepEqual(warnings, [notCssWarning('data.json'), unclosedWarning('cut.css')]);
     assert.equal(warnings[0], 'stylesheet import not embedded (data.json): it is not a CSS file');
     assert.equal(warnings[1], 'stylesheet import not embedded (cut.css): the file ends inside an unclosed string, comment or url( — close it and export again');
+  });
+
+  it('moves imports that stay above the stylesheets written in place, where a browser still reads them', () => {
+    const fonts = '@import url(https://fonts.test/css?family=A);';
+    const { css, warnings } = run(`@import "local.css";\n${fonts}\n.a{}`, { 'local.css': '.l{}' });
+    assert.equal(css, `${fonts}\n/**/.l{}/**/\n\n.a{}`);
+    assert.deepEqual(warnings, []);
+    assert.equal(run(`@charset "utf-8";\n${fonts}\n@import "local.css";`, { 'local.css': '.l{}' }).css, `@charset "utf-8";\n${fonts}\n/**/.l{}/**/`, 'imports already on top stay where they are');
+  });
+
+  it('carries the conditions of the stylesheet an import came from into the moved import', () => {
+    const nested = run('@import "a.css" layer(base) supports(display: grid) screen;\n.x{}', { 'a.css': '@import url(https://x.test/f.css) layer(fonts) supports(gap: 1px);\n.a{}' });
+    assert.equal(nested.css, '@import url(https://x.test/f.css) layer(base.fonts) supports((display: grid) and (gap: 1px)) screen;\n/**/@layer base {\n@supports (display: grid) {\n@media screen {\n\n.a{}\n}\n}\n}/**/\n.x{}');
+    assert.deepEqual(nested.warnings, []);
+    assert.equal(run('@import "a.css";', { 'a.css': '@import "https://x.test/f.css" print; .a{}' }).css, '@import "https://x.test/f.css" print;\n/**/ .a{}/**/', 'without conditions around it, the rule is moved as written');
+  });
+
+  it('leaves out, with a warning, an import whose conditions one @import cannot carry', () => {
+    const { css, warnings } = run('@import "a.css" print;', { 'a.css': '@import url(https://x.test/f.css) screen; .a{}' });
+    assert.equal(css, '/**/@media print {\n .a{}\n}/**/');
+    assert.deepEqual(warnings, [unhoistableWarning('https://x.test/f.css')]);
+    assert.deepEqual(run('@import "a.css" layer;', { 'a.css': '@import url(https://x.test/f.css) layer(x); .a{}' }).warnings, [unhoistableWarning('https://x.test/f.css')], 'a named layer inside an anonymous one has no name');
   });
 
   it('embeds an uploaded stylesheet and escapes template braces in what it brings in', () => {

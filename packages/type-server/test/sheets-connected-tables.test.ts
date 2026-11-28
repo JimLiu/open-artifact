@@ -97,6 +97,12 @@ describe('tableFileOf', () => {
     assert.equal(file.isCutOff, false);
   });
 
+  it('reads only a record\'s own fields: one without `constructor` or `toString` has none there', () => {
+    const file = tableFileOf([{ constructor: 'a', toString: 'b' }, { other: 1 }]);
+    assert.deepEqual(JSON.parse(file.lines[0]!).table.fields, ['constructor', 'toString', 'other']);
+    assert.deepEqual(JSON.parse(file.lines[1]!), { values: ['a', null] });
+  });
+
   it('tells text from a number of the same digits', () => {
     const file = tableFileOf([{ v: '1' }, { v: 1 }]);
     assert.deepEqual(JSON.parse(file.lines[1]!), { values: ['1', 1] });
@@ -259,6 +265,15 @@ describe('connected tables in the store', () => {
     assert.equal(newDigest, callDigest);
     assert.deepEqual(await store.refreshConnectedTable({ kind: 'refreshConnectedTable', sheetId, callDigest }, owner), { kind: 'refreshAsked' });
     assert.equal(asked.length, 2);
+  });
+
+  it('asks the agent once when two presses arrive together', async () => {
+    const asked: AgentRequest[] = [];
+    const { store, callDigest, sheetId } = withTable(asked);
+    const press = () => store.refreshConnectedTable({ kind: 'refreshConnectedTable', sheetId, callDigest }, owner);
+    const answers = await Promise.all([press(), press()]);
+    assert.deepEqual(answers, [{ kind: 'refreshAsked' }, { kind: 'refused', refusal: 'refreshUnderWay' }]);
+    assert.equal(asked.length, 1);
   });
 
   it('turns away a refresh from anyone but the owner, of a call that changed, of a sheet that is no table, or with no agent', async () => {

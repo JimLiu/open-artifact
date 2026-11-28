@@ -10,10 +10,10 @@
  */
 
 import { escapeAttribute, escapeText } from '@open-artifact/dc';
-import { videoOptions, type CanvasNote, type Rect } from '@open-artifact/design-core';
+import { cropApplies, videoOptions, type CanvasNote, type Rect } from '@open-artifact/design-core';
 import { bezierPathData, readNodes } from './bezier.ts';
-import { DEFAULT_STICKY, NOTE_LINE_HEIGHT, inlineRuns, isPathNote, markdownBlocks, noteBounds, noteColor, noteFontSize, noteStroke, penViewBox, type MarkdownBlock } from './notes.ts';
-import { imageLook, shapeFill, shapeLook } from './note-look.ts';
+import { DEFAULT_STICKY, NOTE_LINE_HEIGHT, inlineRuns, isPathNote, markdownBlocks, noteBounds, noteFontSize, noteStroke, penViewBox, type MarkdownBlock } from './notes.ts';
+import { imageLook, safeNoteColor, shapeFill, shapeLook } from './note-look.ts';
 import { cropPictureStyle } from './note-crop.ts';
 
 /** A note turned into one artboard element. */
@@ -104,7 +104,7 @@ function textCss(note: CanvasNote, defaultBold: boolean): string {
 
 function titleHtml(note: CanvasNote, box: Rect): string {
   const text = note.text ?? '';
-  const color = note.color ? ` color: ${noteColor(note.color, 'stroke', '#1d1d1b')};` : '';
+  const color = note.color ? ` color: ${safeNoteColor(note.color, 'stroke', '#1d1d1b')};` : '';
   const maxW = typeof note.maxW === 'number' ? ` max-width: ${px(note.maxW)}; overflow-wrap: break-word;` : '';
   const width = note.w !== undefined ? ` width: ${px(box.w)};` : '';
   const lines = text.split('\n').map(escapeText).join('<br>');
@@ -112,7 +112,7 @@ function titleHtml(note: CanvasNote, box: Rect): string {
 }
 
 function stickyHtml(note: CanvasNote, box: Rect): string {
-  const fill = noteColor(note.fill ?? note.color, 'sticky', DEFAULT_STICKY);
+  const fill = safeNoteColor(note.fill ?? note.color, 'sticky', DEFAULT_STICKY);
   return `<div style="margin: 0; box-sizing: border-box; width: ${px(box.w)}; min-height: ${px(box.h)}; padding: 12px; border-radius: 2px; background-color: ${fill}; line-height: ${NOTE_LINE_HEIGHT};${textCss(note, false)} white-space: pre-wrap;${noteTransformCss(note)}">${stickyBody(note.text ?? '')}</div>`;
 }
 
@@ -152,7 +152,7 @@ function lineHtml(note: CanvasNote, box: Rect, options: NoteHtmlOptions): string
   const points = note.points ?? [];
   if (points.length < 2) return null;
   const { width, dash, color: raw } = noteStroke(note);
-  const color = noteColor(raw, 'stroke', '#2b2b2b');
+  const color = safeNoteColor(raw, 'stroke', '#2b2b2b');
   const minX = box.x - note.x;
   const minY = box.y - note.y;
   const heads = {
@@ -190,7 +190,7 @@ function lineHtml(note: CanvasNote, box: Rect, options: NoteHtmlOptions): string
 
 function penHtml(note: CanvasNote, box: Rect): string | null {
   const { width, dash, color: raw } = noteStroke(note);
-  const color = noteColor(raw, 'stroke', '#2b2b2b');
+  const color = safeNoteColor(raw, 'stroke', '#2b2b2b');
   const nodes = readNodes(note.nodes);
   let d: string;
   let viewBox: [number, number, number, number];
@@ -214,20 +214,22 @@ function imageHtml(note: CanvasNote, box: Rect): string | null {
   const alt = note.alt ?? note.text ?? '';
   if (templated(alt)) return null;
   const look = imageLook(note).dom;
+  // A crop draws only under cover, as on the canvas.
+  const crop = note.crop && cropApplies(note.css) ? note.crop : undefined;
   // The look as the canvas draws it, without what an <img> has anyway.
   const plain = (key: string, value: string) => key === 'box-sizing' || key.startsWith('object-') || (key === 'border-style' && value === 'none') || (key === 'border-radius' && value === '0px');
   const rest = Object.entries(look).filter(([key, value]) => !plain(key, value)).map(([key, value]) => ` ${key}: ${value};`).join('');
   const open = (style: string): string => {
-    if (!note.video) return `<img src="${escapeAttribute(src)}" alt="${escapeAttribute(alt)}"${note.crop ? '' : ` width="${Math.round(box.w)}" height="${Math.round(box.h)}"`} style="${style}">`;
+    if (!note.video) return `<img src="${escapeAttribute(src)}" alt="${escapeAttribute(alt)}"${crop ? '' : ` width="${Math.round(box.w)}" height="${Math.round(box.h)}"`} style="${style}">`;
     const play = videoOptions(note);
     const label = alt ? ` aria-label="${escapeAttribute(alt)}"` : '';
     const flags = `${play.autoplay ? ' autoplay' : ''}${play.loop ? ' loop' : ''}${play.sound ? '' : ' muted'} playsinline`;
     return `<video src="${escapeAttribute(note.video)}" poster="${escapeAttribute(src)}"${label}${flags} style="${style}"></video>`;
   };
-  if (note.crop) {
+  if (crop) {
     // Cropped: a frame with the note's look clips the zoomed picture.
     const bordered = /(^| )(border-(?!\S*radius)|outline)/.test(rest);
-    const picture = Object.entries(cropPictureStyle(note.crop)).map(([key, value]) => `${key}: ${value};`).join(' ');
+    const picture = Object.entries(cropPictureStyle(crop)).map(([key, value]) => `${key}: ${value};`).join(' ');
     return `<div style="${bordered ? 'box-sizing: border-box; ' : ''}position: relative; contain: layout; overflow: hidden; width: ${px(box.w)}; height: ${px(box.h)};${rest}${noteTransformCss(note)}">${open(picture)}</div>`;
   }
   const place = look['object-position'] ? ` object-position: ${look['object-position']};` : '';

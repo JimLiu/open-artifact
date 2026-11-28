@@ -28,6 +28,8 @@ export function stateDeclarationProblem(declaration: StyleDeclaration): string |
   const value = declaration.value;
   if (!value.trim()) return `${declaration.property} has no value`;
   if (/[{}<>]/.test(value) || /\\/.test(value)) return `${declaration.property}: the value may not contain { } < > or \\`;
+  // A comment left open would swallow the rest of the rule and the stylesheet after it.
+  if (value.includes('/*')) return `${declaration.property}: the value may not contain /*`;
   if (/expression\s*\(|javascript:|vbscript:|-moz-binding|behavior\s*:|@import/i.test(value)) return `${declaration.property}: the value runs code`;
   for (const match of value.matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*))\s*\)/gi)) {
     const url = (match[1] ?? match[2] ?? match[3] ?? '').trim();

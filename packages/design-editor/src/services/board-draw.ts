@@ -7,7 +7,7 @@
  * at once.
  */
 
-import { attributeValue, elementChildren, elementPath, styleMap, type TemplateModel } from '@open-artifact/dc';
+import { elementChildren, elementPath, type TemplateModel } from '@open-artifact/dc';
 import { isLockedObject, type Rect } from '@open-artifact/design-core';
 import { toast } from '@open-artifact/ui';
 import {
@@ -113,10 +113,10 @@ function landingAt(board: string, model: TemplateModel, press: { x: number; y: n
   const rect = rects.find((r) => press.x >= r.x && press.x <= r.x + r.width && press.y >= r.y && press.y <= r.y + r.height) ?? rects[0] ?? info?.rect;
   if (!info || !rect) return page;
   const border = (side: string) => parseFloat(info.computed[`border-${side}-width`] ?? '0') || 0;
-  const inline = styleMap(attributeValue(container, 'style') ?? '');
   return {
     target: { tid, path: elementPath(model, container) },
-    anchor: !inline.position && (info.computed.position ?? 'static') === 'static',
+    // The computed position alone decides: an inline `position: static` still needs `relative` to anchor the drawing.
+    anchor: (info.computed.position ?? 'static') === 'static',
     origin: { x: rect.x + border('left'), y: rect.y + border('top') },
   };
 }
@@ -187,6 +187,12 @@ export function drawInBoard(board: string, draw: BoardDraw): boolean {
   const landing: Landing = inside ? landingAt(board, ready.model, draw.press, placed) : { target: null, anchor: false, origin: { x: 0, y: 0 } };
   const at = draw.box ?? { ...draw.press, ...(draw.tool === 'frame' ? { w: 0, h: 0 } : CLICK_SIZES[draw.tool]) };
   const box = { ...at, x: Math.round(at.x - landing.origin.x), y: Math.round(at.y - landing.origin.y) };
+  // A drag flat one way (straight across, or tiny at a high zoom) still sizes both sides: a side left out
+  // would keep the template's size (a rectangle's 120px) or, for a frame, its content's.
+  if (draw.box && (draw.tool === 'rect' || draw.tool === 'oval' || draw.tool === 'frame')) {
+    box.w = Math.max(1, box.w);
+    box.h = Math.max(1, box.h);
+  }
   const html = placedHtml(draw.tool, box, {
     dir: draw.dir,
     freshId: idMaker(ready.source),

@@ -84,8 +84,10 @@ export function readSpan(value: string | undefined): GridSpan {
   const start = head && head !== 'auto' ? head : null;
   const span = spanOf(tail);
   if (span !== null) return { start, span };
-  // `1 / 3`: the span between two numbered lines.
-  if (start && /^-?\d+$/.test(start) && /^-?\d+$/.test(tail)) return { start, span: Math.abs(Number(tail) - Number(start)) || null };
+  // `1 / 3`: the span between two numbered lines. A line counted from the
+  // end (`1 / -1`, full width) depends on how many tracks there are, so it
+  // has no span; writing one would break the placement.
+  if (start && /^\d+$/.test(start) && /^\d+$/.test(tail) && Number(start) > 0 && Number(tail) > 0) return { start, span: Math.abs(Number(tail) - Number(start)) || null };
   return { start, span: null };
 }
 

@@ -254,6 +254,27 @@ describe('draw.io libraries', () => {
     assert.equal((await readMxLibrary('<mxlibrary>nope</mxlibrary>', 'x')).ok, false);
   });
 
+  it('reads the list as draw.io saves it: <, > and & as entities, quotes left as they are', async () => {
+    const escape = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const text = `<mxlibrary>${escape(JSON.stringify([{ xml: cell(imageStyle), w: 30, h: 20, title: 'R&D box' }]))}</mxlibrary>`;
+    assert.match(text, /"xml":"&lt;mxGraphModel&gt;/);
+    const read = library(await readMxLibrary(text, 'x'));
+    assert.deepEqual(read.library.shapes.map((shape) => shape.name), ['R&D box']);
+    assert.deepEqual(read.leftOut, []);
+  });
+
+  it('stops unpacking compressed graphs once the library has unpacked 16 MB in all', async () => {
+    let asked = 0;
+    const inflate = async (_bytes: Uint8Array, max: number) => {
+      asked++;
+      return { ok: true as const, bytes: new Uint8Array(Math.min(max, 400_000)) };
+    };
+    const entries = Array.from({ length: 60 }, (_, i) => ({ xml: compressed(cell(imageStyle)), title: `S${i}` }));
+    const read = library(await readMxLibrary(`<mxlibrary>${JSON.stringify(entries)}</mxlibrary>`, 'x', inflate));
+    assert.equal(read.leftOut.length, 60);
+    assert.ok(asked < 60, `inflating stopped at the budget: ${asked}`);
+  });
+
   it('never takes a graph cell that is not an SVG picture', () => {
     assert.deepEqual(svgOfGraph('<mxGraphModel><root/></mxGraphModel>'), { reason: MX_UNREADABLE_REASON });
     assert.deepEqual(svgOfGraph('not xml'), { reason: MX_UNREADABLE_REASON });

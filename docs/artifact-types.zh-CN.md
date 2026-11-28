@@ -9,7 +9,7 @@ Open Artifact 内置了 **9 种 Artifact 类型**。每种类型都包含一套�
 | 类型 ID | 详细指南 | 适用场景 | 存储方式与标识文件 | 支持导入 | 支持导出 | 支持设计系统 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `slides` | [Slides 幻灯片](types/slides.zh-CN.md) | 演示文稿、融资推介、分享讲稿、汇报 PPT | 项目文件（`project/deck.json`） | 图片、视频、字体 | PDF、PPTX、HTML、PNG | 支持 |
-| `design` | [Design 设计画布](types/design.zh-CN.md) | UI 界面、落地页、App 原型、可点击交互原型、海报、印刷品 | 项目文件（`project/canvas.json`） | 图片、字体、CSS/JS | PNG、JPEG、PDF、HTML（含 Figma 采集页、整画布 ZIP） | 支持 |
+| `design` | [Design 设计画布](types/design.zh-CN.md) | UI 界面、落地页、App 原型、可点击交互原型、海报、印刷品 | 项目文件（`project/canvas.json`） | 图片、视频、字体、CSS/JS | PNG、JPEG、PDF、HTML（含 Figma 采集页、Entire project (.zip)，项目太大时分成几个编号的 zip） | 支持 |
 | `design-system` | [Design System 设计系统](types/design-system.zh-CN.md) | 品牌手册、设计令牌（tokens）、字体规范、实时组件预览、品牌素材库 | 项目文件（`project/design-system.json`） | 代码仓库、设计稿文件、品牌素材 | 供其他类型安装复用（自动生成 `tokens.css`、`manifest.json`、`api/`） | —（作为来源） |
 | `whiteboard` | [Whiteboard 白板](types/whiteboard.zh-CN.md) | 头脑风暴、复盘、流程图、架构图、思维导图、工作坊 | 实时文档库（`db/board/meta.json`） | 图片、SVG、形状库（`.shapes.json`、SVG 打包的 `.zip`、draw.io 形状库，可从文件或 `https://` 链接添加）、交互网页嵌入 | PNG、流动箭头的 GIF 动图和 MP4 视频（及 `.zip` 归档） | 否 |
 | `sheets` | [Sheets 电子表格](types/sheets.zh-CN.md) | 预算表、进度追踪、排期表、记录清单、带公式的财务模型 | 工作簿操作日志（`sheet/sheet.json`） | CSV | XLSX、CSV（及 `.zip` 归档） | 否 |

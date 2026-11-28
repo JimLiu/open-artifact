@@ -56,7 +56,9 @@ export function borderStylePatch(inline: Record<string, string>, computed: Recor
     patch.border = joinShorthand({ ...short, style });
     if (inline['border-style'] !== undefined) patch['border-style'] = null;
   } else patch['border-style'] = style;
-  const widthWritten = borderWidthsOf(inline).some(Boolean);
+  // A zero width (`border: 0`) is no width: the style alone would not show.
+  // A keyword or a variable counts as written.
+  const widthWritten = borderWidthsOf(inline).some((width) => width !== '' && Number.parseFloat(width) !== 0);
   const shownWidth = Number.parseFloat(computed['border-top-width'] ?? '0') || 0;
   if (style !== 'none' && !widthWritten && shownWidth === 0) {
     if (short) patch.border = joinShorthand({ ...short, width: '1px', style });

@@ -23,6 +23,10 @@ describe('border fields', () => {
   it('gives a new border 1px when no width is written', () => {
     assert.equal(apply('color: red', (i) => borderStylePatch(i, { 'border-top-width': '0px' }, 'solid')), 'color: red; border-style: solid; border-width: 1px');
     assert.equal(apply('border-width: 3px', (i) => borderStylePatch(i, { 'border-top-width': '0px' }, 'solid')), 'border-width: 3px; border-style: solid');
+    // A zero width written is no width: the new border still shows.
+    assert.equal(apply('border: 0', (i) => borderStylePatch(i, { 'border-top-width': '0px' }, 'solid')), 'border: 1px solid');
+    assert.equal(apply('border-width: 0px', (i) => borderStylePatch(i, { 'border-top-width': '0px' }, 'solid')), 'border-width: 1px; border-style: solid');
+    assert.equal(apply('border-width: thick', (i) => borderStylePatch(i, { 'border-top-width': '0px' }, 'solid')), 'border-width: thick; border-style: solid');
   });
 
   it('writes each side’s width without border-width', () => {

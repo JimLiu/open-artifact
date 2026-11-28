@@ -16,6 +16,8 @@
 - **交互式筛选器与安全规则**：页面筛选参数（`{{name}}`）直接绑定查询条件，并由 Rust/WASM 规则引擎（`open-artifact-data-rules`）校验合法性。
 - **手改文案、预设风格与设计系统**：支持直接在页面修改文字、切换内置视觉风格（looks），或安装 [Design System](design-system.zh-CN.md)。
 - **兼容 claude.ai 看板页面**：从 claude.ai 搬过来的看板页面，样式不用改。页面里的 `--cds-*` 和 `--font-anthropic-*` 变量名直接对应看板自己的 token，所以照样跟随浅色/深色和任何 look；本地没有对应项的 claude.ai 变量名，`check` 会报出来。
+- **共享草稿**：能编辑看板的人共用一份自动保存的草稿，发布之前别人看不到。agent 的一轮修改在结束时自动发布，除非在 Published 菜单里关了 **Auto-publish**、草稿里还有别人的修改，或草稿开始后看板已有变化；这几种情况要等有人点 **Publish**。Published 菜单里还有 Revert 和 See history，丢弃的草稿可以在 History 里恢复，只能查看的人可以用 **See draft** 打开草稿。
+- **共享连接器访问**：在 Sources 里，连接器的 *Load data using* 可以从 *Each viewer*（只有所有者的页面能跑实时查询）改成 *Your access*：所有者的电脑批准看板各数据集原样写出的调用，替所有打开看板的人运行，筛选器的值只能取规则允许的范围，每个结果至少复用五分钟。批准记录只留在所有者的电脑上，不进作品文件夹，也不进发布出去的副本。`read.sheet` 可以读取 Sheets 连接器返回的单元格。
 - **Remix 重构与朗读**：支持将看板 Remix 改写为滚动数据故事或精简视觉短片草稿，并内置朗读（read-aloud）支持。
 - **多格式导出**：在 **Share → Export** 中导出 **PDF**、独立 **HTML** 或 **JSON**，也支持整包 `.zip` 归档。PDF 直接在页面里生成文件（纸张大小的分页、浅色外观、文字可选中、链接可点击）；需要打印或自己选纸张和边距时，用 **Print…** 打开浏览器的打印对话框。
 

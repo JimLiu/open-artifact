@@ -62,14 +62,18 @@ function isRasterPicture(url: string): boolean {
   return /^data:image\/(?!svg\+xml)/i.test(url.trim());
 }
 
-/** Reads a graph entry's `xml` (plain or compressed) as text. */
-async function graphText(xml: string, inflate: Inflate): Promise<string | undefined> {
+/**
+ * Reads a graph entry's `xml` (plain or compressed) as text. `room` holds the unpacked bytes the library may still
+ * use: each entry's inflating counts against it, so many small entries can't unpack to hundreds of megabytes.
+ */
+async function graphText(xml: string, inflate: Inflate, room: { bytes: number }): Promise<string | undefined> {
   const trimmed = xml.trim();
   if (trimmed.startsWith('<')) return trimmed;
   const bytes = base64Bytes(trimmed);
-  if (bytes === undefined) return undefined;
-  const inflated = await inflate(bytes, ZIP_PACK_LIMITS.entryBytes);
+  if (bytes === undefined || room.bytes <= 0) return undefined;
+  const inflated = await inflate(bytes, Math.min(ZIP_PACK_LIMITS.entryBytes, room.bytes));
   if (!inflated.ok) return undefined;
+  room.bytes -= inflated.bytes.length;
   const text = new TextDecoder('utf-8').decode(inflated.bytes);
   try {
     return decodeURIComponent(text);
@@ -118,12 +122,24 @@ export function svgOfGraph(text: string): { svg: string; w?: number; h?: number 
   return { svg, ...(w > 0 ? { w } : {}), ...(h > 0 ? { h } : {}) };
 }
 
+/** XML text with its entities read: the five named ones and numeric ones. */
+function xmlText(text: string): string {
+  return text.replace(/&(?:#x([0-9a-f]+)|#(\d+)|(quot|lt|gt|apos|amp));/gi, (whole, hex?: string, dec?: string, name?: string) => {
+    if (name !== undefined) return { quot: '"', lt: '<', gt: '>', apos: "'", amp: '&' }[name.toLowerCase() as 'quot'] ?? whole;
+    const code = hex !== undefined ? parseInt(hex, 16) : Number(dec);
+    return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole;
+  });
+}
+
 /** The entries list inside `<mxlibrary>…</mxlibrary>`, or `undefined`. */
 function entriesOf(text: string): unknown[] | undefined {
   const match = /^\uFEFF?\s*<mxlibrary(?:\s[^>]*)?>([\s\S]*)<\/mxlibrary>\s*$/.exec(text);
   if (!match) return undefined;
   const inner = match[1]!.trim();
-  for (const candidate of [inner, inner.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&apos;/g, "'").replace(/&amp;/g, '&')]) {
+  // The list is the element's text, so its entities are read first: draw.io writes `&lt;mxGraphModel&gt;` and
+  // `R&amp;amp;D` with quotes left as they are, which parses as JSON either way but only reads right once decoded.
+  // The raw text is the fallback, for a hand-made file with an unescaped `&` in it.
+  for (const candidate of [xmlText(inner), inner]) {
     try {
       const parsed: unknown = JSON.parse(candidate);
       if (Array.isArray(parsed)) return parsed;
@@ -141,6 +157,7 @@ export async function readMxLibrary(text: string, name: string, inflate: Inflate
   if (entries === undefined) return { ok: false, reason: 'This draw.io library could not be read (its list of shapes is not JSON).' };
   const kept = entries.slice(0, SHAPE_LIBRARY_LIMITS.shapes);
   const read: Array<LibraryShape | LeftOutShape> = [];
+  const room = { bytes: ZIP_PACK_LIMITS.totalBytes };
   for (const [index, raw] of kept.entries()) {
     const fields = (typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
     const title = cleanLibraryText(fields.title, SHAPE_LIBRARY_LIMITS.name) || `Shape ${index + 1}`;
@@ -155,7 +172,7 @@ export async function readMxLibrary(text: string, name: string, inflate: Inflate
       continue;
     }
     if (typeof fields.xml === 'string') {
-      const graph = await graphText(fields.xml, inflate);
+      const graph = await graphText(fields.xml, inflate, room);
       const found = graph === undefined ? { reason: MX_UNREADABLE_REASON } : svgOfGraph(graph);
       if ('reason' in found) read.push({ name: title, reason: found.reason });
       else read.push(readLibraryShape({ name: title, svg: found.svg, w: size.w ?? found.w, h: size.h ?? found.h }, index));

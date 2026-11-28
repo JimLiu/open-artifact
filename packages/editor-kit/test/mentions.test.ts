@@ -90,6 +90,13 @@ describe('applyMention and mentionTargets', () => {
     assert.deepEqual(mentionTargets('typed @Cat by hand', picks, agent), []);
   });
 
+  it('a longer picked name takes its words: a Bob picked, then deleted, is not named by @Bob Smith', () => {
+    const picks = [{ key: 'Bob', name: 'Bob' }, { key: 'Bob Smith', name: 'Bob Smith' }];
+    const agent = { name: 'Codex', listed: true };
+    assert.deepEqual(mentionTargets('ask @Bob Smith', picks, agent), ['Bob Smith']);
+    assert.deepEqual(mentionTargets('ask @Bob Smith and @Bob', picks, agent), ['Bob', 'Bob Smith']);
+  });
+
   it('matches whole names, and CJK names that run into the next word', () => {
     assert.equal(mentionsName('hi @codex!', 'Codex'), true);
     assert.equal(mentionsName('hi @Codexes', 'Codex'), false);

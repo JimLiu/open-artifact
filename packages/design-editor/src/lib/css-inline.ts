@@ -26,6 +26,10 @@ export const IMPORT_DEPTH = 10;
 /** The warning for an import that names something other than a stylesheet. */
 export const notCssWarning = (url: string): string => `stylesheet import not embedded (${url}): it is not a CSS file`;
 
+/** The warning for an import inside an embedded stylesheet that can't move to the top with the conditions around it. */
+export const unhoistableWarning = (url: string): string =>
+  `stylesheet import left out (${url}): it is inside an embedded stylesheet whose layer or media conditions one @import can't carry — import it from the page's own stylesheet instead`;
+
 /** The warning for an import whose stylesheet is cut off. */
 export const unclosedWarning = (url: string): string =>
   `stylesheet import not embedded (${url}): the file ends inside an unclosed string, comment or url( — close it and export again`;
@@ -106,13 +110,19 @@ function stylesheetText(found: NonNullable<Found>): string | null {
   return typeof found.data === 'string' ? found.data : new TextDecoder().decode(found.data);
 }
 
-/** The blocks an import's condition opens, outermost first (`layer`, then `supports`, then media). */
-function conditionBlocks(condition: string): string[] {
+/** What an import's condition asks for: a layer (`''` for an anonymous one), a supports test and media queries. */
+interface Condition {
+  layer: string | null;
+  supports: string | null;
+  media: string | null;
+}
+
+function readCondition(condition: string): Condition {
   let rest = condition.trim();
-  const blocks: string[] = [];
+  const read: Condition = { layer: null, supports: null, media: null };
   const layer = /^layer(?:\(\s*([^)]*?)\s*\))?(?=\s|$|supports\(|\()/i.exec(rest);
   if (layer) {
-    blocks.push(layer[1] ? `@layer ${layer[1]}` : '@layer');
+    read.layer = layer[1] ?? '';
     rest = rest.slice(layer[0].length).trim();
   }
   if (/^supports\(/i.test(rest)) {
@@ -126,12 +136,46 @@ function conditionBlocks(condition: string): string[] {
       }
     }
     if (end > 0) {
-      blocks.push(`@supports (${rest.slice('supports('.length, end).trim()})`);
+      read.supports = rest.slice('supports('.length, end).trim();
       rest = rest.slice(end + 1).trim();
     }
   }
-  if (rest) blocks.push(`@media ${rest}`);
+  if (rest) read.media = rest;
+  return read;
+}
+
+/** The blocks an import's condition opens, outermost first (`layer`, then `supports`, then media). */
+function conditionBlocks(condition: Condition): string[] {
+  const blocks: string[] = [];
+  if (condition.layer !== null) blocks.push(condition.layer ? `@layer ${condition.layer}` : '@layer');
+  if (condition.supports !== null) blocks.push(`@supports (${condition.supports})`);
+  if (condition.media !== null) blocks.push(`@media ${condition.media}`);
   return blocks;
+}
+
+/**
+ * The conditions of stylesheets written inside one another (outermost first)
+ * said as one import's condition, or `null` when one `@import` can't say them:
+ * an anonymous layer around or inside another layer has no name to join, and
+ * two media query lists have no general "and" in import syntax.
+ */
+function joinConditions(conditions: readonly Condition[]): string | null {
+  const layers = conditions.flatMap((item) => (item.layer === null ? [] : [item.layer]));
+  const tests = conditions.flatMap((item) => (item.supports === null ? [] : [item.supports]));
+  const media = conditions.flatMap((item) => (item.media === null ? [] : [item.media]));
+  if ((layers.length > 1 && layers.includes('')) || media.length > 1) return null;
+  const parts: string[] = [];
+  if (layers.length) parts.push(layers[0] === '' ? 'layer' : `layer(${layers.join('.')})`);
+  if (tests.length) parts.push(tests.length === 1 ? `supports(${tests[0]})` : `supports(${tests.map((test) => `(${test})`).join(' and ')})`);
+  parts.push(...media);
+  return parts.join(' ');
+}
+
+/** The address of an `@import` rule as written, between `@import` and its condition. */
+function importAddress(text: string, condition: string): string {
+  const rest = text.slice('@import'.length);
+  const at = condition ? rest.lastIndexOf(condition) : -1;
+  return (at < 0 ? rest.replace(/;\s*$/, '') : rest.slice(0, at)).trim();
 }
 
 /** A stylesheet without the `@charset` it may open with (it means nothing inside another one). */
@@ -142,10 +186,26 @@ interface Walk {
   warnings: Set<string>;
   /** Stylesheets being written, to stop an import loop. */
   open: readonly string[];
+  /** The conditions of the imports whose stylesheets are being written, outermost first. */
+  conditions: readonly Condition[];
+  /** Imports that stay imports but came after a stylesheet written in place, for the top of the outermost one. */
+  hoisted: string[];
 }
 
+/**
+ * Only the top of a stylesheet may hold `@import` rules: a browser drops one
+ * after any other rule. So once an imported stylesheet is written in place,
+ * the imports that stay (a web font from another site, a file not in the
+ * project) can't stay where they were. They move up to just before the first
+ * stylesheet written in place, which is where the outermost stylesheet's own
+ * imports start, so anything it has above them (`@charset`, `@layer` names)
+ * still comes first.
+ */
 function inline(css: string, from: string, walk: Walk): string {
   const scan = scanCss(css);
+  const top = walk.conditions.length === 0;
+  /** Where the first stylesheet written in place starts in `out`. */
+  let firstBody = -1;
   let out = '';
   for (const piece of scan.pieces) {
     const text = css.slice(piece.start, piece.end);
@@ -154,29 +214,53 @@ function inline(css: string, from: string, walk: Walk): string {
       const url = found ? urlOf(found, walk.sources) : '';
       out += url && piece.target !== null ? `url(${piece.quote}${url}${safeFragment(splitAddress(piece.target).tail)}${piece.quote})` : text;
     } else if (piece.kind === 'import') {
-      out += importRule(piece.target, piece.condition, text, from, walk);
+      const body = importBody(piece.target, piece.condition, from, walk);
+      if (body !== null) {
+        if (firstBody < 0) firstBody = out.length;
+        out += body;
+      } else if (top && firstBody < 0) out += text;
+      else hoist(piece.target, piece.condition, text, walk);
     } else out += text;
   }
-  return out;
+  if (!top || !walk.hoisted.length) return out;
+  return `${out.slice(0, firstBody)}${walk.hoisted.map((rule) => `${rule}\n`).join('')}${out.slice(firstBody)}`;
 }
 
-function importRule(target: string | null, condition: string, text: string, from: string, walk: Walk): string {
-  if (target === null || walk.open.length > IMPORT_DEPTH) return text;
+/** An import that stays, queued for the top with the conditions of the stylesheets around it; left out with a warning when one `@import` can't carry them. */
+function hoist(target: string | null, condition: string, text: string, walk: Walk): void {
+  if (!walk.conditions.length) {
+    walk.hoisted.push(text.trimEnd().endsWith(';') ? text.trimEnd() : `${text.trimEnd()};`);
+    return;
+  }
+  const joined = joinConditions([...walk.conditions, readCondition(condition)]);
+  if (joined === null) {
+    walk.warnings.add(unhoistableWarning(target ?? importAddress(text, condition)));
+    return;
+  }
+  walk.hoisted.push(escapeTemplateBraces(`@import ${importAddress(text, condition)}${joined ? ` ${joined}` : ''};`));
+}
+
+/** The imported stylesheet written in place inside its condition's blocks, or `null` when the import stays an import. */
+function importBody(target: string | null, condition: string, from: string, walk: Walk): string | null {
+  if (target === null || walk.open.length > IMPORT_DEPTH) return null;
   const found = find(target, from, walk.sources);
-  if (!found) return text;
+  if (!found) return null;
   const key = found.kind === 'upload' ? splitAddress(target).file : found.path;
-  if (walk.open.includes(key)) return text;
+  if (walk.open.includes(key)) return null;
   const css = stylesheetText(found);
   if (css === null) {
     walk.warnings.add(notCssWarning(target));
-    return text;
+    return null;
   }
   if (scanCss(css).unclosed) {
     walk.warnings.add(unclosedWarning(target));
-    return text;
+    return null;
   }
-  const body = escapeTemplateBraces(inline(withoutCharset(css), found.kind === 'upload' ? from : found.path, { ...walk, open: [...walk.open, key] }));
-  const blocks = conditionBlocks(condition);
+  const read = readCondition(condition);
+  const body = escapeTemplateBraces(
+    inline(withoutCharset(css), found.kind === 'upload' ? from : found.path, { ...walk, open: [...walk.open, key], conditions: [...walk.conditions, read] }),
+  );
+  const blocks = conditionBlocks(read);
   return `/**/${blocks.map((block) => `${block} {\n`).join('')}${body}${blocks.map(() => '\n}').join('')}/**/`;
 }
 
@@ -186,5 +270,5 @@ function importRule(target: string | null, condition: string, text: string, from
  * be embedded are added to `warnings`.
  */
 export function inlineCss(css: string, from: string, sources: CssSources, warnings: Set<string>): string {
-  return inline(css, from, { sources, warnings, open: [from] });
+  return inline(css, from, { sources, warnings, open: [from], conditions: [], hoisted: [] });
 }

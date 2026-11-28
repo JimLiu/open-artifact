@@ -478,24 +478,87 @@ async function usedFiles(path: string): Promise<Map<string, Uint8Array | string>
 const runtimeCode = (): Promise<string> =>
   fetch(urls().runtime).then((response) => (response.ok ? response.text() : Promise.reject(new Error('The board runtime could not be read.'))));
 
-/** Uploads (`/_blob/…`) the text files name, read from the host; `missing` lists those that could not be read. */
-async function readUploads(files: ReadonlyMap<string, Uint8Array | string>): Promise<{ found: Map<string, ReadUpload>; missing: { ref: string; usedIn: string[]; why: string }[] }> {
+/**
+ * A `fetch` for reading uploads one at a time against a byte budget: an
+ * upload the server says is larger than what is left is not downloaded at
+ * all, and one whose size isn't given is cut off as soon as it passes what
+ * is left. Either way its address and type go into `overLimit`, and the read
+ * fails, so the upload is never held in memory. The budget only shrinks by
+ * uploads read to the end, so reads must not overlap.
+ */
+export function budgetedRequest(budget: number, overLimit: Map<string, string | null>, request: typeof fetch = fetch): typeof fetch {
+  let left = budget;
+  return async (input, init) => {
+    const response = await request(input, init);
+    if (!response.ok) return response;
+    const url = input instanceof Request ? input.url : String(input);
+    const type = response.headers.get('content-type');
+    const stop = (): Error => {
+      overLimit.set(url, type);
+      return new Error('The upload is larger than what is left of the export’s limit.');
+    };
+    const length = Number(response.headers.get('content-length') ?? NaN);
+    if (Number.isFinite(length) && length > left) {
+      await response.body?.cancel().catch(() => {});
+      throw stop();
+    }
+    const reader = response.body?.getReader();
+    if (!reader) return response;
+    let used = 0;
+    const counted = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        const { done, value } = await reader.read();
+        if (done) {
+          left -= used;
+          controller.close();
+          return;
+        }
+        used += value.byteLength;
+        if (used > left) {
+          await reader.cancel().catch(() => {});
+          controller.error(stop());
+          return;
+        }
+        controller.enqueue(value);
+      },
+      cancel: (reason) => reader.cancel(reason),
+    });
+    return new Response(counted, { status: response.status, statusText: response.statusText, headers: response.headers });
+  };
+}
+
+/**
+ * Uploads (`/_blob/…`) the text files name, read from the host; `missing`
+ * lists those that could not be read. With a `budget` (bytes), they are read
+ * one at a time and those that don't fit in what is left are not loaded:
+ * they are listed in `overLimit` with their type.
+ */
+async function readUploads(
+  files: ReadonlyMap<string, Uint8Array | string>,
+  budget?: number,
+): Promise<{ found: Map<string, ReadUpload>; missing: { ref: string; usedIn: string[]; why: string }[]; overLimit: { ref: string; type: string | null }[] }> {
   const usedIn = new Map<string, string[]>();
   for (const [name, data] of files) {
     if (typeof data !== 'string') continue;
     for (const ref of blobRefs(data)) usedIn.set(ref, [...(usedIn.get(ref) ?? []), name]);
   }
   const refs = [...usedIn.keys()];
-  const read = await readUploadFiles(refs.map((ref) => new URL(ref, location.href).href));
+  const tooLarge = new Map<string, string | null>();
+  const read = await readUploadFiles(
+    refs.map((ref) => new URL(ref, location.href).href),
+    budget === undefined ? {} : { request: budgetedRequest(budget, tooLarge), concurrency: 1 },
+  );
   const found = new Map<string, ReadUpload>();
   const missing: { ref: string; usedIn: string[]; why: string }[] = [];
+  const overLimit: { ref: string; type: string | null }[] = [];
   for (const ref of refs) {
     const url = new URL(ref, location.href).href;
     const upload = read.found.get(url);
     if (upload) found.set(ref, upload);
+    else if (tooLarge.has(url)) overLimit.push({ ref, type: tooLarge.get(url)! });
     else missing.push({ ref, usedIn: usedIn.get(ref)!, why: SKIP_REASONS[read.skipped.get(url) ?? 'unreadable'] });
   }
-  return { found, missing };
+  return { found, missing, overLimit };
 }
 
 /**
@@ -710,7 +773,10 @@ async function projectZips(status: (title: string) => void): Promise<void> {
     files.set(file, data);
   }
 
-  const uploads = await readUploads(files);
+  // Uploads are read against what the files left of the limit, so one too
+  // large for it is left out before it is downloaded, not after.
+  const uploads = await readUploads(files, PROJECT_ZIP_LIMITS.totalBytes - total);
+  for (const { ref, type } of uploads.overLimit) leftOut.push({ path: assetName(ref, type), why: OVER_LIMIT });
   const found = new Map<string, ReadUpload>();
   for (const [ref, upload] of uploads.found) {
     if (total + upload.data.length > PROJECT_ZIP_LIMITS.totalBytes) {

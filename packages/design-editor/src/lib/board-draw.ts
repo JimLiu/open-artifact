@@ -123,9 +123,22 @@ export function radiusKey(pathname: string): string {
   return `mc-design/rect-radius${path}`;
 }
 
-/** Appends to the `style` attribute of the first element in `html`. */
+/**
+ * Appends to the `style` attribute of the first element in `html`, dropping
+ * the template's own declarations of the properties `css` sets: an inline
+ * style that names `width` twice would have later edits change the first,
+ * hidden one while the second goes on winning.
+ */
 function appendStyle(html: string, css: string): string {
-  return html.replace(/style="([^"]*)"/, (_all, style: string) => `style="${style}; ${css}"`);
+  const name = (declaration: string) => declaration.slice(0, declaration.indexOf(':')).trim().toLowerCase();
+  const added = new Set(css.split(';').map(name));
+  return html.replace(/style="([^"]*)"/, (_all, style: string) => {
+    const kept = style
+      .split(';')
+      .filter((declaration) => declaration.trim() && !added.has(name(declaration)))
+      .map((declaration) => declaration.trim());
+    return `style="${[...kept, css].join('; ')}"`;
+  });
 }
 
 /** Where an element sits: absolutely positioned at the box, with its size when one was drawn. */

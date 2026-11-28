@@ -42,6 +42,9 @@ describe('state styles', () => {
   it('never lets a value close the rule or load from outside', () => {
     assert.equal(stateStyleSheet({ hover: 'color: red } body { display: none' }), null);
     assert.equal(stateStyleSheet({ hover: 'color: red</style><script>' }), null);
+    // An unclosed comment would swallow the rest of the stylesheet.
+    assert.equal(stateStyleSheet({ hover: 'color: red /* x' }), null);
+    assert.ok(readStateStyle('color: red /* x').problems.length);
     const remote = stateStyleSheet({ hover: 'background: url(https://example.com/a.png); color: red' });
     assert.ok(remote && !remote.css.includes('example.com') && remote.css.includes('color: red'));
     assert.ok(readStateStyle('width: expression(alert(1))').problems.length);

@@ -37,6 +37,8 @@ export const SHARED_RESULT_FLOOR_MS = 5 * 60_000;
 export const SHARED_RESULT_CEILING_MS = 24 * 60 * 60_000;
 /** A larger answer is not shared. */
 export const SHARED_RESULT_MAX_BYTES = 4 * 1024 * 1024;
+/** How many answers are kept for reuse; the oldest go first. */
+export const SHARED_RESULTS_KEPT = 128;
 /** How long one shared call may run. */
 export const SHARED_CALL_TIMEOUT_MS = 120_000;
 /** How many calls one request may ask for. */
@@ -138,7 +140,7 @@ export class ConnectorShares {
   readonly #now: () => number;
   readonly #log: (line: string) => void;
   #data: SharesFile | null = null;
-  readonly #answers = new Map<string, { result: UnknownRecord; ranAt: number }>();
+  readonly #answers = new Map<string, { result: UnknownRecord; ranAt: number; tooLarge?: true }>();
   readonly #running = new Map<string, Promise<{ result: UnknownRecord; ranAt: number }>>();
 
   constructor(options: ConnectorSharesOptions) {
@@ -212,6 +214,20 @@ export class ConnectorShares {
   }
 
   /** Forgets every answer kept for a connector of a dashboard. */
+  /**
+   * Keeps an answer for reuse: answers past the longest reuse go, and past {@link SHARED_RESULTS_KEPT} the oldest
+   * kept do too, so values a viewer varies can't grow the store without end. A too-large answer is kept as a mark.
+   */
+  #keep(runKey: string, answer: { result: UnknownRecord; ranAt: number; tooLarge?: true }, now: number): void {
+    for (const [key, kept] of this.#answers) if (now - kept.ranAt >= SHARED_RESULT_CEILING_MS) this.#answers.delete(key);
+    this.#answers.delete(runKey);
+    this.#answers.set(runKey, answer);
+    for (const key of this.#answers.keys()) {
+      if (this.#answers.size <= SHARED_RESULTS_KEPT) break;
+      this.#answers.delete(key);
+    }
+  }
+
   #forget(artifact: string, connector: string): void {
     const prefix = `${artifact}\n${connector}\n`;
     for (const key of [...this.#answers.keys()]) if (key.startsWith(prefix)) this.#answers.delete(key);
@@ -238,7 +254,7 @@ export class ConnectorShares {
     const now = this.#now();
     const kept = this.#answers.get(runKey);
     const keptAge = kept === undefined ? Number.POSITIVE_INFINITY : now - kept.ranAt;
-    let answer: { result: UnknownRecord; ranAt: number };
+    let answer: { result: UnknownRecord; ranAt: number; tooLarge?: true };
     if (kept !== undefined && (keptAge < SHARED_RESULT_FLOOR_MS || (keptAge < reuse && options.refresh !== true))) answer = kept;
     else {
       let running = this.#running.get(runKey);
@@ -256,15 +272,16 @@ export class ConnectorShares {
       } catch (error) {
         return { ok: false, code: failureCode(error), sharer: share.sharer };
       }
+      if (answer.result.isError !== true && Buffer.byteLength(JSON.stringify(answer.result)) > SHARED_RESULT_MAX_BYTES) answer = { result: {}, ranAt: answer.ranAt, tooLarge: true };
       // Kept only while the share it ran for still stands.
-      if (this.#shareOf(artifact, call.connector) === share && !answer.result.isError) this.#answers.set(runKey, answer);
+      if (this.#shareOf(artifact, call.connector) === share && !answer.result.isError) this.#keep(runKey, answer, now);
     }
+    if (answer.tooLarge === true) return { ok: false, code: 'too_large', sharer: share.sharer };
     if (answer.result.isError === true) {
       const own = options.viewerId === share.sharer.id;
       const said = toolErrorText(answer.result);
       return { ok: false, code: 'tool_error', sharer: share.sharer, ...(own && said !== '' ? { message: said } : {}) };
     }
-    if (Buffer.byteLength(JSON.stringify(answer.result)) > SHARED_RESULT_MAX_BYTES) return { ok: false, code: 'too_large', sharer: share.sharer };
     return { ok: true, result: answer.result, ranAt: answer.ranAt, sharer: share.sharer, at: share.at };
   }
 }

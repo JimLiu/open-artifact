@@ -71,7 +71,7 @@ import { boardApi } from '../services/frames.ts';
 import { templateOf } from '../services/agent.ts';
 import { alignMode, anyElementLocked, edit, mixedComputed, runAlign, styleMixed, styleSelection, updateBoard } from '../services/commands.ts';
 import { rememberRadius } from '../services/radius-memory.ts';
-import { hasCssBorder, NOTE_RECT_RADIUS, shapeFill } from '../lib/note-look.ts';
+import { fitPatch, hasCssBorder, NOTE_RECT_RADIUS, shapeFill } from '../lib/note-look.ts';
 import { ALIGN_ACTIONS, alignShortcut, alignTip, type AlignAction } from '../lib/align.ts';
 import { mixedElementKinds, mixedPaintValues, noteFillValues, paintMixed } from '../services/paint.ts';
 import { changedBy, GUIDES_DIFFER, mixedRoles, MIXED_ACROSS, POSITION_ACROSS, positionBlocked, radiiAfter, radiusSaid, READ_SETTLE_MS, SIZED_BY_CONTENT, sharedGuides, sharedValue, typedChange } from '../lib/mixed-panel.ts';
@@ -273,10 +273,12 @@ function SizeSection({ ctx }: { ctx: ElementContext }) {
           {(['grid-column', 'grid-row'] as const).map((prop) => {
             const name = prop === 'grid-column' ? 'Column span' : 'Row span';
             const span = readSpan(ctx.inline[prop]).span;
+            // A placement with no span to show (`1 / -1`) is shown as written, not as auto.
+            const written = span === null && ctx.inline[prop]?.trim() && ctx.inline[prop]!.trim() !== 'auto' ? ctx.inline[prop]!.trim() : null;
             return (
               <Tip key={prop} label={name} side="top">
                 <span className="min-w-0 flex-1">
-                  <PInput aria-label={name} prefix={prop === 'grid-column' ? '↔' : '↕'} min={1} max={MAX_TRACKS} numeric value={span === null ? '' : String(span)} placeholder={readSpan(ctx.computed[prop]).span?.toString() ?? 'auto'} disabled={ctx.locked}
+                  <PInput aria-label={name} prefix={prop === 'grid-column' ? '↔' : '↕'} min={1} max={MAX_TRACKS} numeric value={span === null ? '' : String(span)} placeholder={written ?? readSpan(ctx.computed[prop]).span?.toString() ?? 'auto'} disabled={ctx.locked}
                     onCommit={(next) => ctx.set({ [prop]: spanValue(ctx.inline[prop], next) })} />
                 </span>
               </Tip>
@@ -1578,7 +1580,17 @@ function NoteImageSection({ id, note, readOnly }: { id: string; note: CanvasNote
         </PButton>
       </PRow>
       <PRow label="Fit" title={off}>
-        <PSelect aria-label="Object fit" value={css['object-fit'] ?? 'fill'} options={OBJECT_FITS} disabled={readOnly} onChange={(value) => setNoteCss(id, note, { 'object-fit': value === 'fill' ? null : value })} />
+        <PSelect
+          aria-label="Object fit"
+          value={css['object-fit'] ?? 'fill'}
+          options={OBJECT_FITS}
+          disabled={readOnly}
+          onChange={(value) => {
+            // A crop goes with any fit but cover, in the same undo step.
+            const patch = fitPatch(note, value);
+            if (patch) updateNote(id, patch);
+          }}
+        />
       </PRow>
       <PRow label="Position" title={off}>
         <PInput aria-label="Object position" value={css['object-position'] ?? ''} placeholder="center" disabled={readOnly} onCommit={(value) => setNoteCss(id, note, { 'object-position': value || null })} />

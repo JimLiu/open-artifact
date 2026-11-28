@@ -7,7 +7,7 @@
  * DOM body instead, and the scene keeps only a clear box to hit.
  */
 
-import { noteBorderDeclarations, type CanvasNote, type NoteCss } from '@open-artifact/design-core';
+import { cleanNoteCss, cropApplies, noteBorderDeclarations, noteCssValue, type CanvasNote, type NoteCss } from '@open-artifact/design-core';
 import { noteColor } from './notes.ts';
 import { radiusDeclarations, type Corners } from './board-draw.ts';
 
@@ -37,10 +37,22 @@ export interface ShapeLook {
   engine: EngineShape | null;
 }
 
+/**
+ * A note's `fill` or `color` (a palette name or any CSS colour) as a value
+ * safe to write into a style, else `fallback`. canvas.json holds them as free
+ * text, and once a note becomes artboard HTML a quote or `;` would break out of
+ * its style attribute and `{{` would read as template syntax; so the value is
+ * checked as a note's css value is (colours and gradients, no `url()` or `var()`).
+ */
+export function safeNoteColor(value: string | undefined, use: 'sticky' | 'stroke', fallback: string): string {
+  const color = noteColor(value, use, fallback);
+  return color === fallback ? color : (noteCssValue('background', color) ?? fallback);
+}
+
 /** The fill a shape note shows: its css background, else its palette or CSS colour. */
 export function shapeFill(note: CanvasNote): string {
   const css = note.css ?? {};
-  return css.background ?? css['background-color'] ?? noteColor(note.fill, 'sticky', 'transparent');
+  return css.background ?? css['background-color'] ?? safeNoteColor(note.fill, 'sticky', 'transparent');
 }
 
 /** Whether a note's css sets its border; without, it has the palette border. */
@@ -78,7 +90,7 @@ export function shapeLook(note: CanvasNote): ShapeLook {
   const fill = shapeFill(note);
   const border: Record<string, string> = cssBorder
     ? noteBorderDeclarations(css)
-    : { 'border-width': `${NOTE_BORDER_WIDTH}px`, 'border-style': 'solid', 'border-color': noteColor(note.color, 'stroke', NOTE_STROKE) };
+    : { 'border-width': `${NOTE_BORDER_WIDTH}px`, 'border-style': 'solid', 'border-color': safeNoteColor(note.color, 'stroke', NOTE_STROKE) };
   const corners = (['top-left', 'top-right', 'bottom-right', 'bottom-left'] as const).flatMap((corner) => {
     const value = note.kind === 'oval' ? undefined : css[`border-${corner}-radius`];
     return value === undefined ? [] : [[`border-${corner}-radius`, value] as const];
@@ -181,7 +193,24 @@ export function imageLook(note: CanvasNote): ImageLook {
   const opacity = noteOpacity(note);
   // A cropped picture and a video are always drawn by the DOM body.
   const engine =
-    !note.crop && !note.video && !drawnBorder && !radius && !css['box-shadow'] && !css.filter && !css['backdrop-filter'] && css['background-color'] === undefined &&
+    !(note.crop && cropApplies(css)) && !note.video && !drawnBorder && !radius && !css['box-shadow'] && !css.filter && !css['backdrop-filter'] && css['background-color'] === undefined &&
     (css['object-fit'] === undefined || css['object-fit'] === 'fill') && css['object-position'] === undefined && (opacity === undefined || opacity >= 1);
   return { dom, engine };
+}
+
+/**
+ * What choosing a fit for an image or video note writes, or null for a fit
+ * a note doesn't take. Fill is the default and stays unset, except on a video
+ * whose cover the person chose: unset draws that as cover (see `imageLook`),
+ * so Fill is written out or it could never be chosen. A crop only applies
+ * under cover, so any other fit drops it in the same change (one undo step)
+ * instead of leaving a crop that draws nothing, that `check` warns about
+ * and that reading the canvas drops.
+ */
+export function fitPatch(note: CanvasNote, fit: string): { css: NoteCss | undefined; crop?: undefined } | null {
+  if (noteCssValue('object-fit', fit) === null) return null;
+  const css: Record<string, string> = { ...note.css };
+  if (fit === 'fill' && !(note.video && note.videoCover)) delete css['object-fit'];
+  else css['object-fit'] = fit;
+  return { css: cleanNoteCss(css), ...(note.crop !== undefined && fit !== 'cover' ? { crop: undefined } : {}) };
 }

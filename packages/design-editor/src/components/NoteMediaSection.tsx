@@ -10,7 +10,8 @@ import { SliderInput, SwitchInput } from '@open-artifact/ui';
 import { videoOptions, type CanvasNote } from '@open-artifact/design-core';
 import { useVideo, videoElements } from '../state/video.ts';
 import { toggleVideoNote } from '../services/video-play.ts';
-import { pickFile, replaceVideo, resetCoverImage, setCoverImage, setNoteCssKeys, setVideoSetting } from '../services/video-note.ts';
+import { patchNote, pickFile, replaceVideo, resetCoverImage, setCoverImage, setNoteCssKeys, setVideoSetting } from '../services/video-note.ts';
+import { fitPatch } from '../lib/note-look.ts';
 import { clockTime, coverName, scrubRefusal, VIDEO_TIPS, videoName, type VideoToggle } from '../lib/video-settings.ts';
 import { VIDEO_ACCEPT } from '../lib/video-files.ts';
 import { PButton, PIconButton, PInput, PRow, PSection, PSelect } from './fields.tsx';
@@ -107,7 +108,17 @@ export function NoteMediaSection({ id, note, readOnly }: { id: string; note: Can
         ) : null}
       </PRow>
       <PRow label="Fit">
-        <PSelect aria-label="Object fit" value={note.css?.['object-fit'] ?? (note.videoCover ? 'cover' : 'fill')} options={FITS} disabled={off} onChange={(value) => setNoteCssKeys(id, { 'object-fit': value === 'fill' ? null : value })} />
+        <PSelect
+          aria-label="Object fit"
+          value={note.css?.['object-fit'] ?? (note.videoCover ? 'cover' : 'fill')}
+          options={FITS}
+          disabled={off}
+          onChange={(value) => {
+            // Fill is written out on a custom cover, and a crop goes with any fit but cover.
+            const patch = fitPatch(note, value);
+            if (patch) patchNote(id, patch);
+          }}
+        />
       </PRow>
       <PRow label="Position">
         <PInput aria-label="Object position" value={note.css?.['object-position'] ?? ''} placeholder="center" disabled={off} onCommit={(value) => setNoteCssKeys(id, { 'object-position': value || null })} />

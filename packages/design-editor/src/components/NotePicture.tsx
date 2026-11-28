@@ -7,7 +7,7 @@
 
 import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { Play } from 'lucide-react';
-import { videoOptions, type CanvasNote } from '@open-artifact/design-core';
+import { cropApplies, videoOptions, type CanvasNote } from '@open-artifact/design-core';
 import { cn } from '@open-artifact/ui';
 import { imageLook, reactStyle } from '../lib/note-look.ts';
 import { cropFrameStyle, cropPictureStyle } from '../lib/note-crop.ts';
@@ -32,10 +32,11 @@ function useLoadedSize(src: string | undefined) {
   return size;
 }
 
-/** Lays the media out: in a clipping frame when cropped and loaded, else filling the box with the note's look. */
+/** Lays the media out: in a clipping frame when cropped (under cover) and loaded, else filling the box with the note's look. */
 function Framed({ note, loaded, media }: { note: CanvasNote; loaded: boolean; media: (style: CSSProperties, className: string) => ReactNode }) {
   const look = imageLook(note).dom;
-  if (note.crop && loaded) {
+  // A crop applies only under cover; with another fit the picture sits as that fit says.
+  if (note.crop && loaded && cropApplies(note.css)) {
     return <div style={reactStyle(cropFrameStyle(look)) as CSSProperties}>{media(reactStyle(cropPictureStyle(note.crop)) as CSSProperties, 'block select-none')}</div>;
   }
   return <>{media(reactStyle(look) as CSSProperties, 'block size-full select-none')}</>;

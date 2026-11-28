@@ -105,8 +105,18 @@ export function firstStopOf(gradient: string): string | null {
   return /#[0-9a-f]{3,8}\b|rgba?\([^)]*\)/i.exec(gradient)?.[0] ?? null;
 }
 
-/** Paints the text with `gradient`: the background and the three clip declarations. */
+/**
+ * Paints the text with `gradient`: the background and the three clip
+ * declarations. A changed declaration keeps its place and a new one goes at
+ * the end, so a `background` shorthand added after a clip already written
+ * would reset that clip and paint the whole box. The shorthand is written
+ * only where it already is, or when the clip is new (it then comes after
+ * the shorthand); otherwise the gradient goes in `background-image`, which
+ * leaves the clip alone.
+ */
 export function textGradientPatch(inline: Record<string, string>, gradient: string): StylePatch {
+  const clipWritten = inline['background-clip'] !== undefined || inline['-webkit-background-clip'] !== undefined;
+  if (inline.background === undefined && clipWritten) return { 'background-image': gradient, ...TEXT_CLIP };
   const patch: Record<string, string | null> = { background: gradient, ...TEXT_CLIP };
   // Written after the shorthand, these would win over it.
   if (inline['background-image'] !== undefined) patch['background-image'] = null;

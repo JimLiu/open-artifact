@@ -1325,14 +1325,19 @@ export class SheetStore {
     const under = this.refreshing.get(request.sheetId);
     if (under !== undefined && under.until > Date.now() && under.callDigest === request.callDigest) return refuse('refreshUnderWay');
     if (this.sendToAgent === null) return refuse('agentNotListening');
+    // Kept before the agent is asked: a second press while the first is on its way is refused, not asked again.
+    const asking = { callDigest: request.callDigest, until: Date.now() + REFRESH_WAIT_MS };
+    this.refreshing.set(request.sheetId, asking);
     let taken = false;
     try {
       taken = await this.sendToAgent(refreshRequest(table.view.name, table.sheetNumber, table.callDigest));
     } catch (error) {
       this.log(`refresh: the request did not reach the agent (${(error as Error).message})`);
     }
-    if (!taken) return refuse('agentNotListening');
-    this.refreshing.set(request.sheetId, { callDigest: request.callDigest, until: Date.now() + REFRESH_WAIT_MS });
+    if (!taken) {
+      if (this.refreshing.get(request.sheetId) === asking) this.refreshing.delete(request.sheetId);
+      return refuse('agentNotListening');
+    }
     return { kind: 'refreshAsked' };
   }
 

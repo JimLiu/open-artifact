@@ -1497,11 +1497,11 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
       try {
         await openPanel(p);
         await chooseFiles(p, [file]);
-        assert.ok(await p.waitFor(`${cells}.length === 2`, 10000), 'the SVG pictures in the library are shapes');
-        assert.ok(await p.waitFor(`(${reportText()}).includes('Added “Network”: 2 shapes, 1 left out.')`, 3000), 'the panel counts what it left out');
+        assert.ok(await p.waitFor(`${cells}.length === 3`, 10000), 'the SVG pictures in the library are shapes, the plain graph too');
+        assert.ok(await p.waitFor(`(${reportText()}).includes('Added “Network”: 3 shapes, 1 left out.')`, 3000), 'the panel counts what it left out');
         assert.ok((await p.evaluate(reportText())).includes('Lambda: is drawn in a way boards cannot read'), 'and names it, and why');
-        assert.deepEqual(await p.evaluate(`[...${cells}].map(b => b.getAttribute('aria-label'))`), ['Pick shape: Firewall', 'Pick shape: Shape 2']);
-        assert.ok(await until(() => libraries(board).length === 1 && libraries(board)[0].count === 2));
+        assert.deepEqual(await p.evaluate(`[...${cells}].map(b => b.getAttribute('aria-label'))`), ['Pick shape: Firewall', 'Pick shape: Shape 2', 'Pick shape: R&D Router']);
+        assert.ok(await until(() => libraries(board).length === 1 && libraries(board)[0].count === 3));
         assert.deepEqual(p.problems, []);
       } finally { await p.close(); }
     });
@@ -1613,7 +1613,11 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
       return Buffer.concat([...locals, directory, end]);
     }
 
-    /** A draw.io library: an SVG picture, an SVG picture in a compressed graph, and a stencil boards cannot read. */
+    /**
+     * A draw.io library: an SVG picture, an SVG picture in a compressed graph, a stencil boards cannot read, and an
+     * SVG picture in a plain graph. The list is written as draw.io writes it, as the element's text: `<`, `>` and `&`
+     * as entities, quotes as they are. Before, the plain graph was left out, its xml still `&lt;mxGraphModel&gt;`.
+     */
     function drawioLibrary() {
       const base64 = text => Buffer.from(text).toString('base64');
       const graph = style => `<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/><mxCell id="2" value="" style="${style}" vertex="1" parent="1"><mxGeometry width="48" height="48" as="geometry"/></mxCell></root></mxGraphModel>`;
@@ -1622,8 +1626,10 @@ describe('whiteboard', { skip: skipFor('whiteboard') }, () => {
         { data: `data:image/svg+xml;base64,${base64(shapeSvg('Firewall'))}`, w: 48, h: 48, title: 'Firewall' },
         { xml: packed(graph(`shape=image;aspect=fixed;image=data:image/svg+xml,${base64(shapeSvg('Switch'))};`)), w: 48, h: 48 },
         { xml: packed(graph('shape=mxgraph.aws4.lambda;fillColor=#F78E04;')), w: 48, h: 48, title: 'Lambda' },
+        { xml: graph(`shape=image;aspect=fixed;image=data:image/svg+xml,${base64(shapeSvg('Router'))};`), w: 48, h: 48, title: 'R&D Router' },
       ];
-      return `<mxlibrary>${JSON.stringify(entries)}</mxlibrary>`;
+      const text = JSON.stringify(entries).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return `<mxlibrary>${text}</mxlibrary>`;
     }
   });
 

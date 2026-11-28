@@ -13,6 +13,7 @@
 - **数据校验与条件格式**：支持下拉菜单验证、复选框以及条件格式高亮规则。
 - **图表与交互控制面板**：直接基于单元格区域绘制图表；还可在独立标签页构建**交互面板**（滑块、按钮、输入框），实时驱动数据页里的假设单元格和公式。
 - **多人协作与双层历史**：支持实时光标、单元格/区域锚定评论、整体版本历史以及单单元格修改历史。
+- **连接表**：一个标签页的行来自 agent 发起的连接器调用。所有者点 **Refresh**（首次取数前是 **Load data**）就会请 agent 刷新：agent 用自己的工具发起调用，再用 `refresh` 交回记录，或说明为什么没有数据，原因会显示在表格的工具条上。一个调用的第一次刷新会先请所有者确认。
 - **导入与导出**：支持导入 **CSV**；在 **Share → Export** 或命令行中导出 **Excel（`.xlsx`）** 或单工作表 **CSV**，并支持整包 `.zip` 归档。
 
 ## 用户怎么用
@@ -35,7 +36,7 @@
 ## Agent 怎么用
 
 - **类型 ID**：`sheets`（`type_url: "open-artifact://type/sheets"`）
-- **存储结构**：结构化操作日志，位于 `<root>/sheet/`（`sheet/sheet.json` + `sheet/edits.jsonl`）。**严禁直接手改底层文件**，必须通过 `read`、`update`、`batch`、`widget` 动作读写。
+- **存储结构**：结构化操作日志，位于 `<root>/sheet/`（`sheet/sheet.json` + `sheet/edits.jsonl`）。**严禁直接手改底层文件**，必须通过 `read`、`update`、`refresh`、`batch`、`widget` 动作读写。
 
 ### 常用工作流与命令
 
@@ -47,6 +48,7 @@
 | 添加图表/交互面板 | `Artifact {action: "call", url, name: "batch", args: {calls: [...]}}` | `open-artifact batch <root> <file>` |
 | 查看当前选区 | `Artifact {action: "call", url, name: "context"}` | `open-artifact context <root> [--json]` |
 | 导出 XLSX / CSV | `Artifact {action: "call", url, name: "export", args: {file?: "<绝对路径>"}}` | `open-artifact export <root> [file.xlsx \| --csv --sheet <名称>]` |
+| 刷新连接表 | `Artifact {action: "call", url, name: "refresh", args: {payload: {sheet, callDigest, records} \| {sheet, callDigest, failed: {why}}}}` | `open-artifact refresh <root> '<payload>'` |
 
 ### Agent 关键规则
 1. 首次操作前先阅读 `artifact-types/sheets/reference/core.md`（建表看 `building.md`，图表和交互面板看 `charts.md` / `interactives.md`）。

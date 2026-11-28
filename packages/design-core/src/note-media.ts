@@ -41,10 +41,13 @@ export function isUncropped(crop: NoteCrop): boolean {
   return crop.zoom === UNCROPPED.zoom && crop.x === UNCROPPED.x && crop.y === UNCROPPED.y;
 }
 
-/** A crop only applies while the picture covers its note: `object-fit` unset or `cover`. */
+/**
+ * A crop only applies while the picture covers its note: `object-fit: cover`.
+ * Unset reads as `fill` (the default), so a crop there would draw nothing;
+ * cropping writes `cover` with the crop.
+ */
 export function cropApplies(css: unknown): boolean {
-  const fit = cleanNoteCss(css)?.['object-fit'];
-  return fit === undefined || fit === 'cover';
+  return cleanNoteCss(css)?.['object-fit'] === 'cover';
 }
 
 /** An address an upload is served under: `/_blob/<id>`. */

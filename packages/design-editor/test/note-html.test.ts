@@ -99,8 +99,38 @@ describe('a note as artboard HTML', () => {
       '<div style="box-sizing: border-box; position: relative; contain: layout; overflow: hidden; width: 400px; height: 200px; border-width: 2px; border-style: solid; border-radius: 12px;">' +
         '<img src="/_blob/aa" alt="Team" style="position: absolute; width: 200%; height: 200%; left: -25%; top: -100%; max-width: none; max-height: none; object-fit: cover; object-position: 25% 100%;"></div>',
     );
-    const plain = noteHtml({ x: 0, y: 0, kind: 'image', src: '/_blob/aa', w: 100, h: 100, crop: { zoom: 1.5, x: 0.5, y: 0.5 }, rotate: 10 }, ids());
+    const plain = noteHtml({ x: 0, y: 0, kind: 'image', src: '/_blob/aa', w: 100, h: 100, crop: { zoom: 1.5, x: 0.5, y: 0.5 }, css: { 'object-fit': 'cover' }, rotate: 10 }, ids());
     assert.match(plain!.html, /^<div style="position: relative; contain: layout; overflow: hidden; width: 100px; height: 100px; transform: rotate\(10deg\);">/);
+  });
+
+  it('leaves a crop out under any fit but cover, as the canvas draws it', () => {
+    const crop = { zoom: 2, x: 0.25, y: 1 };
+    const contained = noteHtml({ x: 0, y: 0, kind: 'image', src: '/_blob/aa', w: 400, h: 200, crop, css: { 'object-fit': 'contain' } }, ids());
+    assert.equal(contained?.html, '<img src="/_blob/aa" alt="" width="400" height="200" style="width: 400px; height: 200px; object-fit: contain;">');
+    const unset = noteHtml({ x: 0, y: 0, kind: 'image', src: '/_blob/aa', w: 400, h: 200, crop }, ids());
+    assert.equal(unset?.html, '<img src="/_blob/aa" alt="" width="400" height="200" style="width: 400px; height: 200px; object-fit: fill;">');
+  });
+
+  it('writes a colour from canvas.json only when a note’s style would take it', () => {
+    const attack = 'red" onmouseover="x';
+    const notes = [
+      { x: 0, y: 0, text: 'Hi', fill: attack },
+      { x: 0, y: 0, text: 'Hi', color: attack },
+      { x: 0, y: 0, kind: 'title1' as const, text: 'Hi', color: attack },
+      { x: 0, y: 0, kind: 'rect' as const, w: 50, h: 50, fill: attack, color: attack },
+      { x: 0, y: 0, kind: 'oval' as const, w: 50, h: 50, fill: '{{x}}', color: '{{x}}' },
+      { x: 0, y: 0, kind: 'arrow' as const, points: [[0, 0], [40, 10]] as [number, number][], color: attack },
+      { x: 0, y: 0, kind: 'pen' as const, points: [[0, 0], [40, 10]] as [number, number][], color: '{{x}}' },
+      { x: 0, y: 0, kind: 'title1' as const, text: 'Hi', color: 'red; background: url(x)' },
+    ];
+    for (const note of notes) {
+      const html = noteHtml(note, ids())!.html;
+      assert.ok(!html.includes('onmouseover') && !html.includes('{{') && !html.includes('url(x)'), html);
+    }
+    assert.match(noteHtml(notes[0]!, ids())!.html, /background-color: #fdf0b2;/);
+    assert.match(noteHtml(notes[3]!, ids())!.html, /background-color: transparent; .*border-color: #2b2b2b/);
+    assert.match(noteHtml({ x: 0, y: 0, kind: 'title1', text: 'Hi', color: 'rgb(10 20 30 / 50%)' }, ids())!.html, /color: rgb\(10 20 30 \/ 50%\);/);
+    assert.match(noteHtml({ x: 0, y: 0, kind: 'rect', w: 5, h: 5, fill: 'blue' }, ids())!.html, /background-color: #d6e6fb/);
   });
 
   it('writes a video note as a video with only the play attributes it needs', () => {

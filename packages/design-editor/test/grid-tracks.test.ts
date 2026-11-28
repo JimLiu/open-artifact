@@ -32,6 +32,10 @@ describe('grid tracks', () => {
     assert.deepEqual(readSpan('span 2'), { start: null, span: 2 });
     assert.deepEqual(readSpan('3 / span 2'), { start: '3', span: 2 });
     assert.deepEqual(readSpan('1 / 4'), { start: '1', span: 3 });
+    // Lines counted from the end (or named) give no span the field could write back.
+    assert.deepEqual(readSpan('1 / -1'), { start: '1', span: null });
+    assert.deepEqual(readSpan('-3 / -1'), { start: '-3', span: null });
+    assert.deepEqual(readSpan('0 / 2'), { start: '0', span: null });
   });
 
   it('writes a span, keeping the start line', () => {

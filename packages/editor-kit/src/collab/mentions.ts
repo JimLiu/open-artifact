@@ -139,8 +139,16 @@ export function mentionsName(text: string, name: string): boolean {
 export function mentionTargets(text: string, picks: readonly MentionPick[], agent: { name: string; listed: boolean }): string[] {
   const keys: string[] = [];
   if (agent.listed && mentionsName(text, agent.name)) keys.push(AGENT_KEY);
+  // Longer names first, each blanked out once found: `@Bob Smith` names Bob Smith, not also a Bob picked earlier.
+  let rest = text;
+  const named = new Set<MentionPick>();
+  for (const pick of [...picks].sort((a, b) => b.name.length - a.name.length)) {
+    if (!mentionsName(rest, pick.name)) continue;
+    named.add(pick);
+    rest = rest.replace(namePattern(pick.name, 'giu'), (found) => ' '.repeat(found.length));
+  }
   for (const pick of picks) {
-    if (keys.includes(pick.key) || !mentionsName(text, pick.name)) continue;
+    if (keys.includes(pick.key) || !named.has(pick)) continue;
     keys.push(pick.key);
   }
   return keys;

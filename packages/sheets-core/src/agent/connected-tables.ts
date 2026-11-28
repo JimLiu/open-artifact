@@ -253,7 +253,8 @@ export function tableFileOf(records: unknown, isCutOffBefore = false): TableFile
     const placeOf = new Map<string, number>();
     const textBytes = new Map<number, number>();
     const places = kept.map((record, i) => {
-      const value = (record as Record<string, unknown>)[field] ?? null;
+      // Its own fields only: a record without `constructor` or `toString` lacks them, not holds a function.
+      const value = Object.hasOwn(record as object, field) ? ((record as Record<string, unknown>)[field] ?? null) : null;
       if (typeof value === 'number' && !Number.isFinite(value)) throw new AgentError('valueThatNoCellHolds', `records[${i}].${field} is not a finite number.`, { recordIndex: i, field });
       if (typeof value === 'string' && value.length > MAX_VALUE_LENGTH) throw new AgentError('textTooLongForACell', `records[${i}].${field} is longer than ${MAX_VALUE_LENGTH} characters.`, { recordIndex: i, field });
       if (value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') throw new AgentError('valueThatNoCellHolds', `records[${i}].${field} is ${Array.isArray(value) ? 'a list' : 'an object'}: a value is text, a number, true, false or null. Make it text, or a field of its own.`, { recordIndex: i, field });

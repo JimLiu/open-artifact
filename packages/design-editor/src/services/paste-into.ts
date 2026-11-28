@@ -11,6 +11,7 @@ import { noteHtml } from '../lib/note-html.ts';
 import { arrangeLayers, boundsOf, dropPoint, layerPatch, staysInPlace, styledMarkup, type Layer } from '../lib/paste-layers.ts';
 import { writeBackPatch } from '../lib/layout-write-back.ts';
 import { withoutLocks } from '../lib/locks.ts';
+import type { Address, BoardOp } from '../lib/ops.ts';
 import { useDocument } from '../state/document.ts';
 import { useView, type ElementSelection } from '../state/view.ts';
 import { templateOf } from './agent.ts';
@@ -198,27 +199,43 @@ export function pasteAsLayers(payload: ClipboardPayload, board: string, place: L
     markup = elementLayers(payload, board, place, drop);
     if (!markup) return { kind: 'fallback' };
   }
-  try {
-    const key = `paste-into-${Date.now()}`;
-    const target = place.container ? { tid: place.model.tidOf.get(place.container)!, path: elementPath(place.model, place.container) } : null;
-    if (target && place.anchor) {
-      const anchored = tryEdit(board, { kind: 'style', targets: [target], patch: { position: 'relative' } }, { coalesce: key });
-      if (anchored.kind === 'locked') {
-        refuseLocked();
-        return { kind: 'done' };
+  const target = place.container ? { tid: place.model.tidOf.get(place.container)!, path: elementPath(place.model, place.container) } : null;
+  const insert: BoardOp = { kind: 'insert', target, position: 'last-child', html: markup.html, helmet: markup.helmet };
+  // Positioning the container and inserting the layers are one step: when
+  // the insert is refused, changes nothing or throws, the container's new
+  // `position` is taken back too, so "nothing changed" stays true.
+  // Set inside the step (the compiler can't see that).
+  let result = 'failed' as 'done' | 'locked' | 'failed' | 'threw';
+  let created = [] as Address[];
+  useDocument.getState().transact((cancel) => {
+    try {
+      if (target && place.anchor) {
+        const anchored = tryEdit(board, { kind: 'style', targets: [target], patch: { position: 'relative' } });
+        if (anchored.kind === 'locked') {
+          result = 'locked';
+          return cancel();
+        }
       }
+      const outcome = tryEdit(board, insert);
+      if (outcome.kind !== 'done' || !outcome.created.length) {
+        result = outcome.kind === 'locked' ? 'locked' : 'failed';
+        return cancel();
+      }
+      result = 'done';
+      created = outcome.created;
+    } catch {
+      result = 'threw';
+      cancel();
     }
-    const outcome = tryEdit(board, { kind: 'insert', target, position: 'last-child', html: markup.html, helmet: markup.helmet }, { coalesce: key });
-    if (outcome.kind === 'locked') refuseLocked();
-    else if (outcome.kind !== 'done' || !outcome.created.length) toast.add({ title: 'Could not paste: nothing changed.' });
-    else {
-      const items: ElementSelection[] = outcome.created.map((address) => ({ ...address, instance: 0 }));
-      useView.getState().select({ kind: 'elements', board, items });
-      lastInto = { board, payload: payloadKey(payload), items: itemsKey(items) };
-      toast.add({ title: `Pasted into ${name}` });
-    }
-  } catch {
-    toast.add({ title: 'Couldn’t paste.' });
+  });
+  if (result === 'locked') refuseLocked();
+  else if (result === 'threw') toast.add({ title: 'Couldn’t paste.' });
+  else if (result === 'failed') toast.add({ title: 'Could not paste: nothing changed.' });
+  else {
+    const items: ElementSelection[] = created.map((address) => ({ ...address, instance: 0 }));
+    useView.getState().select({ kind: 'elements', board, items });
+    lastInto = { board, payload: payloadKey(payload), items: itemsKey(items) };
+    toast.add({ title: `Pasted into ${name}` });
   }
   return { kind: 'done' };
 }

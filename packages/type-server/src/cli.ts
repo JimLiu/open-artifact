@@ -661,6 +661,8 @@ const USAGE = `open-artifact-type-server <command>
                                 prints {"error": CODE} and writes nothing.
   read <dir> [payload] [--at N] A Sheet's read (readSheets by default; a payload is JSON, a file or -).
   update <dir> <payload>        A Sheet's edits as one revision: {"kind":"applyEdits","base":N,"edits":[…]}.
+  refresh <dir> <payload>       A connected table's records: {"sheet","callDigest","records":[…]},
+                                or why there are none: {"sheet","callDigest","failed":{"why"}}.
   batch <dir> <calls>           Widget creates and one applyEdits (a new chart and its addChart).
   widget <dir> create <code> | read <id> | draft <id> <basePub> <code> | list
                                 A chart's code (code: a file, or - for stdin).

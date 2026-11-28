@@ -7,7 +7,8 @@
  * Writing keeps the stylesheet as it is around the two declarations: the
  * last plain `body` rule takes them (values changed in place, new ones at
  * its end, the color after the image so the shorthand can't hide it), the
- * same declarations leave earlier `body` rules, and an `html` background
+ * same declarations leave earlier `body` rules, a `body` `background-image`
+ * goes with the shorthand (it would still show), and an `html` background
  * goes when `body` had none (the two would stack). Without a `body` rule
  * one is added to the last stylesheet, or a new `<helmet><style>`. A
  * stylesheet with nested rules is not edited.
@@ -211,7 +212,10 @@ export function pageFillSplices(model: TemplateModel, edits: readonly PageFillEd
   const values = new Map<PageFillProp, string | null>();
   for (const edit of edits) if (PROPS.includes(edit.prop)) values.set(edit.prop, edit.value?.trim() || null);
   if (!values.size) return [];
-  const touched = (property: string) => values.has(property as PageFillProp);
+  // A `background-image` left behind would keep showing over the new
+  // background (or instead of none), so it goes whenever the shorthand is
+  // written or removed.
+  const touched = (property: string) => values.has(property as PageFillProp) || (property === 'background-image' && values.has('background'));
   const splices: Splice[] = [];
 
   const rules = sheets.flatMap((sheet) => sheet.blocks.filter((block) => !block.at).map((block) => ({ sheet, block, selectors: selectorsOf(block.prelude) })));
@@ -279,10 +283,11 @@ export function pageFillSplices(model: TemplateModel, edits: readonly PageFillEd
 
 /**
  * Whether a background value may be written into the page: no script
- * addresses, no ways out of the declaration, no remote images.
+ * addresses, no ways out of the declaration (a comment left open would
+ * swallow the rest of the stylesheet), no remote images.
  */
 export function safePageFillValue(value: string): boolean {
-  return !/[{};<>]|javascript:|vbscript:|expression\s*\(|-moz-binding|url\(\s*['"]?\s*https?:|@import/i.test(value);
+  return !/[{};<>]|\/\*|javascript:|vbscript:|expression\s*\(|-moz-binding|url\(\s*['"]?\s*https?:|@import/i.test(value);
 }
 
 /**

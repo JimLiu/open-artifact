@@ -11,7 +11,7 @@ import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { roleMay } from '@open-artifact/runtime/roles';
 import { API } from '@open-artifact/runtime/http-api';
-import { ConnectorShares, SHARED_RESULT_FLOOR_MS, sharedCallKey } from '../src/connector-shares.ts';
+import { ConnectorShares, SHARED_RESULT_FLOOR_MS, SHARED_RESULT_MAX_BYTES, SHARED_RESULTS_KEPT, sharedCallKey } from '../src/connector-shares.ts';
 import { ConnectorsHost, createTypeServer, type TypeServer } from '../src/index.ts';
 
 const FAKE = join(dirname(fileURLToPath(import.meta.url)), 'fake-mcp-server.ts');
@@ -95,6 +95,28 @@ describe('ConnectorShares', () => {
     time += SHARED_RESULT_FLOOR_MS + 1;
     await shares.run('a3', [plainCall], { viewerId: 'guest-1', reuseMs: 60 * 60_000 });
     assert.equal(calls.length, 2);
+  });
+
+  it('keeps a bounded number of answers, and only a mark of one too large to share', async () => {
+    calls = [];
+    const shares = make();
+    const free = { connector: 'sales', tool: 'run', call: true as const, args: { q: '{{q}}' } };
+    shares.share('a5', 'sales', [free], { id: 'owner', name: 'Ada' });
+    for (let i = 0; i <= SHARED_RESULTS_KEPT; i++) await shares.run('a5', [{ ...free, params: { q: `v${i}` } }], { viewerId: 'guest-1' });
+    assert.equal(calls.length, SHARED_RESULTS_KEPT + 1);
+    // The newest is still reused; the oldest was let go and runs again.
+    await shares.run('a5', [{ ...free, params: { q: `v${SHARED_RESULTS_KEPT}` } }], { viewerId: 'guest-1' });
+    assert.equal(calls.length, SHARED_RESULTS_KEPT + 1);
+    await shares.run('a5', [{ ...free, params: { q: 'v0' } }], { viewerId: 'guest-1' });
+    assert.equal(calls.length, SHARED_RESULTS_KEPT + 2);
+    const before = answer;
+    answer = async () => ({ content: [{ type: 'text', text: 'x'.repeat(SHARED_RESULT_MAX_BYTES) }] });
+    const [big] = await shares.run('a5', [{ ...free, params: { q: 'big' } }], { viewerId: 'guest-1' });
+    const [again] = await shares.run('a5', [{ ...free, params: { q: 'big' } }], { viewerId: 'guest-1' });
+    answer = before;
+    assert.equal(big?.ok === false && big.code, 'too_large');
+    assert.equal(again?.ok === false && again.code, 'too_large');
+    assert.equal(calls.length, SHARED_RESULTS_KEPT + 3, 'the too-large answer is not asked for again within the reuse time');
   });
 
   it('says a tool’s own error only to the sharer, and stops sharing with no calls', async () => {

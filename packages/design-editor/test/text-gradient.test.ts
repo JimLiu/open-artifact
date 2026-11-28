@@ -31,6 +31,19 @@ describe('gradient text', () => {
     assert.match(initialGradient({ inline: '#ff0000' }, true, '#00ff00'), /^linear-gradient\(180deg, #ff0000/);
   });
 
+  it('keeps the clip after the gradient when a stop is edited', () => {
+    // Editing a stop of a gradient written as background-image keeps the clip after it.
+    const clipped = 'background-image: linear-gradient(90deg, red, blue); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent';
+    const edited = patchStyle(clipped, textGradientPatch(styleMap(clipped), 'linear-gradient(90deg, green, blue)'));
+    assert.equal(edited, 'background-image: linear-gradient(90deg, green, blue); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent');
+    // A shorthand already written is changed in place, before the clip.
+    const short = 'background: linear-gradient(red, blue); background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent';
+    assert.equal(patchStyle(short, textGradientPatch(styleMap(short), 'linear-gradient(green, blue)')), short.replace('red', 'green'));
+    // A clip written alone (the gradient from a stylesheet) gets the longhand, which can't reset it.
+    const bare = 'background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent';
+    assert.equal(patchStyle(bare, textGradientPatch(styleMap(bare), 'linear-gradient(red, blue)')), `${bare}; background-image: linear-gradient(red, blue)`);
+  });
+
   it('writes the four declarations and takes them away again', () => {
     const style = 'color: #222; background-image: url(a.png)';
     const painted = patchStyle(style, textGradientPatch(styleMap(style), 'linear-gradient(red, blue)'));

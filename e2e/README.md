@@ -102,6 +102,7 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
   - zoomed out below 30 %, an artboard shows a snapshot at its own size and in its web font, and zooming back in shows the same frame without booting it again;
   - a snapshot of an artboard set in a big CJK web font carries a subset of the font that still draws the artboard's ideographs;
   - Pages → Add page writes the page to `canvas.json`;
+  - a rectangle dragged on an artboard is written into its page with its `width` and `height` once each (the dragged size replaces the template's 120 px). Before, the style named both twice, so a later Width edit in the panel changed the first, hidden one and the box kept its drawn size;
   - a right-button drag that starts on an element of the artboard pans the canvas by the distance dragged, keeps the selection where it was, and opens no menu; a right-click without travel still opens the menu;
   - an unreadable `canvas.json` shows the banner, and the file is left unchanged.
 
@@ -403,7 +404,7 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 - **Remove from this board** removes the library; the placed shape, its label and the arrow stay.
 - An `.svg` with a `<script>` is refused: the panel names it and why, and no library or element is added.
 - A `.zip` built in the test (two SVG files in folders, plus `__MACOSX/`, `.DS_Store` and a text file) chosen with **From a file…** becomes one library named after the zip with two shapes and no complaint about the other files; a search for a folder name finds its shape.
-- A draw.io library (`.drawio`: an SVG `data` entry, an SVG picture in a compressed `xml` graph, and a draw.io stencil) adds two shapes and reports the stencil as left out, by name and why.
+- A draw.io library (`.drawio`: an SVG `data` entry, an SVG picture in a compressed `xml` graph, a draw.io stencil, and an SVG picture in a plain `xml` graph titled `R&D Router`, the list written as draw.io writes it with `<`, `>` and `&` as entities) adds three shapes and reports the stencil as left out, by name and why. Before, the plain graph was left out too: its xml was read with the entities still in it.
 - **From a link…**, with the page's requests to a made-up `https://` site answered by the test (DevTools `Fetch.requestPaused`, so nothing reaches the network): an `http://` link is refused before any request; a response without `Access-Control-Allow-Origin` shows the could-not-be-read message that points to **From a file…**; a 404 is named; a zip pack is shown for confirmation (site, name, count), **Cancel** stores nothing, and **Add** lists it with the link as its source. No request carries a cookie or a referrer.
 
 **Moving the view with the right button** (`slides.test.mjs` and `whiteboard.test.mjs`, Chrome only)

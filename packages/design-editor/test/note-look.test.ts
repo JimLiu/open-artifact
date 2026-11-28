@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { IMAGE_PLACEHOLDER, imageLook, shapeLook, withRectRadius } from '../src/lib/note-look.ts';
+import { IMAGE_PLACEHOLDER, fitPatch, imageLook, safeNoteColor, shapeLook, withRectRadius } from '../src/lib/note-look.ts';
 import { noteItem } from '../src/lib/scene.ts';
 import { noteSwap, noteUnfill } from '../src/lib/paint.ts';
 
@@ -105,5 +105,45 @@ describe('an image note’s look', () => {
     assert.equal(item.kind, 'rect');
     assert.equal(item.fill, 'transparent');
     assert.equal(noteItem('n', image, { z: 0, editable: true, locked: false } as Parameters<typeof noteItem>[2]).kind, 'image');
+  });
+});
+
+describe('choosing how an image or video note’s picture fits', () => {
+  const crop = { zoom: 2, x: 0.25, y: 1 };
+  const cropped = { x: 0, y: 0, kind: 'image' as const, src: '/_blob/a', crop, css: { 'object-fit': 'cover' as const, opacity: '0.5' } };
+
+  it('drops the crop with any fit but cover, in the same change', () => {
+    assert.deepEqual(fitPatch(cropped, 'contain'), { css: { 'object-fit': 'contain', opacity: '0.5' }, crop: undefined });
+    assert.deepEqual(fitPatch(cropped, 'fill'), { css: { opacity: '0.5' }, crop: undefined });
+    assert.deepEqual(fitPatch(cropped, 'cover'), { css: { 'object-fit': 'cover', opacity: '0.5' } });
+    assert.ok(!('crop' in fitPatch({ x: 0, y: 0, kind: 'image', src: '/_blob/a' }, 'contain')!));
+    assert.equal(fitPatch(cropped, 'stretch'), null);
+  });
+
+  it('writes Fill out on a video whose cover was chosen, which otherwise draws as cover', () => {
+    const video = { x: 0, y: 0, kind: 'image' as const, src: '/_blob/c', video: '/_blob/v', videoCover: 'custom' as const };
+    const patch = fitPatch(video, 'fill')!;
+    assert.deepEqual(patch, { css: { 'object-fit': 'fill' } });
+    assert.equal(imageLook({ ...video, ...patch }).dom['object-fit'], 'fill');
+    assert.equal(imageLook(video).dom['object-fit'], 'cover');
+    assert.deepEqual(fitPatch({ ...video, videoCover: undefined }, 'fill'), { css: undefined });
+  });
+
+  it('draws a crop only under cover', () => {
+    assert.equal(imageLook({ ...cropped, css: { 'object-fit': 'fill' } }).engine, true);
+    assert.equal(imageLook({ ...cropped, css: { 'object-fit': 'cover' } }).engine, false);
+  });
+});
+
+describe('a note colour from canvas.json', () => {
+  it('keeps palette names and colours a note’s style takes, and draws anything else as the default', () => {
+    assert.equal(safeNoteColor('blue', 'sticky', '#fff'), '#d6e6fb');
+    assert.equal(safeNoteColor('rgb(1 2 3 / 50%)', 'stroke', '#000'), 'rgb(1 2 3 / 50%)');
+    assert.equal(safeNoteColor('linear-gradient(red, blue)', 'sticky', '#fff'), 'linear-gradient(red, blue)');
+    assert.equal(safeNoteColor(undefined, 'sticky', '#fff'), '#fff');
+    for (const bad of ['red" onmouseover="x', '{{x}}', 'red; color: blue', 'url(x)', 'var(--x)']) assert.equal(safeNoteColor(bad, 'stroke', '#000'), '#000', bad);
+    const look = shapeLook({ x: 0, y: 0, kind: 'rect', fill: '{{x}}', color: 'red"' });
+    assert.equal(look.dom.background, 'transparent');
+    assert.equal(look.dom['border-color'], '#2b2b2b');
   });
 });
