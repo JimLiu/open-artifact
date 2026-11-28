@@ -198,6 +198,8 @@ class Board implements BoardApi {
   private root: Root;
   private renderErrors: BoardError[] = [];
   private renderVersion = 0;
+  /** Bumped by `restart()`: part of the logic's key, so a restart mounts it fresh. */
+  private run = 0;
   private children = new Map<string, ChildEntry>();
   private lastSize: BoardSize = { width: 0, height: 0 };
   private booted = false;
@@ -322,7 +324,7 @@ class Board implements BoardApi {
     this.root.render(
       <>
         <ErrorBoundary resetKey={this.renderVersion} onError={(error) => this.addRenderError('render', error)}>
-          {React.createElement(unit.Logic, { key: unit.logicVersion, ...unit.defaults, ...this.overrides })}
+          {React.createElement(unit.Logic, { key: `${unit.logicVersion}:${this.run}`, ...unit.defaults, ...this.overrides })}
         </ErrorBoundary>
         <ErrorPanel errors={errors} />
       </>,
@@ -378,6 +380,18 @@ class Board implements BoardApi {
   setMode(mode: BoardMode): void {
     this.mode = mode;
     if (mode !== 'edit') this.endTextEdit(true);
+  }
+
+  restart(): void {
+    this.endTextEdit(false);
+    this.run++;
+    // Like a new source: a run that crashed gets another go.
+    this.renderErrors = [];
+    this.renderVersion++;
+    this.render();
+    window.scrollTo(0, 0);
+    this.report({ type: 'errors', errors: this.errors() });
+    this.scheduleSize();
   }
 
   errors(): BoardError[] {

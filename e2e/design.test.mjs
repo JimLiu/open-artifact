@@ -426,6 +426,61 @@ editorSuite({
       });
     }
 
+    // 2026-11-28 (#56): playing a board again kept the state of the last run (a counter stayed at 3).
+    it('Play on canvas starts a prototype over, also when a link comes back to it', T, async () => {
+      const board = (title, other) => `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>${title}</title><script src="./support.js"></script></head>
+<body><x-dc><helmet><style>body{margin:0}</style></helmet><div style="width: 880px; height: 560px; padding: 40px; box-sizing: border-box">
+<h1>${title}</h1><p id="count">Clicks: {{count}}</p><button id="bump" onClick="{{ bump }}">Add one</button><a id="go" href="${other}.dc.html">Go</a>
+</div></x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":880,"height":560}}'>
+class Component extends DCLogic {
+state = { count: 0 };
+renderVals() { return { count: this.state.count, bump: () => this.setState({ count: this.state.count + 1 }) }; }
+}
+</script></body></html>`;
+      const { url } = await ctx.openNew('prototype-restart', (_ctx, root) => {
+        copyFixture('design', root);
+        const canvas = canvasOf(root);
+        const entry = { ...canvas.boards['Main.dc.html'], is_interactive: true };
+        canvas.boards['Main.dc.html'] = { ...entry, title: 'Start' };
+        canvas.boards['Next.dc.html'] = { ...entry, title: 'Next', x: 960 };
+        canvas.order.push('Next.dc.html');
+        fs.writeFileSync(path.join(root, 'project/canvas.json'), JSON.stringify(canvas));
+        fs.writeFileSync(path.join(root, BOARD), board('Start', 'Next'));
+        fs.writeFileSync(path.join(root, 'project/Next.dc.html'), board('Next', 'Main'));
+      });
+      const browser = await ctx.browser();
+      const page = await browser.load(new URL('index.html', url).href, { ready: textIn('Clicks: 0') });
+      try {
+        const inFrame = (file, code) => `(() => { const doc = document.querySelector('iframe[data-board="${file}"]')?.contentDocument; return doc ? ${code} : undefined; })()`;
+        const count = file => page.evaluate(inFrame(file, `doc.getElementById('count')?.textContent`));
+        const play = file => page.evaluate(`document.querySelector('[data-board-title="${file}"] button[aria-label="Play on canvas"]').click()`);
+        const stopShown = file => `!!document.querySelector('[data-board-title="${file}"] button[aria-label="Stop playing"]')`;
+
+        await play('Main.dc.html');
+        assert.ok(await page.waitFor(stopShown('Main.dc.html')));
+        for (let i = 0; i < 3; i++) await page.evaluate(inFrame('Main.dc.html', `doc.getElementById('bump').click()`));
+        assert.ok(await page.waitFor(inFrame('Main.dc.html', `doc.getElementById('count').textContent === 'Clicks: 3'`)), 'the clicks count up while playing');
+
+        await clickOn(page, buttonNamed('Stop playing'));
+        assert.ok(await page.waitFor(`!${stopShown('Main.dc.html')}`));
+        assert.equal(await count('Main.dc.html'), 'Clicks: 3', 'stopping keeps how the run ended');
+        await play('Main.dc.html');
+        assert.ok(await page.waitFor(inFrame('Main.dc.html', `doc.getElementById('count').textContent === 'Clicks: 0'`)), 'playing again starts over');
+
+        // Follow the link to Next and back: Start begins from its first state again.
+        await page.evaluate(inFrame('Main.dc.html', `doc.getElementById('bump').click()`));
+        assert.ok(await page.waitFor(inFrame('Main.dc.html', `doc.getElementById('count').textContent === 'Clicks: 1'`)));
+        await page.evaluate(inFrame('Main.dc.html', `doc.getElementById('go').click()`));
+        assert.ok(await page.waitFor(stopShown('Next.dc.html')), 'the link plays Next');
+        await page.evaluate(inFrame('Next.dc.html', `doc.getElementById('go').click()`));
+        assert.ok(await page.waitFor(stopShown('Main.dc.html')), 'the link back plays Start');
+        assert.ok(await page.waitFor(inFrame('Main.dc.html', `doc.getElementById('count').textContent === 'Clicks: 0'`)), 'Start begins over');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
     it('the CLI opens the global shell and copies a link to the selected design page', T, async () => {
       const { url } = await ctx.openNew('design-page-share', (_ctx, root) => {
         copyFixture('design', root);

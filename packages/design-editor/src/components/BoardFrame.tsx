@@ -146,8 +146,14 @@ export function BoardFrame({ path, mode, width, height, interactive, onNavigate,
     return () => clearTimeout(late);
   }, [path, source]);
 
+  // Playing starts the prototype over: a board played again, or reached by a
+  // link, begins from its first state rather than where the last run left it.
+  const lastMode = useRef(mode);
   useEffect(() => {
-    boardApi(path)?.setMode(mode);
+    const api = boardApi(path);
+    api?.setMode(mode);
+    if (mode === 'play' && lastMode.current !== 'play') api?.restart();
+    lastMode.current = mode;
     // Canvas frames clip instead of scrolling (see frameDocument).
     ref.current?.contentDocument?.documentElement.toggleAttribute('data-dc-canvas', mode === 'edit');
   }, [path, mode]);

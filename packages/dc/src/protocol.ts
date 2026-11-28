@@ -240,6 +240,8 @@ export interface BoardApi {
   /** Replace the tweak overrides. */
   setProps(props: Record<string, unknown>): void;
   setMode(mode: BoardMode): void;
+  /** Starts the board over: its logic mounts again with fresh state, scrolled to the top. */
+  restart(): void;
   /** The template node under a point, honoring import boundaries; `null` on empty space. */
   pick(x: number, y: number): PickResult | null;
   /**
