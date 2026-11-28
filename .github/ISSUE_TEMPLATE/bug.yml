@@ -1,0 +1,117 @@
+name: Bug report
+description: Something made or broke an artifact, the page, an export, or a plugin.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. The three things that place a bug fastest are the client you use, its version, and the
+        output of `open-artifact doctor --harness <name>` — the form asks for all of them.
+
+  - type: dropdown
+    id: client
+    attributes:
+      label: Client
+      description: Which client made or opened the artifact?
+      options:
+        - Claude Code (`claude-code`)
+        - Codex (`codex`)
+        - Cursor (`cursor`)
+        - GitHub Copilot (`copilot`)
+        - Google Antigravity (`antigravity`)
+        - ZCode (`zcode`)
+        - DeepSeek Harness (`dsh`)
+        - Pi (`pi`)
+        - OMP (`omp`)
+        - Hermes Agent (`hermes`)
+        - ChatGPT on the web (`chatgpt`)
+        - Skills only, any other agent (`skills/open-artifact`)
+        - Open Artifact Desktop (`apps/desktop`)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: client-version
+    attributes:
+      label: Client version
+      description: The version of the client above — the Open Artifact plugin's, the app's, or both.
+      placeholder: '0.16.0 / Claude Code 2.0.31'
+    validations:
+      required: true
+
+  - type: dropdown
+    id: artifact-type
+    attributes:
+      label: Artifact type
+      description: Which type is involved? Choose Other when it happens before a type is picked, or on the library page.
+      options:
+        - Slides (`slides`)
+        - Design (`design`)
+        - Design system (`design-system`)
+        - Whiteboard (`whiteboard`)
+        - Sheets (`sheets`)
+        - Data dashboard (`data`)
+        - Docs (`docs`)
+        - Motion (`motion`)
+        - Page (`page`)
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what it said. Paste the exact text of a message rather than describing it.
+      placeholder: The deck opens, and Export to PDF stops at slide 4 with "…".
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: What should have happened instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The shortest path from a fresh artifact to the problem, with the commands or prompts you used.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: open-artifact doctor output
+      description: 'Run `open-artifact doctor --harness <name>` — the harness names are the plugin folders under `plugins/` — and paste everything it prints.'
+      render: shell
+      placeholder: |
+        $ open-artifact doctor --harness claude-code
+        …
+    validations:
+      required: true
+
+  - type: input
+    id: os-node
+    attributes:
+      label: Operating system and Node version
+      description: Node 22.18 or later is required. On Windows please say whether you use Git Bash, PowerShell or WSL.
+      placeholder: 'macOS 15.3 (arm64), Node 22.18.0'
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots or logs
+      description: Optional. Drag a screenshot in, or paste the log around the failure. A full log beats a fragment.
+    validations:
+      required: false

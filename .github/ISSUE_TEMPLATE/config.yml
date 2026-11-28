@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://github.com/JimLiu/open-artifact/tree/main/docs
+    about: Bilingual user and agent guides — overview, settings, agent workflow, self-hosting and integrations.
+  - name: Artifact types
+    url: https://github.com/JimLiu/open-artifact/tree/main/docs/types
+    about: What each of the nine types does, and how a person and an agent work with it.

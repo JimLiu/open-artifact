@@ -1,0 +1,65 @@
+name: Feature request
+description: A kind of artifact, page behavior or plugin workflow you keep wanting.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Start with the problem, not the solution: what you were making, where it stopped being possible, and what you had
+        to do instead. A request that describes the situation is far easier to fit into the design than one that arrives
+        as a finished feature.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: The work you were doing, where it broke down, and what you had to do instead. Please keep the solution out of this box.
+      placeholder: I keep rebuilding the same three-slide intro in every deck, and there is no way to …
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Suggested solution
+      description: What you would like to happen. If you know which package or artifact type would carry it, say so.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which type or app does it affect?
+      description: Pick the closest one; say so in the suggestion above if it spans several.
+      options:
+        - Slides (`slides`)
+        - Design (`design`)
+        - Design system (`design-system`)
+        - Whiteboard (`whiteboard`)
+        - Sheets (`sheets`)
+        - Data dashboard (`data`)
+        - Docs (`docs`)
+        - Motion (`motion`)
+        - Page (`page`)
+        - Claude Code (`claude-code`)
+        - Codex (`codex`)
+        - Cursor (`cursor`)
+        - GitHub Copilot (`copilot`)
+        - Google Antigravity (`antigravity`)
+        - ZCode (`zcode`)
+        - DeepSeek Harness (`dsh`)
+        - Pi (`pi`)
+        - OMP (`omp`)
+        - Hermes Agent (`hermes`)
+        - ChatGPT on the web (`chatgpt`)
+        - Open Artifact Desktop (`apps/desktop`)
+        - Not specific to a type or an app
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional. Other ways to get the same result, workarounds you already use, or an existing type that nearly fits.
+    validations:
+      required: false
