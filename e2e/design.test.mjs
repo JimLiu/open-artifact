@@ -4758,6 +4758,36 @@ renderVals() { return { count: this.state.count, bump: () => this.setState({ cou
       });
     });
 
+    it('the toolbar at the bottom has Comment, which turns comment mode on and off', T, async () => {
+      const root = tmpDir('design-toolbar-comment');
+      copyFixture('design', root);
+      await withDesignShell(ctx, root, `document.querySelector('[data-board-title="Main.dc.html"]')`, async shell => {
+        // The editor runs in a cross-origin frame of the Shell: its Comment button, and where it sits on the Shell's page.
+        const comment = async () => (await shell.evaluateAll(`(() => {
+          const bar = document.querySelector('[role=toolbar][aria-label="Canvas tools"]');
+          if (!bar) return null;
+          const button = bar.querySelector('button[aria-label="Comment"]');
+          const r = button?.getBoundingClientRect();
+          return { button: Boolean(button), pressed: button?.getAttribute('aria-pressed') ?? null, at: r ? [r.x + r.width / 2, r.y + r.height / 2] : null };
+        })()`)).find(Boolean);
+        assert.equal((await comment()).button, false, 'at the top the Shell has the Comments button, the toolbar none');
+        await clickOn(shell, buttonNamed('Artifact options'));
+        await clickOn(shell, buttonNamed('Move toolbar to bottom'));
+        assert.ok(await until(async () => (await comment())?.button), 'the toolbar at the bottom has Comment');
+        const frame = await shell.evaluate(`(() => { const r = document.querySelector('iframe').getBoundingClientRect(); return [r.x, r.y]; })()`);
+        const press = async () => {
+          const { at } = await comment();
+          await shell.click(frame[0] + at[0], frame[1] + at[1]);
+        };
+        await press();
+        assert.ok(await shell.waitFor("document.querySelector('[data-comment-capture]')", 5000), 'Comment turned comment mode on');
+        assert.ok(await until(async () => (await comment()).pressed === 'true'), 'Comment shows comment mode is on');
+        await press();
+        assert.ok(await shell.waitFor("!document.querySelector('[data-comment-capture]')", 5000), 'Comment again turned it off');
+        assert.ok(await until(async () => (await comment()).pressed === 'false'), 'Comment shows comment mode is off');
+      });
+    });
+
     it('closing the link address with Escape or Tab says the address was dropped, and the next Delete only says to press it again', T, async () => {
       const { root, url } = await ctx.openNew('link-card', paintBoard);
       const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#box')`, settle: 800 });

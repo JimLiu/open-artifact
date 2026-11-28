@@ -6,7 +6,7 @@
 
 import type { ChromeCommand, ChromeReport } from '@open-artifact/runtime';
 import { createCollab, type CollabAsideKind, type CollabKey } from '@open-artifact/editor-kit';
-import { commentOnSelection, designComments, startComments, useComments } from './comments.ts';
+import { canComment, commentOnSelection, designComments, startComments, useComments } from './comments.ts';
 import { designHistory, startHistory } from './history.ts';
 import { startCollabPresence } from './presence.ts';
 import { useDocument } from '../state/document.ts';
@@ -47,6 +47,15 @@ export function startCollab(): void {
     if (!useComments.getState().on) return;
     if ((state.mode !== previous.mode && state.mode !== 'canvas') || (state.tool !== previous.tool && state.tool !== 'select' && state.tool !== 'hand')) useComments.getState().setOn(false);
   });
+}
+
+/** Turns comment mode on or off, as C does (the bottom toolbar's Comment); in a Shell the Shell does it. */
+export function toggleCommentMode(): void {
+  const state = useComments.getState();
+  if (!state.available || !canComment()) return;
+  const shell = session().shell;
+  if (shell) shell.requestCommentMode(!state.on);
+  else state.setOn(!state.on);
 }
 
 /** Ends comment mode (V, or the Select tool picked again). */
