@@ -85,7 +85,7 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 
 **Design only** (`design.test.mjs`)
 
-- `check` names the missing `support.js` line, and flags a board that `canvas.json` does not place.
+- `check` names the missing `support.js` line, and flags a board that `canvas.json` does not place. It takes a `{{hole}}` in a `style-hover` (before, the hole's braces read as a way out of the rule and check failed), and still flags a `style-hover` that closes the rule.
 - `list` finds design systems under the given folders, and returns none when there are none.
 - In Chrome:
   - Send to agent: the composer's request reaches `wait`;
@@ -107,6 +107,16 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
   - a right-button drag that starts on an element of the artboard pans the canvas by the distance dragged, keeps the selection where it was, and opens no menu; a right-click without travel still opens the menu;
   - an unreadable `canvas.json` shows the banner, and the file is left unchanged;
   - a box placed with `left: 50%; top: 2rem` and dragged 60 × 30 px is saved at its drawn place plus the drag (`left` about 440 px plus the drag at the canvas's zoom). Before, the move read `50%` as 50 px and `2rem` as 2 px, so the first step threw the box across the artboard.
+  - R places a box on an artboard with the Properties panel open, and ⌘Z takes it back together with its selection: no Lock button, no width field and no "The element was not found". Before, the undone box stayed selected. Redo puts it back;
+  - ⌘] with a heading and a box selected and a paragraph between them moves the heading past the paragraph while the box, last already, stays; ⌘[ then moves the two, now side by side, before the paragraph; ⌘Z and ⇧⌘Z undo and redo that step. Locked, the two stay where they are and it says "Locked: unlock first.". Before, the selection moved as one block past the last one's neighbour, so nothing moved;
+  - a paragraph dragged below its artboard becomes a frameless piece and says "Moved onto the canvas"; the piece's menu keeps Rename, turned off, with "A loose piece shows no title on the canvas. Rename it in Layers." Before, the move said nothing, and Rename was on but did nothing, since a piece has no title to edit;
+  - ⇧⌘G on a group holding a locked child ungroups it: the child is still `data-locked`, absolutely placed, at the same place on the screen. Before, the locked child refused the ungroup with no message;
+  - ⌥A and ⌥W with a box and an element placed from `right` and `bottom` move the element to the left and top edges at its own width and height. Before, `left` and `top` were written beside `right` and `bottom`, so it stretched;
+  - a box dragged from one artboard onto another moves into it as a positioned layer with the locked span inside it still `data-locked`, and says "Moved to Second"; ⌘Z puts it back. Alt-dragged onto the empty canvas it becomes a piece file without the lock, says "Copied onto the canvas", and the box stays; ⌘Z takes the piece away. A locked box selected from the layers list and dragged onto the other artboard stays in its own. Before, the box stayed in its own artboard, off its edge;
+  - a selected artboard copied and pasted becomes a third artboard, not a layer of itself; deleting an artboard removes its file, and after the next saved change (a note nudged) the file is still gone and `check` passes. Before, the save wrote the deleted file back. With a paragraph and a note selected, a click on the note narrows to it, so Delete takes only the note;
+  - an artboard whose root element covers the page with `background: rgb(30, 60, 90)`: its Background row reads that, a box's fill pasted on it with ⌥⌘V goes into the root's style and shows (⌘Z takes it back), and its properties pasted on another artboard give that page the same background. Before, the row read white and the paste went into a `body` rule under the root;
+  - a rectangle drawn over a row of an `sc-for` list while editing the artboard goes outside the repeat and shows once; Shift-drawn rectangles on the canvas at a fractional zoom are square. Before, the drawing went into the row's template and showed in every row, and a square could come out a pixel off;
+  - "8 16" typed in the Padding field says "Nothing changed. Padding takes a number in px.", and "1,5" in Line height says "Nothing changed. Line height takes a number only."; the file stays as it was. Before, the space and the comma were dropped, so they were written as 816 px and 15.
 
 **Design system only** (`design-system.test.mjs`)
 

@@ -45,6 +45,21 @@ describe('typed numbers', () => {
     assert.equal(readTypedNumber('abc'), null);
   });
 
+  it('reads two numbers parted by a space as no number, and the other separator only as grouping in threes', () => {
+    // Before, the spaces went and "8 16" was 816, "10 20" 1020.
+    assert.equal(readTypedNumber('8 16'), null);
+    assert.equal(readTypedNumber('10px 20'), null);
+    assert.equal(readTypedNumber(' 12 '), 12);
+    assert.equal(readTypedNumber('- 5'), -5);
+    // Before, "1,5" was 15.
+    assert.equal(readTypedNumber('1,5'), null);
+    assert.equal(readTypedNumber('1.5', ','), null);
+    assert.equal(readTypedNumber('1,500'), 1500);
+    assert.equal(readTypedNumber('12,5,0'), null);
+    assert.equal(readTypedNumber('1,5.2'), null);
+    assert.equal(readTypedNumber('1.234.567,5', ','), 1234567.5);
+  });
+
   it('drops a refused minus sign instead of going to the minimum', () => {
     assert.deepEqual(settleTypedText('-5', corners), { value: 5, limits: [{ reason: 'no-minus', limit: 0 }] });
     assert.deepEqual(settleTypedText('-5', { min: -10, max: 32 }), { value: -5, limits: [] });

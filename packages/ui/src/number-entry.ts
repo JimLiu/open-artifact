@@ -52,14 +52,19 @@ export function leadsNumber(text: string, at: number): boolean {
  * grouping. Full-width digits and any minus sign are read too.
  */
 export function readTypedNumber(text: string, decimal = '.'): number | null {
-  let plain = text
-    .replace(FORMAT_CHARS, '')
+  const spaced = text.replace(FORMAT_CHARS, '').trim();
+  // A space between digits parts two values ("8 16" is a padding), not one number.
+  if (/[\d０-９.,．，]\s+[\d０-９.,．，]/.test(spaced)) return null;
+  let plain = spaced
     .replace(/\s+/g, '')
     .replace(/[０-９]/g, (digit) => String(digit.charCodeAt(0) - 0xff10))
     .replace(/．/g, '.')
     .replace(/，/g, ',')
     .replace(MINUS_SIGNS, '-')
     .replace(/＋/g, '+');
+  // The other separator groups thousands, in threes ("1,250.5"); anywhere else ("1,5") it is no number.
+  const group = decimal === ',' ? '.' : ',';
+  if (plain.includes(group) && !new RegExp(`^[-+]?\\d{1,3}(?:\\${group}\\d{3})+(?:\\${decimal}\\d*)?$`).test(plain)) return null;
   plain = decimal === ',' ? plain.replace(/\./g, '').replace(',', '.') : plain.replace(/,/g, '');
   if (!/^[-+]?(?:\d+\.?\d*|\.\d+)$/.test(plain)) return null;
   const value = Number(plain);

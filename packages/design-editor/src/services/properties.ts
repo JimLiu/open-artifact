@@ -6,7 +6,7 @@
  */
 
 import { attributeValue, elementPath, parseStyle, serializeStyle, styleMap, type HtmlElement, type TemplateModel } from '@open-artifact/dc';
-import { DEFAULT_PAGE_COLOR, pageFillDeclarations, pageFillEdits, pageFillFromCopy, pageFillSplices, readPageFill, rootElementOf, safePageFillValue, type PageFill } from '../lib/page-fill.ts';
+import { DEFAULT_PAGE_COLOR, pageFillDeclarations, pageFillEdits, pageFillFromCopy, pageFillSplices, readPageFill, rootElementOf, safePageFillValue, type PageFill, type PageFillOptions } from '../lib/page-fill.ts';
 import { announce } from './announce.ts';
 import { noteCssValue, type CanvasNote } from '@open-artifact/design-core';
 import { toast } from '@open-artifact/ui';
@@ -48,11 +48,22 @@ function framelessRoot(path: string): ResolvedGroup | null {
   return root ? { board: path, model, elements: [root] } : null;
 }
 
+/** Whether the artboard's root element covers its whole page, as measured: then its background is the page's. */
+function pageLayout(path: string, model: TemplateModel): PageFillOptions {
+  const entry = useDocument.getState().canvas.boards[path];
+  const root = rootElementOf(model);
+  const tid = root ? model.tidOf.get(root) : undefined;
+  const rect = tid === undefined ? null : boardApi(path)?.inspect(tid)?.rect;
+  if (!entry || !rect) return {};
+  return { rootCovers: rect.x <= 0.5 && rect.y <= 0.5 && rect.x + rect.width >= entry.w - 0.5 && rect.y + rect.height >= entry.h - 0.5 };
+}
+
 /** A framed artboard's page background as copied declarations, or null when its page can't be read. */
 export function boardFillOf(path: string): Declarations | null {
   const source = useDocument.getState().boards[path]?.source;
   if (!source) return null;
-  const fill = readPageFill(templateOf(source));
+  const model = templateOf(source);
+  const fill = readPageFill(model, pageLayout(path, model));
   return fill ? pageFillDeclarations(fill) : null;
 }
 
@@ -184,8 +195,10 @@ export function pasteProperties(): void {
         const source = useDocument.getState().boards[path]?.source;
         const edits = page ? pageFillEdits(page) : null;
         // The same background already: nothing to write, and still a paste.
-        const splices = edits && source ? pageFillSplices(templateOf(source), edits) : null;
-        if (splices && (!splices.length || edit(path, { kind: 'pageFill', edits: edits! }, { coalesce: key }))) took = true;
+        const model = source ? templateOf(source) : null;
+        const layout = model ? pageLayout(path, model) : {};
+        const splices = edits && model ? pageFillSplices(model, edits, layout) : null;
+        if (splices && (!splices.length || edit(path, { kind: 'pageFill', edits: edits!, ...layout }, { coalesce: key }))) took = true;
         else if (splices) failed = true;
       }
       if (took) pasted++;
@@ -218,7 +231,8 @@ export function boardBackgrounds(paths: readonly string[]): string[] | null {
   const out: string[] = [];
   for (const path of paths) {
     const source = useDocument.getState().boards[path]?.source;
-    const fill = source ? readPageFill(templateOf(source)) : null;
+    const model = source ? templateOf(source) : null;
+    const fill = model ? readPageFill(model, pageLayout(path, model)) : null;
     if (!fill) return null;
     out.push(fill.image ?? fill.color ?? DEFAULT_PAGE_COLOR);
   }
@@ -238,10 +252,12 @@ export function setBoardBackground(paths: readonly string[], value: string): voi
   useDocument.getState().transact(() => {
     for (const path of paths) {
       const source = useDocument.getState().boards[path]?.source;
-      const before = source ? readPageFill(templateOf(source)) : null;
+      const model = source ? templateOf(source) : null;
+      const layout = model ? pageLayout(path, model) : {};
+      const before = model ? readPageFill(model, layout) : null;
       if (!before) continue;
       const fill: PageFill = !next ? {} : LAYERED_VALUE.test(next) ? { image: next, ...(before.color ? { color: before.color } : {}) } : { color: next };
-      if (edit(path, { kind: 'pageFill', edits: pageFillEdits(fill) }, { coalesce: key })) changed = true;
+      if (edit(path, { kind: 'pageFill', edits: pageFillEdits(fill), ...layout }, { coalesce: key })) changed = true;
     }
   });
   if (changed) announce(next ? 'Background updated' : 'Background reset');

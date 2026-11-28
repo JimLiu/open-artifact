@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { checkDesignProject } from '@open-artifact/design-core';
-import { outlineReach, pieceBox, piecePatch, pieceSource, pieceTitle } from '../src/lib/piece.ts';
+import { outlineReach, pieceBox, pieceMessage, piecePatch, pieceSource, pieceTitle } from '../src/lib/piece.ts';
 
 describe('a piece made from an element', () => {
   it('is titled by its tag', () => {
@@ -30,5 +30,14 @@ describe('a piece made from an element', () => {
     const canvas = JSON.stringify({ v: 3, createdOnFiles: { v: 1, at: '2026-11-27T00:00:00Z' }, title: 'T', boards: { 'Piece.dc.html': { x: 0, y: 0, w: 92, h: 52, title: 'Div', frameless: true } }, order: ['Piece.dc.html'], notes: {} });
     const problems = checkDesignProject(new Map([['canvas.json', canvas], ['Piece.dc.html', source]]));
     assert.deepEqual(problems, []);
+  });
+});
+
+describe('what making pieces says', () => {
+  it('says moved or copied, and how many', () => {
+    assert.equal(pieceMessage(1, false), 'Moved onto the canvas');
+    assert.equal(pieceMessage(1, true), 'Copied onto the canvas');
+    assert.equal(pieceMessage(3, false), 'Moved 3 elements onto the canvas');
+    assert.equal(pieceMessage(2, true), 'Copied 2 elements onto the canvas');
   });
 });

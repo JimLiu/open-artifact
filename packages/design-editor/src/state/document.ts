@@ -351,6 +351,8 @@ export const useDocument = create<DocumentState & DocumentActions>()((set, get) 
     const replay = board?.pending.length ? replayOps(text, board.pending) : { source: text, kept: [], dropped: 0 };
     set({
       boards: { ...state.boards, [path]: { source: replay.source, saved: text, hash, pending: replay.kept } },
+      // A file of a deleted artboard written again is theirs now: the next save must not delete it.
+      ...(state.trash.includes(path) ? { trash: state.trash.filter((entry) => entry !== path) } : {}),
       undo: clear(state.undo),
       redo: clear(state.redo),
       ...(replay.kept.length ? { revision: state.revision + 1 } : {}),
@@ -389,9 +391,10 @@ export const useDocument = create<DocumentState & DocumentActions>()((set, get) 
       const board = boards[path];
       if (board) boards[path] = { ...board, saved: null, hash: null };
     }
+    // A deleted artboard stays in the trash, now with no hash: until it is back on the canvas its
+    // source (kept for undo) is not written again. Before, it left the trash and the next save wrote it back.
     set({
       boards,
-      trash: state.trash.filter((path) => !sent.deleted.includes(path)),
       ...(sent.canvas && 'canvas.json' in hashes ? { canvasSaved: sent.canvas.canvas, canvasHash: hashes['canvas.json'] ?? null } : {}),
     });
   },
@@ -442,6 +445,8 @@ export function isDirty(state: DocumentState): boolean {
 /** An artboard must be written: changed, or listed on the canvas but missing on the server. */
 export function boardNeedsWrite(state: DocumentState, path: string, board: BoardDoc): boolean {
   if (board.source === null) return false;
+  // Deleted: written again only once it is back on the canvas.
+  if (state.trash.includes(path) && !(path in state.canvas.boards)) return false;
   if (board.source !== board.saved) return true;
   return board.hash === null && path in state.canvas.boards;
 }

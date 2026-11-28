@@ -100,9 +100,10 @@ const here = () => location.pathname;
 const MAX_STANDALONE = 2 * 1024 * 1024;
 
 /** The payload of copied elements, with what they need to look the same elsewhere. */
-export function elementsPayload(board: string, model: TemplateModel, elements: HtmlElement[], items: readonly ElementSelection[]): ElementsPayload {
-  // Copies never carry a lock.
-  const html = elements.map((el) => withoutLocks(elementSource(model, el)));
+export function elementsPayload(board: string, model: TemplateModel, elements: HtmlElement[], items: readonly ElementSelection[], options: { keepLocks?: boolean } = {}): ElementsPayload {
+  // Copies never carry a lock; elements moved elsewhere keep theirs.
+  const unlocked = options.keepLocks ? (markup: string) => markup : withoutLocks;
+  const html = elements.map((el) => unlocked(elementSource(model, el)));
   const payload: ElementsPayload = { kind: 'elements', board, html, from: here() };
   try {
     const itemOf = (el: HtmlElement): ElementSelection => {
@@ -110,7 +111,7 @@ export function elementsPayload(board: string, model: TemplateModel, elements: H
       return items.find((item) => item.tid === tid) ?? { tid, path: elementPath(model, el), instance: 0 };
     };
     const lives = elements.map((el) => liveElementOf(board, itemOf(el), { descend: false, svg: false }));
-    const rendered = elements.map((_el, index) => (lives[index] && dependsOnArtboard(html[index]!) ? withoutLocks(renderedMarkup(model, lives[index]!)) : null));
+    const rendered = elements.map((_el, index) => (lives[index] && dependsOnArtboard(html[index]!) ? unlocked(renderedMarkup(model, lives[index]!)) : null));
     if (rendered.some((markup) => markup !== null)) payload.rendered = rendered;
     const present = lives.filter((live): live is Element => live !== null);
     const css = carriedCss(present);

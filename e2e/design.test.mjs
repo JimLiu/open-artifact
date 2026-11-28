@@ -241,6 +241,21 @@ editorSuite({
       assert.match(error.message, /<script src="\.\/support\.js"><\/script>/);
     });
 
+    it('check takes a {{hole}} in a style-hover, and still flags a rule that breaks out', T, async () => {
+      const root = path.join(tmpDir('design-hover-hole'), 'artifact');
+      copyFixture('design', root);
+      const file = path.join(root, BOARD);
+      const source = fs.readFileSync(file, 'utf8');
+      // Before, the braces of the hole read as a way out of the rule, and check failed.
+      fs.writeFileSync(file, source.replace('<h1 style=', '<h1 style-hover="color: {{accent}}; border-color: {{ accent }}" style='));
+      const ok = await ctx.cli.run(['check', root, '--json']);
+      assert.equal(ok.code, 0, ok.stdout);
+      fs.writeFileSync(file, source.replace('<h1 style=', '<h1 style-hover="color: {{accent}} } body {" style='));
+      const bad = await ctx.cli.run(['check', root, '--json']);
+      assert.equal(bad.code, 1, bad.stdout);
+      assert.ok(bad.json.findings.some(f => f.level === 'error' && /style-hover/.test(f.message)), bad.stdout);
+    });
+
     it('check flags a board that canvas.json does not place', T, async () => {
       const root = path.join(tmpDir('design-unplaced'), 'artifact');
       copyFixture('design', root);
@@ -2101,6 +2116,71 @@ editorSuite({
       } finally { await page.close(); }
     });
 
+    it('⌘] and ⌘[ step each run of selected elements past its own neighbour, as one undo step', T, async () => {
+      const { root, url } = await ctx.openNew('stacking-runs', paintBoard);
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#box')`, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const boardText = () => fs.readFileSync(path.join(root, BOARD), 'utf8');
+      const order = () => ['<h1', '<p', '<div id="box"'].map(tag => boardText().indexOf(tag)).map((at, i, all) => all.filter(other => other < at).length).join('');
+      try {
+        // The heading and the box, with the paragraph between them.
+        await page.click(...await page.evaluate(boardMiddle('h1')));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the heading is selected');
+        await page.click(...await page.evaluate(boardMiddle('#box')), { shift: true });
+        // Before, the two moved as one block past the box's neighbour; the box has none, so nothing moved.
+        await page.press(']', mod);
+        assert.ok(await until(() => order() === '102', 10000), `⌘] moves the heading past the paragraph, the box is last already: ${order()}`);
+        // Now side by side, they go together.
+        await page.press('[', mod);
+        assert.ok(await until(() => order() === '021', 10000), `⌘[ moves the two before the paragraph: ${order()}`);
+        await page.press('z', mod);
+        assert.ok(await until(() => order() === '102', 10000), `⌘Z undoes that step: ${order()}`);
+        await page.press('z', { ...mod, shift: true });
+        assert.ok(await until(() => order() === '021', 10000), `⇧⌘Z redoes it: ${order()}`);
+        // Locked, the two are left where they are, and it says why.
+        await clickOn(page, buttonNamed('Lock'), 'Lock');
+        assert.ok(await until(() => (boardText().match(/data-locked/g) ?? []).length === 2, 10000), 'both are locked');
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press(']', mod);
+        assert.ok(await page.waitFor(textIn('Locked: unlock first.'), 5000), 'it says the selection is locked');
+        await new Promise(resolve => setTimeout(resolve, 600));
+        assert.equal(order(), '021', 'nothing moved');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('number fields: "8 16" in Padding and "1,5" in Line height change nothing and say what the field takes', T, async () => {
+      const { root, url } = await ctx.openNew('number-fields', paintBoard);
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#box')`, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const boardText = () => fs.readFileSync(path.join(root, BOARD), 'utf8');
+      const enter = async (label, typed) => {
+        const field = `document.querySelector('[data-properties-panel] input[aria-label="${label}"]')`;
+        assert.ok(await page.waitFor(field, 5000), `the panel has ${label}`);
+        await clickOn(page, field);
+        await page.evaluate(`${field}.select()`);
+        await page.type(typed);
+        await page.press('Enter');
+      };
+      try {
+        await page.click(...await page.evaluate(boardMiddle('#box')));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the box is selected');
+        await page.press('\\', mod);
+        const before = boardText();
+        await enter('Padding', '8 16');
+        // Before, the space went and it was written as 816px.
+        assert.ok(await page.waitFor(textIn('Nothing changed. Padding takes a number in px.'), 5000), 'it says what Padding takes');
+        await page.click(...await page.evaluate(boardMiddle('p')));
+        assert.ok(await page.waitFor(`document.querySelector('[data-properties-panel] input[aria-label="Line height"]')`, 5000), 'the paragraph is selected');
+        await enter('Line height', '1,5');
+        // Before, the comma went and it was 15.
+        assert.ok(await page.waitFor(textIn('Nothing changed. Line height takes a number only.'), 5000), 'it says what Line height takes');
+        await pause(600);
+        assert.equal(boardText(), before, 'nothing was written');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
     it('bare ] and [ take an element to the front or back, ⇧⌘] does nothing on a Mac, and Ctrl+Y redoes where ⌘Y does not', T, async () => {
       const { root, url } = await ctx.openNew('stacking-bare', paintBoard);
       const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#box')`, settle: 800 });
@@ -2682,6 +2762,32 @@ editorSuite({
       } finally { await page.close(); }
     });
 
+    it('a group holding a locked child ungroups, and the child stays locked where it was', T, async () => {
+      const { root, url } = await ctx.openNew('ungroup-locked', (_ctx, root) => {
+        copyFixture('design', root);
+        fs.writeFileSync(path.join(root, BOARD), fs.readFileSync(path.join(root, BOARD), 'utf8').replace(/<x-dc>[\s\S]*?<\/x-dc>/, `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="position: relative; width: 880px; height: 560px"><div id="wrap" style="position: absolute; left: 40px; top: 40px; width: 400px; height: 200px; padding: 20px; display: flex; gap: 20px"><div id="t1" data-locked="true" style="width: 120px; height: 60px; background-color: rgb(0, 128, 0)">One</div><div id="t2" style="width: 120px; height: 60px; background-color: rgb(0, 0, 200)">Two</div></div></div></x-dc>`));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#t2')`, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      try {
+        const before = await page.evaluate(boxIn('Main.dc.html', '#t1'));
+        await page.click(...await page.evaluate(`(() => {
+          const frame = document.querySelector('iframe[data-board="Main.dc.html"]');
+          const rect = frame.getBoundingClientRect();
+          const box = frame.contentDocument.querySelector('#wrap').getBoundingClientRect();
+          const zoom = rect.width / frame.offsetWidth;
+          return [rect.left + (box.left + 6) * zoom, rect.top + (box.top + 6) * zoom];
+        })()`));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the group is selected');
+        await page.press('g', { ...mod, shift: true });
+        // The lock pins the child, not its group: before this went back and forth.
+        assert.ok(await until(() => !fileText(root, 'Main.dc.html').includes('id="wrap"'), 10000), `the group went: ${fileText(root, 'Main.dc.html')}`);
+        assert.match(fileText(root, 'Main.dc.html'), /<div id="t1" data-locked="true" style="[^"]*position: absolute/, 'the locked child stays locked, placed where it was');
+        assert.ok(await page.waitFor(`(() => { const r = document.querySelector('iframe[data-board="Main.dc.html"]').contentDocument.querySelector('#t1').getBoundingClientRect(); return Math.abs(r.left - ${before[0]}) < 1 && Math.abs(r.top - ${before[1]}) < 1; })()`, 5000), 'it shows where it was');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
     it('ungrouping a positioned group lifts its flowing children out where they were, with the styles the group gave them', T, async () => {
       const { root, url } = await ctx.openNew('ungroup-flow', (_ctx, root) => {
         copyFixture('design', root);
@@ -3013,6 +3119,7 @@ editorSuite({
         const [, below] = await toScreen(0, 640);
         await page.dragMouse([px, py], [px, below]);
         assert.ok(await until(() => canvasOf(root).boards['Piece.dc.html'] && fs.existsSync(piecePath) && !boardText().includes(words), 10000), `the paragraph became a piece: ${JSON.stringify(canvasOf(root).boards)}`);
+        assert.ok(await page.waitFor(textIn('Moved onto the canvas'), 5000), 'it says where it went');
         const entry = canvasOf(root).boards['Piece.dc.html'];
         assert.equal(entry.frameless, true, 'the piece has no frame');
         assert.equal(entry.title, 'P', 'it is named for its tag');
@@ -3029,9 +3136,140 @@ editorSuite({
         // The piece dragged back over the artboard joins it.
         const piece = canvasOf(root).boards['Piece.dc.html'];
         const [fromX, fromY] = await toScreen(piece.x + piece.w / 2, piece.y + piece.h / 2);
+        // Its menu keeps Rename, off, and says where to rename it: a piece shows no title.
+        await page.click(fromX, fromY);
+        await pause(300);
+        await page.rightClick(fromX, fromY);
+        const rename = `[...document.querySelectorAll('[role=menuitem]')].find(item => item.textContent.trim() === 'Rename')`;
+        assert.ok(await page.waitFor(rename, 5000), 'the piece’s menu shows Rename');
+        assert.equal(await page.evaluate(`${rename}.getAttribute('aria-disabled') === 'true' || ${rename}.hasAttribute('data-disabled') || ${rename}.disabled === true`), true, 'Rename is off for a piece');
+        assert.equal(await page.evaluate(`${rename}.title || ${rename}.closest('[title]')?.title`), 'A loose piece shows no title on the canvas. Rename it in Layers.');
+        await page.press('Escape');
+        assert.ok(await page.waitFor(`!document.querySelector('[role=menuitem]')`, 5000), 'Escape closed the menu');
         await page.dragMouse([fromX, fromY], [px, py]);
         assert.ok(await until(() => !canvasOf(root).boards['Piece.dc.html'] && !fs.existsSync(piecePath) && boardText().includes(words), 10000), `the piece joined the artboard: ${JSON.stringify(canvasOf(root).boards)}`);
         assert.ok(await page.waitFor(textIn('Moved into Main'), 5000), 'it says where it went');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('an element dragged onto another artboard moves into it with the locked layer inside it, Alt-dragged onto the empty canvas it becomes a copied piece, and a locked element stays in its artboard', T, async () => {
+      const { root, url } = await ctx.openNew('drag-into-board', (_ctx, root) => {
+        copyFixture('design', root);
+        fs.writeFileSync(path.join(root, BOARD), fs.readFileSync(path.join(root, BOARD), 'utf8').replace(/<x-dc>[\s\S]*?<\/x-dc>/, `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="width: 880px; height: 560px; position: relative"><div id="a" style="position: absolute; left: 40px; top: 40px; width: 160px; height: 80px; background-color: rgb(0, 0, 200)"><span id="lk" data-locked="true">Held</span></div><div id="b" data-locked="true" style="position: absolute; left: 400px; top: 40px; width: 100px; height: 60px; background-color: rgb(200, 0, 0)"></div></div></x-dc>`));
+        withBoard(root, 'Second.dc.html', `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="width: 880px; height: 560px"><p>Other</p></div></x-dc>`);
+      });
+      const ready = `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#a') && document.querySelector('iframe[data-board="Second.dc.html"]')?.contentDocument?.querySelector('p')`;
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const mouse = pointer(page);
+      const text = name => fs.readFileSync(path.join(root, 'project', name), 'utf8');
+      const pieces = () => Object.keys(canvasOf(root).boards).filter(name => name.startsWith('Piece'));
+      const toScreen = (x, y) => page.evaluate(`(() => { const f = document.querySelector('iframe[data-board="Main.dc.html"]'); const r = f.getBoundingClientRect(); const zoom = r.width / f.offsetWidth; return { x: r.left + ${x} * zoom, y: r.top + ${y} * zoom }; })()`);
+      const at = async (board, selector) => { const [x, y] = await page.evaluate(middleIn(board, selector)); return { x, y }; };
+      try {
+        // Zoomed out, so there is empty canvas in view below the artboards.
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        for (let n = 0; n < 2; n++) {
+          await page.evaluate(`document.querySelector('[data-canvas-surface]').dispatchEvent(new KeyboardEvent('keydown', { key: '-', code: 'Minus', metaKey: ${mod.meta}, ctrlKey: ${mod.ctrl}, bubbles: true, cancelable: true }))`);
+          await pause(300);
+        }
+        await pause(400);
+        const box = await at('Main.dc.html', '#a');
+        await page.click(box.x, box.y);
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the box is selected');
+        // Before, it stayed in its own artboard, moved off its edge and cut off.
+        await mouse.drag(box, await at('Second.dc.html', 'p'));
+        assert.ok(await until(() => !text('Main.dc.html').includes('id="a"') && /id="a"[^>]*position: absolute/.test(text('Second.dc.html')), 10000), `the box moved into the other artboard: ${text('Second.dc.html')}`);
+        assert.match(text('Second.dc.html'), /<span id="lk" data-locked="true">Held<\/span>/, 'the locked layer inside it stays locked');
+        assert.ok(await page.waitFor(textIn('Moved to Second'), 5000), 'it says where it went');
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('z', mod);
+        assert.ok(await until(() => text('Main.dc.html').includes('id="a"') && !text('Second.dc.html').includes('id="a"'), 10000), 'one ⌘Z puts it back');
+
+        // Alt onto the empty canvas: a piece, and the box stays. Before, the copy stayed in the artboard, cut off.
+        const again = await at('Main.dc.html', '#a');
+        await page.click(again.x, again.y);
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the box is selected again');
+        await mouse.drag(again, await toScreen(120, 700), { modifiers: 1 });
+        assert.ok(await until(() => pieces().length === 1 && fs.existsSync(path.join(root, 'project', pieces()[0])), 10000), `Alt made a piece: ${JSON.stringify(canvasOf(root).boards)}`);
+        assert.ok(text('Main.dc.html').includes('id="a"'), 'the box stays in its artboard');
+        assert.ok(text(pieces()[0]).includes('Held') && !text(pieces()[0]).includes('data-locked'), 'the piece is a copy, without the lock');
+        assert.ok(await page.waitFor(textIn('Copied onto the canvas'), 5000), 'it says it copied');
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('z', mod);
+        assert.ok(await until(() => pieces().length === 0, 10000), 'one ⌘Z takes the piece away');
+
+        // A locked element selected from the layers list stays in its artboard when dragged onto another.
+        // A selection in Main opens its rows in the layers list.
+        const first = await at('Main.dc.html', '#a');
+        await page.click(first.x, first.y);
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the blue box is selected');
+        await page.press('\\', mod);
+        const lockedRow = `[...document.querySelectorAll('[role=tree][aria-label="Layers"] [role=treeitem]')].find(el => /Locked/.test(el.getAttribute('aria-label') ?? '') && !el.textContent.includes('Held'))`;
+        assert.ok(await page.waitFor(lockedRow, 5000), 'the layers list shows the locked box');
+        const row = await middleOf(page, lockedRow);
+        await page.click(row.x, row.y);
+        await page.press('\\', mod);
+        const held = await at('Main.dc.html', '#b');
+        await mouse.drag(held, await at('Second.dc.html', 'p'));
+        await pause(800);
+        assert.ok(text('Main.dc.html').includes('id="b"') && !text('Second.dc.html').includes('id="b"'), `the locked box stayed: ${text('Second.dc.html')}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('a copied artboard pasted while it is selected lands on the canvas, a deleted artboard stays deleted when the next change is saved, and a click on a note of a mixed selection selects just it', T, async () => {
+      const { root, url } = await ctx.openNew('board-paste-delete', (_ctx, root) => {
+        copyFixture('design', root);
+        withBoard(root, 'Second.dc.html', `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="width: 880px; height: 560px"><p>Other</p></div></x-dc>`);
+        const canvas = canvasOf(root);
+        canvas.notes = { memo: { kind: 'rect', x: 0, y: 700, w: 160, h: 100, title: 'Mixed note' } };
+        fs.writeFileSync(path.join(root, 'project/canvas.json'), JSON.stringify(canvas));
+      });
+      const ready = `document.querySelector('[data-board-title="Second.dc.html"]') && document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('p')`;
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const text = name => fs.readFileSync(path.join(root, 'project', name), 'utf8');
+      const boards = () => Object.keys(canvasOf(root).boards);
+      const secondFile = path.join(root, 'project/Second.dc.html');
+      try {
+        await page.click(...await titleOf(page, 'Second.dc.html'));
+        await pause(300);
+        const copied = await copyEvent(page);
+        await pasteEvent(page, copied);
+        // Before, the copy went inside the artboard as a layer of itself.
+        assert.ok(await until(() => boards().length === 3, 10000), `the copy is a new artboard: ${boards()}`);
+        assert.equal((text('Second.dc.html').match(/<p>Other<\/p>/g) ?? []).length, 1, 'the artboard holds itself once');
+
+        await page.click(...await titleOf(page, 'Second.dc.html'));
+        await pause(300);
+        await page.press('Delete');
+        assert.ok(await until(() => !boards().includes('Second.dc.html') && !fs.existsSync(secondFile), 10000), 'the artboard and its file are gone');
+        // Another change, saved: before, it wrote the deleted file back and check failed.
+        // The canvas draws the note itself once it settles: find it from Main's place (Main is at 0, 0; the note at 0, 700, 160 × 100).
+        const noteAt = `(() => { const frame = document.querySelector('iframe[data-board="Main.dc.html"]'); const r = frame.getBoundingClientRect(); const zoom = r.width / frame.offsetWidth; return { x: r.left + 80 * zoom, y: r.top + 750 * zoom, zoom }; })()`;
+        const memo = await page.evaluate(noteAt);
+        await page.click(memo.x, memo.y);
+        await page.press('ArrowRight');
+        assert.ok(await until(() => canvasOf(root).notes.memo.x !== 0, 10000), 'the note moved and was saved');
+        await pause(1500);
+        assert.equal(fs.existsSync(secondFile), false, 'the deleted artboard’s file stays deleted');
+        const out = await ctx.cli.run(['check', root, '--json']);
+        assert.equal(out.code, 0, out.stdout);
+
+        // An element and the note; a click on the note alone narrows to it, so Delete takes only the note.
+        const [px, py] = await page.evaluate(middleIn('Main.dc.html', 'p'));
+        await page.click(px, py);
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the paragraph is selected');
+        const moved = await page.evaluate(noteAt);
+        await page.click(moved.x, moved.y, { shift: true });
+        assert.ok(await page.waitFor(buttonNamed('Delete 1 element and 1 canvas object'), 5000), 'Shift adds the note');
+        await page.click(moved.x, moved.y);
+        await page.press('Delete');
+        assert.ok(await until(() => !canvasOf(root).notes.memo, 10000), 'the note is deleted');
+        await pause(600);
+        assert.ok(text('Main.dc.html').includes('An artboard the smoke test opens.'), 'the paragraph stays');
         assert.deepEqual(page.problems, []);
       } finally { await page.close(); }
     });
@@ -3072,7 +3310,7 @@ editorSuite({
         assert.equal(await page.evaluate(into('Second.dc.html')), true, 'the other artboard’s row shows it would take it');
         await mouse.up(second.x, second.y);
         assert.ok(await until(() => !text('Main.dc.html').includes('id="a"') && /id="a"[^>]*position: absolute/.test(text('Second.dc.html')), 10000), `the box moved into the other artboard as a positioned layer: ${text('Second.dc.html')}`);
-        assert.ok(await page.waitFor(textIn('Moved into Second'), 5000), 'it says where it went');
+        assert.ok(await page.waitFor(textIn('Moved to Second'), 5000), 'it says where it went');
         assert.equal(await page.evaluate(`Boolean(document.querySelector('[data-drop-into]'))`), false, 'no row stays marked');
         assert.ok(text('Main.dc.html').includes('Stays'), 'the rest of the first artboard stays');
 
@@ -3211,6 +3449,34 @@ editorSuite({
       } finally { await page.close(); }
     });
 
+    it('⌥A and ⌥W move an element placed from the right or the bottom without stretching it', T, async () => {
+      const template = `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="position: relative; width: 880px; height: 560px">
+        <div id="a" style="position: absolute; left: 100px; top: 100px; width: 120px; height: 80px; background-color: rgb(200, 0, 0)"></div>
+        <div id="r" style="position: absolute; right: 100px; bottom: 60px; padding: 8px; background-color: rgb(0, 0, 200)">Placed from the corner</div>
+      </div></x-dc>`;
+      const { root, url } = await ctx.openNew('align-right-placed', (_ctx, root) => {
+        copyFixture('design', root);
+        fs.writeFileSync(path.join(root, BOARD), fs.readFileSync(path.join(root, BOARD), 'utf8').replace(/<x-dc>[\s\S]*?<\/x-dc>/, template));
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Main.dc.html"]')?.contentDocument?.querySelector('#r')`, settle: 800 });
+      const size = () => page.evaluate(`(() => { const r = document.querySelector('iframe[data-board="Main.dc.html"]').contentDocument.querySelector('#r').getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)]; })()`);
+      try {
+        const [, , width, height] = await size();
+        await page.click(...await page.evaluate(middleIn('Main.dc.html', '#a')));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the first box is selected');
+        await page.click(...await page.evaluate(middleIn('Main.dc.html', '#r')), { shift: true });
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('a', { alt: true });
+        // Before, left was written beside right and it stretched to the far edge.
+        assert.ok(await until(async () => (await size())[0] === 100, 10000), `⌥A moved it to the left edge: ${await size()}`);
+        assert.equal((await size())[2], width, 'it kept its width');
+        await page.press('w', { alt: true });
+        assert.ok(await until(async () => (await size())[1] === 100, 10000), `⌥W moved it to the top edge: ${await size()}`);
+        assert.equal((await size())[3], height, 'it kept its height');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
     it('drawing snaps: a rectangle starts on a note’s edge, Shift keeps a line on 45°, and the Rectangle tool shows the guide before the press', T, async () => {
       const { root, url } = await ctx.openNew('draw-snap', (_ctx, root) => {
         copyFixture('design', root);
@@ -3282,7 +3548,7 @@ editorSuite({
         const away = await onBoard(-80, 280);
         assert.ok(await page.evaluate(`(() => { const hit = document.elementFromPoint(${away.x}, ${away.y}); return !!hit?.closest('[data-canvas-surface]') && hit.tagName !== 'IFRAME'; })()`), 'the canvas is left of the artboard');
         await page.click(away.x, away.y);
-        assert.ok(await page.waitFor(status('Selection cleared'), 5000), 'the selection is cleared');
+        assert.ok(await page.waitFor(`!${buttonNamed('Lock')}`, 5000), 'nothing is selected');
       };
       const before = boardText();
       try {
@@ -3294,8 +3560,17 @@ editorSuite({
         assert.ok(Math.abs(x - 620) <= 1 && Math.abs(y - 200) <= 1, `it sits at the click: ${x}, ${y}`);
         assert.match(boardText(), /background-color: #b6b0a7; border-radius: 8px; position: absolute; left: -?\d+px; top: -?\d+px; width: 120px; height: 120px"><\/div>\s*<\/x-dc>/, 'a 120px grey box at the end of the page');
         assert.ok(await page.waitFor(buttonNamed('Lock'), 5000), 'the box is selected');
+        await clickOn(page, buttonNamed('Show the properties panel'));
+        assert.ok(await page.waitFor(`!!document.querySelector('input[aria-label="width"]')`, 5000), 'the panel shows the box');
         await page.press('z', mod);
         assert.ok(await until(() => boardText() === before, 10000), `one ⌘Z takes it back: ${boardText()}`);
+        // The box is gone and so is its selection. Before, the box stayed selected and the panel said it was not found.
+        assert.ok(await page.waitFor(`!${buttonNamed('Lock')} && !document.querySelector('input[aria-label="width"]') && !${textIn('The element was not found')}`, 5000), 'the undone box is no longer selected');
+        await page.press('z', { ...mod, shift: true });
+        assert.ok(await until(() => placed().length === 1, 10000), 'redo puts the box back');
+        await page.press('z', mod);
+        assert.ok(await until(() => boardText() === before, 10000), 'and ⌘Z takes it away again');
+        await clickOn(page, buttonNamed('Hide the properties panel'));
         await leave();
 
         // 3 screen pixels right of the centre line: the press snaps onto it.
@@ -3344,6 +3619,68 @@ editorSuite({
         await page.press('Escape');
         assert.ok(await until(() => (boardText().match(/>Your text here</g) ?? []).length === 1, 10000), `emptied text goes away: ${boardText()}`);
         assert.ok(await page.waitFor(status('Empty text box removed'), 5000), 'it says so');
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('a rectangle drawn over a repeated row goes outside the repeat, so it shows once, and a Shift-drawn square at a fractional zoom is square', T, async () => {
+      const { root, url } = await ctx.openNew('draw-repeat', (_ctx, root) => {
+        copyFixture('design', root);
+        const file = path.join(root, BOARD);
+        const rows = `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="width: 880px; height: 560px; padding: 40px; box-sizing: border-box">
+<h1 id="head" style="margin: 0 0 16px; font-size: 40px">Rows</h1>
+<sc-for list="{{rows}}" as="row"><div class="item" style="height: 60px; margin-bottom: 8px; background-color: rgb(230, 230, 230)"><span>{{row}}</span></div></sc-for>
+</div></x-dc>`;
+        fs.writeFileSync(file, fs.readFileSync(file, 'utf8')
+          .replace(/<x-dc>[\s\S]*?<\/x-dc>/, rows)
+          .replace(/return \{ accent:[^\n]*/, "return { accent: '#666666', rows: ['Alpha', 'Beta', 'Gamma'] };"));
+      });
+      const frame = `document.querySelector('iframe[data-board="Main.dc.html"]')`;
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `${frame}?.contentDocument?.querySelectorAll('.item').length === 3`, settle: 800 });
+      const mouse = pointer(page);
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const boardText = () => fs.readFileSync(path.join(root, BOARD), 'utf8');
+      const onBoard = (x, y) => page.evaluate(`(() => { const rect = ${frame}.getBoundingClientRect(); const zoom = rect.width / ${frame}.offsetWidth; return { x: rect.left + ${x} * zoom, y: rect.top + ${y} * zoom }; })()`);
+      const repeat = () => /<sc-for[\s\S]*?<\/sc-for>/.exec(boardText())?.[0] ?? '';
+      const drawn = () => page.evaluate(`[...${frame}.contentDocument.querySelectorAll('div')].filter(el => el.style.position === 'absolute').length`);
+      try {
+        // Editing inside: the heading is selected, so a drawing goes into the page under the press.
+        await page.click(...await page.evaluate(middleIn('Main.dc.html', '#head')));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the heading is selected');
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('r');
+        const from = await onBoard(500, 140);
+        const to = await onBoard(600, 170);
+        await mouse.drag(from, to);
+        assert.ok(await until(() => /position: absolute/.test(boardText()), 10000), `a rectangle was written: ${boardText()}`);
+        // Before, it went into the row's template and showed in every row.
+        assert.equal(/position: absolute/.test(repeat()), false, `the repeat holds no drawing: ${repeat()}`);
+        assert.ok(await until(async () => (await drawn()) === 1, 5000), `the rectangle shows once: ${await drawn()}`);
+        await page.press('z', mod);
+        assert.ok(await until(() => !/position: absolute/.test(boardText()), 10000), 'one ⌘Z takes it back');
+
+        // Zoomed out to a fractional zoom, a Shift-drawn rectangle on the canvas comes out square.
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        for (let n = 0; n < 3; n++) {
+          await page.evaluate(`document.querySelector('[data-canvas-surface]').dispatchEvent(new KeyboardEvent('keydown', { key: '-', code: 'Minus', metaKey: ${mod.meta}, ctrlKey: ${mod.ctrl}, bubbles: true, cancelable: true }))`);
+          await pause(300);
+        }
+        await pause(400);
+        const zoom = await page.evaluate(`${frame}.getBoundingClientRect().width / ${frame}.offsetWidth`);
+        const squares = [];
+        const rects = () => Object.values(canvasOf(root).notes ?? {}).filter(note => note.kind === 'rect');
+        for (const [x0, length] of [[0, 83.3], [200, 97.7], [400, 61.1]]) {
+          const before = rects().length;
+          await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+          await page.press('r');
+          const start = await onBoard(x0, 720);
+          // Shift for a square, ⌘ (Ctrl) so nothing snaps.
+          const keys = 8 | (mod.meta ? 4 : 2);
+          await mouse.drag(start, { x: start.x + length, y: start.y + length * 1.3 }, { modifiers: keys });
+          assert.ok(await until(() => rects().length === before + 1, 10000), `a rectangle was drawn from x ${x0}`);
+          squares.push(rects()[before]);
+        }
+        assert.ok(squares.every(note => note && note.w === note.h), `each is square at zoom ${zoom}: ${JSON.stringify(squares)}`);
         assert.deepEqual(page.problems, []);
       } finally { await page.close(); }
     });
@@ -3798,6 +4135,64 @@ editorSuite({
         await page.press('Enter');
         await say('Background reset');
         assert.ok(await until(() => !/background/.test(bodyRule()), 10000), `the page background is gone: ${bodyRule()}`);
+        assert.deepEqual(page.problems, []);
+      } finally { await page.close(); }
+    });
+
+    it('an artboard whose root element paints the page: its background is read and pasted from the root, and a fill pasted on it goes into the root', T, async () => {
+      const { root, url } = await ctx.openNew('paste-on-root-fill', (_ctx, dir) => {
+        copyFixture('design', dir);
+        const file = path.join(dir, BOARD);
+        fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/<x-dc>[\s\S]*?<\/x-dc>/, `<x-dc><helmet><style>body{margin:0}</style></helmet><div id="page" style="width: 880px; height: 560px; padding: 40px; box-sizing: border-box; background: rgb(30, 60, 90)"><div id="box" style="width: 160px; height: 80px; background-color: rgb(200, 0, 0)"></div></div></x-dc>`));
+        withBoard(dir, 'Second.dc.html', `<x-dc><helmet><style>body{margin:0}</style></helmet><div style="width: 880px; height: 560px"><p id="words" style="margin: 0">Second</p></div></x-dc>`);
+      });
+      const page = await (await ctx.browser()).load(new URL('index.html', url).href, { ready: `document.querySelector('iframe[data-board="Second.dc.html"]')?.contentDocument?.querySelector('#words')`, settle: 800 });
+      const mod = { meta: process.platform === 'darwin', ctrl: process.platform !== 'darwin' };
+      const withAlt = { ...mod, alt: true };
+      const text = name => fs.readFileSync(path.join(root, 'project', name), 'utf8');
+      const rootStyle = () => /id="page" style="([^"]*)"/.exec(text('Main.dc.html'))?.[1] ?? '';
+      const say = async words => assert.ok(await page.waitFor(textIn(words), 5000), `it says “${words}”`);
+      const paste = async () => {
+        await new Promise(resolve => setTimeout(resolve, 300));
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('v', withAlt);
+      };
+      try {
+        await page.click(...await titleOf(page, 'Main.dc.html'));
+        await page.press('\\', mod);
+        const field = `document.querySelector('[data-properties-panel] input[aria-label="Background"]')`;
+        // Before, it read the body under the root: white.
+        assert.ok(await page.waitFor(`${field}?.value === 'rgb(30, 60, 90)'`, 5000), `the Background row reads the root’s: ${await page.evaluate(`${field}?.value`)}`);
+        await page.press('\\', mod);
+        assert.ok(await page.waitFor(`!document.querySelector('[data-properties-panel]')`, 5000), 'the panel closed');
+        // A press inside a selected artboard takes the artboard, so Escape lets the box be picked.
+        await page.press('Escape');
+        await new Promise(resolve => setTimeout(resolve, 300));
+
+        await page.click(...await page.evaluate(boardMiddle('#box')));
+        assert.ok(await page.waitFor(buttonNamed('Lock')), 'the box is selected');
+        await page.press('c', withAlt);
+        await say('Properties copied');
+        // The box's bar covers the artboard's title: Escape first.
+        await page.press('Escape');
+        await new Promise(resolve => setTimeout(resolve, 300));
+        await page.click(...await titleOf(page, 'Main.dc.html'));
+        await paste();
+        // Before, it went into the body rule, under the root, and nothing showed.
+        assert.ok(await until(() => /background-color: rgb\(200, 0, 0\)/.test(rootStyle()) && !/rgb\(30, 60, 90\)/.test(rootStyle()), 10000), `the root takes the fill: ${rootStyle()}`);
+        assert.ok(await page.waitFor(`getComputedStyle(document.querySelector('iframe[data-board="Main.dc.html"]').contentDocument.querySelector('#page')).backgroundColor === 'rgb(200, 0, 0)'`, 10000), 'the artboard shows it');
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('z', mod);
+        assert.ok(await until(() => /background: rgb\(30, 60, 90\)/.test(rootStyle()), 10000), `one ⌘Z takes it back: ${rootStyle()}`);
+
+        await page.click(...await titleOf(page, 'Main.dc.html'));
+        await new Promise(resolve => setTimeout(resolve, 300));
+        await page.evaluate(`document.querySelector('[data-canvas-surface]').focus()`);
+        await page.press('c', withAlt);
+        await say('Properties copied');
+        await page.click(...await titleOf(page, 'Second.dc.html'));
+        await paste();
+        assert.ok(await until(() => /body\s*\{[^}]*background-color:\s*rgb\(30, 60, 90\)/.test(text('Second.dc.html')), 10000), `the other artboard takes the root’s background: ${text('Second.dc.html')}`);
         assert.deepEqual(page.problems, []);
       } finally { await page.close(); }
     });

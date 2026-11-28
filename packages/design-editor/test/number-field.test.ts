@@ -27,6 +27,17 @@ describe('committing a number field with limits', () => {
     assert.equal(settleField('-500', opacity, 'Opacity').say, 'Minus sign ignored. Opacity doesn’t take negative numbers. Changed to 100 %. Opacity can’t go higher.');
   });
 
+  it('refuses digits that read as no one number, instead of running them together', () => {
+    // Before, "8 16" was read as 816 and written as `816px`, and "1,5" as 15.
+    assert.deepEqual(settleField('8 16', padding, 'Padding'), { kind: 'refuse', say: 'Nothing changed. Padding takes a number in px.' });
+    assert.deepEqual(settleField('-8 16', padding, 'Padding'), { kind: 'refuse', say: 'Nothing changed. Padding takes a number in px.' });
+    assert.deepEqual(settleField('1,5', { min: 0 }, 'Line height'), { kind: 'refuse', say: 'Nothing changed. Line height takes a number only.' });
+    assert.equal(settleField('8 16', opacity, 'Opacity').kind, 'refuse');
+    // CSS with words or units is still kept as typed.
+    assert.deepEqual(settleField('10px auto', padding, 'Padding'), { kind: 'write', text: '10px auto', shown: '10px auto', say: null });
+    assert.deepEqual(settleField('1,500', padding, 'Padding'), { kind: 'write', text: '1500px', shown: '1500', say: null });
+  });
+
   it('keeps a number inside the limits as typed', () => {
     assert.deepEqual(settleField('12.50', padding, 'Padding'), { kind: 'write', text: '12.50px', shown: '12.50', say: null });
     assert.deepEqual(settleField('１２', padding, 'Padding'), { kind: 'write', text: '12px', shown: '12', say: null });

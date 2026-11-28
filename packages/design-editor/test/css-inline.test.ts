@@ -80,9 +80,11 @@ describe('inlining a stylesheet', () => {
     assert.equal(run('@import "b.css";', { 'b.css': '@charset "utf-8";\n.b{}' }).css, '/**/.b{}/**/');
   });
 
-  it('follows imports of imports from their own folders, and leaves a loop alone', () => {
-    const { css } = run('@import "css/b.css";', { 'css/b.css': '@import "c.css"; .b{background:url(../img.png)}', 'css/c.css': '@import "b.css"; .c{}', 'img.png': new Uint8Array([1]) });
-    assert.equal(css, '@import "b.css";\n/**//**/ .c{}/**/ .b{background:url(data:bin,img.png)}/**/', 'the import that closes the loop stays an import, moved to the top');
+  it('follows imports of imports from their own folders, and drops the import that closes a loop', () => {
+    const { css, warnings } = run('@import "css/b.css";', { 'css/b.css': '@import "c.css"; .b{background:url(../img.png)}', 'css/c.css': '@import "b.css"; .c{}', 'img.png': new Uint8Array([1]) });
+    // Before, it stayed an import moved to the top, where "b.css" named a file that is not there (it is css/b.css).
+    assert.equal(css, '/**//**/ .c{}/**/ .b{background:url(data:bin,img.png)}/**/', 'b.css is written once, and the loop is gone');
+    assert.deepEqual(warnings, []);
   });
 
   it(`stops after ${IMPORT_DEPTH} levels`, () => {

@@ -62,6 +62,8 @@ export function layerPasteBoard(payload: ClipboardPayload, menuBoard: string | n
     board = lastInto.board;
   }
   if (!board) return null;
+  // A copied artboard pasted with itself selected is a copy of it on the canvas, not a layer inside it.
+  if (payload.kind === 'objects' && payload.boards.some((copied) => copied.path === board)) return null;
   const entry = useDocument.getState().canvas.boards[board];
   if (!entry || entry.frameless || isLockedObject(entry) || view.playing === board) return null;
   return board;

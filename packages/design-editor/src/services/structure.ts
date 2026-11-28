@@ -30,6 +30,7 @@ import { templateOf } from './agent.ts';
 import { announce } from './announce.ts';
 import { edit, selectedElements, tryEdit } from './commands.ts';
 import { boardApi } from './frames.ts';
+import { isElementLocked } from '../lib/locks.ts';
 import { refuseLocked } from './locks.ts';
 
 const isPositioned = (position: string | undefined): boolean => position === 'absolute' || position === 'fixed';
@@ -91,9 +92,9 @@ function shownAs(board: string, model: TemplateModel, element: HtmlElement): Htm
 }
 
 /** Applies per-element style patches as one edit (no edit when there are none). */
-function writeBack(board: string, edits: { target: Address; patch: StylePatch }[]): boolean {
+function writeBack(board: string, edits: { target: Address; patch: StylePatch }[], options: { ignoreLocks?: boolean } = {}): boolean {
   if (!edits.length) return true;
-  return tryEdit(board, { kind: 'styles', edits }).kind === 'done';
+  return tryEdit(board, { kind: 'styles', edits }, options).kind === 'done';
 }
 
 /* -------------------------------------------------------------------------- */
@@ -245,6 +246,10 @@ export function ungroupSelection(): void {
     return;
   }
   const { board, model, elements } = selected;
+  if (elements.some(isElementLocked)) {
+    refuseLocked();
+    return;
+  }
   for (const element of elements) {
     const refusal = ungroupRefusal(element);
     if (refusal) {
@@ -293,7 +298,8 @@ export function ungroupSelection(): void {
   const groupTids = elements.map((element) => model.tidOf.get(element)!);
   const done = useDocument.getState().transact((cancel) => {
     const unwrapped = (() => {
-      if (!writeBack(board, edits)) return false;
+      // A locked child stays locked and where it shows: its place is written back like the others'.
+      if (!writeBack(board, edits, { ignoreLocks: true })) return false;
       // Later groups first: unwrapping one renumbers only what follows it.
       for (const tid of [...groupTids].sort((a, b) => b - a)) {
         const current = templateOf(useDocument.getState().boards[board]!.source!);

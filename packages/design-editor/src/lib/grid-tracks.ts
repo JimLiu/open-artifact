@@ -26,8 +26,11 @@ function tracksOf(value: string): string[] {
   return out;
 }
 
-/** A track a count can stand for: a length, a percentage, a fraction, auto, or minmax/fit-content of those. */
-const SIMPLE_TRACK = /^(auto|min-content|max-content|-?\d*\.?\d+(px|fr|%|r?em|vw|vh|ch)?|(minmax|fit-content)\([^()]*\))$/i;
+/**
+ * A track a count can stand for: a length, a percentage, a fraction, auto, or minmax/fit-content of those.
+ * A track is never negative, and a number without a unit is no track (but 0).
+ */
+const SIMPLE_TRACK = /^(auto|min-content|max-content|0|\d*\.?\d+(px|fr|%|r?em|vw|vh|ch)|(minmax|fit-content)\([^()]*\))$/i;
 
 /**
  * The number of equal tracks a track list is, or null when it is any other
@@ -44,11 +47,15 @@ export function trackCount(value: string | undefined): number | null {
   return tracks.length;
 }
 
-/** What a typed value writes: a number makes that many equal tracks (1 to 12); other text is a track list, written as it is. */
+/**
+ * What a typed value writes: a number makes that many equal tracks (1 to 12; a minus sign is left out, as
+ * number fields do); other text is a track list, written as it is.
+ */
 export function tracksValue(typed: string): string | null {
   const text = typed.trim();
   if (!text) return null;
-  if (/^\d*\.?\d+$/.test(text)) return `repeat(${Math.min(MAX_TRACKS, Math.max(1, Math.round(Number(text))))}, minmax(0, 1fr))`;
+  const count = /^[-+−]?(\d*\.?\d+)$/.exec(text);
+  if (count) return `repeat(${Math.min(MAX_TRACKS, Math.max(1, Math.round(Number(count[1]))))}, minmax(0, 1fr))`;
   return text;
 }
 

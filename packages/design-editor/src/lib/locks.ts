@@ -9,7 +9,8 @@
  * A locked element stays where it is: edits that would move, resize,
  * delete or restructure it are refused, and edits that mix placement with
  * other properties keep only the other properties. Its words, colours and
- * other looks can still change. Copies never carry a lock.
+ * other looks can still change, and other elements can still go into it.
+ * Copies never carry a lock.
  */
 
 import { applySplices, attributeValue, parseStyle, parseTemplate, resolveElement, serializeStyle, setAttribute, type HtmlElement, type Splice, type StylePatch, type TemplateModel } from '@open-artifact/dc';
@@ -168,9 +169,6 @@ export type LockVerdict = { kind: 'free' } | { kind: 'trimmed'; op: BoardOp } | 
 const FREE: LockVerdict = { kind: 'free' };
 const REFUSED: LockVerdict = { kind: 'refused' };
 
-/** Into an element (not next to it). */
-const INSIDE = new Set(['first-child', 'last-child']);
-
 export function lockVerdict(model: TemplateModel, op: BoardOp): LockVerdict {
   const locked = (address: Address | null): boolean => {
     const element = address ? resolveElement(model, address.tid, address.path) : null;
@@ -214,13 +212,12 @@ export function lockVerdict(model: TemplateModel, op: BoardOp): LockVerdict {
     case 'wrap':
       return op.targets.some(locked) ? REFUSED : FREE;
     case 'move':
-      return op.targets.some(locked) || (INSIDE.has(op.position) && locked(op.target)) ? REFUSED : FREE;
+      // A lock pins the element itself: others can still go into it.
+      return op.targets.some(locked) ? REFUSED : FREE;
     case 'unwrap':
       return locked(op.target) ? REFUSED : FREE;
     case 'replace':
       return op.edits.some((entry) => locked(entry.target)) ? REFUSED : FREE;
-    case 'insert':
-      return INSIDE.has(op.position) && locked(op.target) ? REFUSED : FREE;
     default:
       return FREE;
   }

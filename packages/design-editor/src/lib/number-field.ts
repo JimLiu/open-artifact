@@ -75,6 +75,8 @@ export function settleField(text: string, rule: NumberFieldRule, name: string | 
     return { kind: 'write', text: rule.unit ? `${shown}${rule.unit}` : shown, shown, say };
   }
   if (rule.strict) return { kind: 'refuse', say: notANumberMessage(name, rule.unit) };
+  // Digits that read as no one number ("8 16", "1,5") change nothing; CSS words and units are kept.
+  if (/[\d０-９]/.test(core) && /^[\p{Cf}\s\d０-９.,．，+＋\p{Pd}−﹣]+$/u.test(core)) return { kind: 'refuse', say: notANumberMessage(name, rule.unit) };
   if (refusesMinus(rule) && startsWithMinus(trimmed)) {
     const kept = trimmed.replace(/^\p{Cf}*\s*./u, '').trim();
     return { kind: 'write', text: kept, shown: kept, say: minusIgnoredMessage(name) };

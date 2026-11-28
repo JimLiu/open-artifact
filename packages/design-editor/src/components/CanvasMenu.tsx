@@ -36,6 +36,9 @@ import { resolveElement } from '@open-artifact/dc';
 import { templateOf } from '../services/agent.ts';
 import { describeElement } from '../lib/outline.ts';
 
+/** Why a piece's Rename is off. */
+const LOOSE_PIECE_RENAME = 'A loose piece shows no title on the canvas. Rename it in Layers.';
+
 /** Wraps the canvas root, which becomes the menu's trigger. */
 export function CanvasMenu({ children }: { children: ReactElement<Record<string, unknown>> }) {
   return (
@@ -186,8 +189,9 @@ function MenuItems() {
   const free = selection.kind === 'objects' ? unlockedObjects(useDocument.getState().canvas, selection.boards, selection.notes) : null;
   const objectsLocked = objects && free !== null && !free.boards.length && !free.notes.length;
   const blocked = readOnly || Boolean(lockedWhy);
-  // One artboard: its title can be renamed in place.
+  // One artboard: its title can be renamed in place. A piece has no title on the canvas: the layers list renames it.
   const loneBoard = selection.kind === 'objects' && selection.boards.length === 1 && selection.notes.length === 0 ? selection.boards[0]! : null;
+  const loosePiece = loneBoard !== null && Boolean(useDocument.getState().canvas.boards[loneBoard]?.frameless);
   return (
     <>
       <ChromeMenuItem shortcut="⌘X" disabled={readOnly || Boolean(lockedWhy)} title={lockedWhy} onSelect={() => copyToSystem(true)}>
@@ -206,7 +210,7 @@ function MenuItems() {
       {loneBoard ? (
         <>
           <ChromeMenuSeparator />
-          <ChromeMenuItem disabled={readOnly} onSelect={() => renameBoardOnCanvas(loneBoard)}>
+          <ChromeMenuItem disabled={readOnly || loosePiece} title={loosePiece ? LOOSE_PIECE_RENAME : undefined} onSelect={() => renameBoardOnCanvas(loneBoard)}>
             Rename
           </ChromeMenuItem>
         </>

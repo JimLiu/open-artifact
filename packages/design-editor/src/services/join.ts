@@ -12,7 +12,6 @@ import { toast } from '@open-artifact/ui';
 import { allLoose, inPlaceCentre, JOIN_FAILED, joinMessages, joinTargetAt, type JoinNoun, type LooseObjects } from '../lib/join.ts';
 import { noteHtml } from '../lib/note-html.ts';
 import { arrangeLayers, boundsOf, type Layer } from '../lib/paste-layers.ts';
-import { withoutLocks } from '../lib/locks.ts';
 import type { Address, BoardOp } from '../lib/ops.ts';
 import { useDocument } from '../state/document.ts';
 import { useView, type ElementSelection } from '../state/view.ts';
@@ -109,7 +108,8 @@ function memberLayers(members: LooseObjects, offset: { x: number; y: number }, s
     const helmet = tops.find((element) => element.tag === 'helmet');
     const carried = helmet && helmet.closeStart >= 0 ? model.text.slice(helmet.openEnd, helmet.closeStart).trim() : '';
     layers.push({
-      html: withoutLocks(elementSource(model, roots[0]!)),
+      // Moved, not copied: locked layers inside stay locked.
+      html: elementSource(model, roots[0]!),
       box: { x: entry.x + offset.x, y: entry.y + offset.y, w: entry.w, h: entry.h },
       noun: 'piece',
       ...(carried ? { helmet: carried } : {}),
@@ -160,7 +160,7 @@ export function joinBoard(members: LooseObjects, target: string, spotAt: JoinSpo
   let anchor: Address | null = null;
   if (spot) {
     const html = layers[0]!.html;
-    insert = { kind: 'insert', ...settledInsert(target, { target: spot.target, position: spot.position }, html), html, helmet };
+    insert = { kind: 'insert', ...settledInsert(target, { target: spot.target, position: spot.position }, html), html, helmet, keepLocks: true };
   } else {
     const centre = drop ? { x: drop.x - place.box.x, y: drop.y - place.box.y } : inPlaceCentre(boundsOf(layers.map((layer) => layer.box)), entry, place.box);
     const html = arrangeLayers(layers, centre);
@@ -170,7 +170,7 @@ export function joinBoard(members: LooseObjects, target: string, spotAt: JoinSpo
     }
     const container = place.container ? { tid: place.model.tidOf.get(place.container)!, path: elementPath(place.model, place.container) } : null;
     if (container && place.anchor) anchor = container;
-    insert = { kind: 'insert', target: container, position: 'last-child', html, helmet };
+    insert = { kind: 'insert', target: container, position: 'last-child', html, helmet, keepLocks: true };
   }
 
   // Set inside the step (the compiler can't see that).

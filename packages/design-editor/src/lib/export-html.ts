@@ -86,8 +86,9 @@ export function rewriteRefs(text: string, refs: ReadonlyMap<string, string>): st
   let out = text;
   for (const [from, to] of refs) {
     if (!from || from === to) continue;
-    const pattern = new RegExp(`(["'(=]\\s*)(?:\\./)?${escapeRegExp(from)}(?=["')\\s?#])`, 'g');
-    out = out.replace(pattern, (_match, lead: string) => `${lead}${to}`);
+    const pattern = new RegExp(`(["'(=]\\s*)(?:\\./)?${escapeRegExp(from)}(\\?[^"')\\s#]*)?(?=["')\\s#])`, 'g');
+    // A query stays on a path but would break a `data:` URL's base64 (`logo.png?v=2`); a #fragment stays on both.
+    out = out.replace(pattern, (_match, lead: string, query: string | undefined) => `${lead}${to}${to.startsWith('data:') ? '' : (query ?? '')}`);
   }
   return out;
 }
@@ -198,9 +199,10 @@ export function standaloneDocument({ path, source, files, uploads, runtime }: St
     const rel = escapeRegExp(relativePath(boardDir, name));
     if (/\.css$/i.test(name)) {
       const css = escapeTemplateBraces(text).replace(/<\/(style)/gi, '<\\/$1');
-      html = html.replace(new RegExp(`<link\\b[^>]*\\bhref=["'](?:\\./)?${rel}["'][^>]*>`, 'gi'), () => `<style>\n${css}\n</style>`);
+      // A query or a fragment (`look.css?v=2`) names the same file.
+      html = html.replace(new RegExp(`<link\\b[^>]*\\bhref=["'](?:\\./)?${rel}(?:[?#][^"']*)?["'][^>]*>`, 'gi'), () => `<style>\n${css}\n</style>`);
     } else if (/\.m?js$/i.test(name)) {
-      html = html.replace(new RegExp(`<script\\b([^>]*?)\\bsrc=["'](?:\\./)?${rel}["']([^>]*)>\\s*</script>`, 'gi'), (_m, a: string, b: string) => `<script${a}${b}>\n${inlineScript(text)}\n</script>`);
+      html = html.replace(new RegExp(`<script\\b([^>]*?)\\bsrc=["'](?:\\./)?${rel}(?:[?#][^"']*)?["']([^>]*)>\\s*</script>`, 'gi'), (_m, a: string, b: string) => `<script${a}${b}>\n${inlineScript(text)}\n</script>`);
     }
   }
   const bootstrap = standaloneBootstrap(self, Object.fromEntries(texts), path);

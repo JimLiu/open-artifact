@@ -97,7 +97,8 @@ export type BoardOp =
   /** Locks the elements (`data-locked="true"`) or unlocks them (removing the attribute, see `lib/locks.ts`). */
   | { kind: 'lock'; targets: Address[]; locked: boolean }
   /** Inserts HTML (without locks); `helmet` is appended to the template's `<helmet>` (styles carried from another artboard). */
-  | { kind: 'insert'; target: Address | null; position: InsertPosition; html: string; helmet?: string }
+  /** `keepLocks` for markup moved here, not copied: copies never carry a lock. */
+  | { kind: 'insert'; target: Address | null; position: InsertPosition; html: string; helmet?: string; keepLocks?: boolean }
   | { kind: 'move'; targets: Address[]; target: Address; position: InsertPosition }
   | { kind: 'wrap'; targets: Address[]; open: string; close: string }
   | { kind: 'unwrap'; target: Address }
@@ -106,7 +107,8 @@ export type BoardOp =
   /** New tweak defaults written back into `data-props`. */
   | { kind: 'props'; values: Record<string, unknown> }
   /** The page background (`background`, `background-color`) in the helmet's `body` rule (see `lib/page-fill.ts`). */
-  | { kind: 'pageFill'; edits: PageFillEdit[] }
+  /** `rootCovers`: the root element covers the page, which shows its background (see page-fill.ts). */
+  | { kind: 'pageFill'; edits: PageFillEdit[]; rootCovers?: boolean }
   /** The whole source replaced (restoring unsaved work): undoable, and replayed over remote changes as a whole. */
   | { kind: 'source'; text: string };
 
@@ -308,7 +310,7 @@ export function applyOp(source: string, op: BoardOp): OpResult | null {
       case 'insert': {
         const target = op.target ? resolveElement(model, op.target.tid, op.target.path) : null;
         if (op.target && !target) return null;
-        splices = insertHtml(model, target, op.position, withoutLocks(op.html));
+        splices = insertHtml(model, target, op.position, op.keepLocks ? op.html : withoutLocks(op.html));
         if (op.helmet) splices.push(helmetSplice(model, op.helmet));
         break;
       }
@@ -332,7 +334,7 @@ export function applyOp(source: string, op: BoardOp): OpResult | null {
         break;
       }
       case 'pageFill': {
-        const fill = pageFillSplices(model, op.edits);
+        const fill = pageFillSplices(model, op.edits, { rootCovers: op.rootCovers });
         if (!fill) return null;
         splices = fill;
         break;

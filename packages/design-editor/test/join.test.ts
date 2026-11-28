@@ -48,5 +48,7 @@ describe('joining in place', () => {
     assert.equal(joinMessages.nothing('note'), 'Nothing moved. This note has nothing that can go into an artboard.');
     assert.equal(joinMessages.stuck('image'), 'Nothing moved. The image couldn’t leave the canvas.');
     assert.equal(joinMessages.moved('Home'), 'Moved into Home');
+    assert.equal(joinMessages.movedTo('Home'), 'Moved to Home');
+    assert.equal(joinMessages.copiedTo('Home'), 'Copied to Home');
   });
 });

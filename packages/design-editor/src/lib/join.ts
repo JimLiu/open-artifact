@@ -15,6 +15,9 @@ export const joinMessages = {
   nothing: (noun: JoinNoun) => `Nothing moved. This ${noun} has nothing that can go into an artboard.`,
   stuck: (noun: JoinNoun) => `Nothing moved. The ${noun} couldn’t leave the canvas.`,
   moved: (name: string) => `Moved into ${name}`,
+  /** An element dragged (or its layers row) onto another artboard. */
+  movedTo: (name: string) => `Moved to ${name}`,
+  copiedTo: (name: string) => `Copied to ${name}`,
 };
 
 /** Loose objects on the canvas: notes, and pieces (frameless artboards). */

@@ -85,7 +85,9 @@ import { JoinPreview } from './JoinPreview.tsx';
 import { PathPoints } from './PathPoints.tsx';
 import { startPathEdit } from '../services/path-edit.ts';
 import { canJoin, endJoinHover, joinHover, joinInto, useJoin } from '../services/join.ts';
-import { makePieces, onEmptyCanvas } from '../services/piece.ts';
+import { boardToTake, makePieces, onEmptyCanvas } from '../services/piece.ts';
+import { moveElementsInto } from '../services/outline-move.ts';
+import { boundsOf } from '../lib/paste-layers.ts';
 import { NodeEditor } from './NodeEditor.tsx';
 import { announce } from '../services/announce.ts';
 import { endsMode } from '../lib/mode-keys.ts';
@@ -118,7 +120,7 @@ type Drag =
   /** Dragging a selection that spans files: artboards, notes and positioned elements move together, live. */
   | { kind: 'mixedMove'; startX: number; startY: number; moved: boolean; applied: Offset; key: string; click: (() => void) | null; copy: boolean; offset: Offset; ghostBase: Rect[] | null }
   /** Dragging selected elements: positioned ones move live, flow ones land among their siblings. */
-  | { kind: 'elementMove'; board: string; startX: number; startY: number; moved: boolean; positioned: boolean; pinned?: { x: boolean; y: boolean }; applied: Offset; drop: FlowDrop | null; key: string; click: (() => void) | null; copy: boolean; locked: boolean; offset: Offset; ghostBase: Rect[] | null; outside?: boolean }
+  | { kind: 'elementMove'; board: string; startX: number; startY: number; moved: boolean; positioned: boolean; pinned?: { x: boolean; y: boolean }; applied: Offset; drop: FlowDrop | null; key: string; click: (() => void) | null; copy: boolean; locked: boolean; offset: Offset; ghostBase: Rect[] | null; outside?: boolean; into?: string | null }
   /** The Pen tool: dragging out the handles of the node just placed. */
   | { kind: 'pathHandle'; startX: number; startY: number };
 
@@ -258,6 +260,8 @@ function finishBoardDraw(current: Extract<Drag, { kind: 'create' }>, world: Offs
     const x = Math.round(drawn.x - entry.x);
     const y = Math.round(drawn.y - entry.y);
     box = { x, y, w: Math.round(drawn.x + drawn.w - entry.x) - x, h: Math.round(drawn.y + drawn.h - entry.y) - y };
+    // Shift drew it square (or at 45°): the two edges rounded apart could leave it a pixel off.
+    if (keys.shift && Math.abs(drawn.w - drawn.h) < 0.01) box.w = box.h = Math.max(box.w, box.h);
   }
   const dir = { x: span.to.x >= span.from.x ? 1 : -1, y: span.to.y >= span.from.y ? 1 : -1 } as const;
   drawInBoard(board, { tool: current.place, press, box, ...(box ? { dir } : {}) });
@@ -400,10 +404,15 @@ function pickElement(path: string, world: { x: number; y: number }, mode: PickMo
 
 /** Whether any of the selected elements is not locked. */
 function selectionHasUnlocked(path: string, items: readonly ElementSelection[]): boolean {
+  return unlockedItems(path, items).length > 0;
+}
+
+/** The items of `path` that aren't locked: the ones a drag takes out of the artboard. */
+function unlockedItems(path: string, items: readonly ElementSelection[]): ElementSelection[] {
   const source = useDocument.getState().boards[path]?.source;
-  if (!source) return false;
+  if (!source) return [];
   const model = templateOf(source);
-  return items.some((item) => {
+  return items.filter((item) => {
     const element = resolveElement(model, item.tid, item.path);
     return element ? !isElementLocked(element) : false;
   });
@@ -977,7 +986,9 @@ export function Canvas() {
       }
       const after = useView.getState().selection;
       if (after.kind === 'mixed') {
-        drag.current = { kind: 'mixedMove', startX: world.x, startY: world.y, moved: false, applied: { x: 0, y: 0 }, key: `drag-${Date.now()}`, click: null, copy: false, offset: { x: 0, y: 0 }, ghostBase: null };
+        // A press moves them all; a click narrows to this object (a grouped note with its group).
+        const only = event.shiftKey ? null : () => view.select(item.board ? { kind: 'objects', boards: [item.board], notes: [] } : { kind: 'objects', boards: [], notes: expandNotesToGroups(groupItems(useDocument.getState().canvas), [item.note!], []) });
+        drag.current = { kind: 'mixedMove', startX: world.x, startY: world.y, moved: false, applied: { x: 0, y: 0 }, key: `drag-${Date.now()}`, click: only, copy: false, offset: { x: 0, y: 0 }, ghostBase: null };
         return;
       }
       const next = selectedObjects(useView.getState());
@@ -1153,9 +1164,12 @@ export function Canvas() {
           }
         }
         current.copy = keys.alt;
-        // Over the empty canvas the elements would become pieces: they stay put meanwhile and ghosts show where.
-        current.outside = !keys.alt && !current.locked && !doc.canvas.boards[current.board]?.frameless && onEmptyCanvas(world);
-        if (current.outside) {
+        // Over the empty canvas the elements would become pieces (copies with Alt), over another artboard
+        // its layers: they stay put meanwhile and ghosts show where. Locked ones never leave their artboard.
+        const leaves = !current.locked && selectionHasUnlocked(current.board, selection.items);
+        current.outside = leaves && !doc.canvas.boards[current.board]?.frameless && onEmptyCanvas(world, current.board);
+        current.into = leaves && !current.outside ? boardToTake(world, current.board) : null;
+        if (current.outside || current.into) {
           current.offset = { x: Math.round(dx), y: Math.round(dy) };
           if (current.applied.x || current.applied.y) {
             const last = doc.undo[doc.undo.length - 1];
@@ -1411,8 +1425,18 @@ export function Canvas() {
       }
       const selection = view.selection;
       if (selection.kind !== 'elements' || selection.board !== current.board) return;
-      if (current.outside && !current.copy) {
-        makePieces(current.board, selection.items, current.offset);
+      // The locked ones stay put.
+      const leaving = current.outside || current.into ? unlockedItems(current.board, selection.items) : [];
+      if (current.outside) {
+        makePieces(current.board, leaving, current.offset, { copy: current.copy });
+        return;
+      }
+      const source = doc.boards[current.board]?.source;
+      if (current.into && source) {
+        const rects = shifted(current.ghostBase ?? [], current.offset);
+        const box = rects.length ? boundsOf(rects) : null;
+        const at = box ? { x: box.x + box.w / 2, y: box.y + box.h / 2 } : worldOf(event);
+        moveElementsInto(current.board, leaving, current.into, source, { at, copy: current.copy });
         return;
       }
       if (current.drop) {
@@ -1490,7 +1514,11 @@ export function Canvas() {
         const box = spanBox(span);
         const x = Math.round(box.x);
         const y = Math.round(box.y);
-        addNote(current.tool, { x, y }, { w: Math.max(1, Math.round(box.x + box.w) - x), h: Math.max(1, Math.round(box.y + box.h) - y) });
+        let w = Math.max(1, Math.round(box.x + box.w) - x);
+        let h = Math.max(1, Math.round(box.y + box.h) - y);
+        // Shift drew it square: the two edges rounded apart could leave it a pixel off.
+        if (keys.shift && Math.abs(box.w - box.h) < 0.01) w = h = Math.max(w, h);
+        addNote(current.tool, { x, y }, { w, h });
         break;
       }
       case 'line':

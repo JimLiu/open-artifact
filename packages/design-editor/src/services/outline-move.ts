@@ -39,10 +39,12 @@ function reveal(path: string): void {
 
 /**
  * Moves elements `items` of the artboard `from` into the artboard `to`,
- * as positioned layers on the middle of its part in view. `sourceAtStart`
- * is `from`'s source when the drag began: if it changed, nothing moves.
+ * as positioned layers on the middle of its part in view, or centred on
+ * `at` (a canvas point) when given. `copy` leaves them in `from` too.
+ * `sourceAtStart` is `from`'s source when the drag began: if it changed,
+ * nothing moves. Moved elements keep the locks inside them; copies carry none.
  */
-export function moveElementsInto(from: string, items: readonly ElementSelection[], to: string, sourceAtStart: string): boolean {
+export function moveElementsInto(from: string, items: readonly ElementSelection[], to: string, sourceAtStart: string, options: { at?: { x: number; y: number }; copy?: boolean } = {}): boolean {
   const doc = useDocument.getState();
   const source = doc.boards[from]?.source;
   if (source !== sourceAtStart) {
@@ -53,8 +55,9 @@ export function moveElementsInto(from: string, items: readonly ElementSelection[
   const model = templateOf(source);
   const elements = items.map((item) => model.elements[item.tid]);
   const place = layerPlace(to);
-  const drop = boardDrop(to);
-  const payload = elements.every((element) => element !== undefined) ? elementsPayload(from, model, elements.filter((element) => element !== undefined), items) : null;
+  const drop = options.at ?? boardDrop(to);
+  const keepLocks = !options.copy;
+  const payload = elements.every((element) => element !== undefined) ? elementsPayload(from, model, elements.filter((element) => element !== undefined), items, { keepLocks }) : null;
   const markup = payload?.kind === 'elements' && place && drop ? elementLayers(payload, to, place, drop) : null;
   if (!markup || !place) {
     toast.add({ title: JOIN_FAILED });
@@ -70,13 +73,15 @@ export function moveElementsInto(from: string, items: readonly ElementSelection[
       refusal = kind === 'locked' ? 'locked' : JOIN_FAILED;
       cancel();
     };
-    const removed = tryEdit(from, { kind: 'remove', targets: items.map(({ tid, path }) => ({ tid, path })) });
-    if (removed.kind !== 'done') return stop(removed.kind);
+    if (!options.copy) {
+      const removed = tryEdit(from, { kind: 'remove', targets: items.map(({ tid, path }) => ({ tid, path })) });
+      if (removed.kind !== 'done') return stop(removed.kind);
+    }
     if (container && place.anchor) {
       const anchored = tryEdit(to, { kind: 'style', targets: [container], patch: { position: 'relative' } });
       if (anchored.kind !== 'done') return stop(anchored.kind);
     }
-    const inserted = tryEdit(to, { kind: 'insert', target: container, position: 'last-child', html: markup.html, helmet: markup.helmet });
+    const inserted = tryEdit(to, { kind: 'insert', target: container, position: 'last-child', html: markup.html, helmet: markup.helmet, keepLocks });
     if (inserted.kind !== 'done' || !inserted.created.length) return stop(inserted.kind);
     created = inserted.created;
   });
@@ -84,8 +89,8 @@ export function moveElementsInto(from: string, items: readonly ElementSelection[
   else if (refusal) toast.add({ title: refusal });
   if (refusal) return false;
   useView.getState().select({ kind: 'elements', board: to, items: created.map((address) => ({ ...address, instance: 0 })) });
-  reveal(to);
-  toast.add({ title: joinMessages.moved(boardName(to)) });
+  if (!options.at) reveal(to);
+  toast.add({ title: options.copy ? joinMessages.copiedTo(boardName(to)) : joinMessages.movedTo(boardName(to)) });
   return true;
 }
 

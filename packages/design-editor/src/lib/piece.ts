@@ -62,3 +62,9 @@ class Component extends DCLogic {}
 </html>
 `;
 }
+
+/** What making pieces says: "Moved onto the canvas", "Copied 2 elements onto the canvas". */
+export function pieceMessage(count: number, copy: boolean): string {
+  const verb = copy ? 'Copied' : 'Moved';
+  return count === 1 ? `${verb} onto the canvas` : `${verb} ${count} elements onto the canvas`;
+}

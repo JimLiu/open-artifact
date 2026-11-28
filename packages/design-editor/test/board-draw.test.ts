@@ -122,6 +122,13 @@ describe('where a drawing goes inside an edited artboard', () => {
     assert.equal(drawContainer(els.pic!, 'div'), els.root);
   });
 
+  it('climbs out of a repeat, which would show the drawing in every item', () => {
+    const list = byId(`<div id="root"><sc-for id="each" list="{{items}}" as="item"><div id="item"><span id="label">{{item}}</span></div></sc-for></div>`);
+    // Before, it went into the item and showed once per item.
+    assert.equal(drawContainer(list.label!, 'div'), list.root);
+    assert.equal(drawContainer(list.item!, 'svg'), list.root);
+  });
+
   it('climbs out of locked elements', () => {
     assert.equal(drawContainer(els.word!, 'svg', (element) => element === els.para), els.root);
   });

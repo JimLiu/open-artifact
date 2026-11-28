@@ -12,9 +12,13 @@
  * goes when `body` had none (the two would stack). Without a `body` rule
  * one is added to the last stylesheet, or a new `<helmet><style>`. A
  * stylesheet with nested rules is not edited.
+ *
+ * When the template's one root element covers the whole page and paints a
+ * background of its own (`rootCovers`, measured by the caller), that is
+ * what the page shows: it is read and written there, in its `style`.
  */
 
-import { elementChildren, parseStyle, type HtmlElement, type Splice, type StyleDeclaration, type TemplateModel } from '@open-artifact/dc';
+import { attributeValue, elementChildren, hasDynamicStyle, parseStyle, serializeStyle, setAttribute, type HtmlElement, type Splice, type StyleDeclaration, type TemplateModel } from '@open-artifact/dc';
 
 /** The two declarations a page background is written with. */
 export type PageFillProp = 'background' | 'background-color';
@@ -29,6 +33,11 @@ export interface PageFillEdit {
 export interface PageFill {
   image?: string;
   color?: string;
+}
+
+/** How the page is laid out: whether the root element covers all of it (see the file's comment). */
+export interface PageFillOptions {
+  rootCovers?: boolean;
 }
 
 /** The color a page shows when nothing sets one. */
@@ -171,7 +180,9 @@ const hasFill = (fill: PageFill): boolean => fill.image !== undefined || fill.co
  * selector list too), else from those naming `html`. Empty when neither
  * does; null when a stylesheet can't be read.
  */
-export function readPageFill(model: TemplateModel): PageFill | null {
+export function readPageFill(model: TemplateModel, options: PageFillOptions = {}): PageFill | null {
+  const root = paintingRoot(model, options);
+  if (root) return fold({}, parseStyle(attributeValue(root, 'style') ?? ''));
   const sheets = sheetsOf(model);
   if (!sheets) return null;
   const read = (selector: string): PageFill => {
@@ -205,7 +216,9 @@ const PROPS: readonly PageFillProp[] = ['background', 'background-color'];
  * when it can't be written (a stylesheet with nested rules, or unbalanced).
  * No splices when there is nothing to change.
  */
-export function pageFillSplices(model: TemplateModel, edits: readonly PageFillEdit[]): Splice[] | null {
+export function pageFillSplices(model: TemplateModel, edits: readonly PageFillEdit[], options: PageFillOptions = {}): Splice[] | null {
+  const root = paintingRoot(model, options);
+  if (root) return rootFillSplices(model, root, edits);
   const sheets = sheetsOf(model);
   if (!sheets) return null;
   if (sheets.some((sheet) => sheet.blocks.some((block) => block.nested))) return null;
@@ -279,6 +292,32 @@ export function pageFillSplices(model: TemplateModel, edits: readonly PageFillEd
     }
   }
   return splices;
+}
+
+/** The root element that paints the page, when it covers it and sets a background inline. */
+function paintingRoot(model: TemplateModel, options: PageFillOptions): HtmlElement | null {
+  if (!options.rootCovers) return null;
+  const root = rootElementOf(model);
+  if (!root || hasDynamicStyle(root)) return null;
+  return hasFill(fold({}, parseStyle(attributeValue(root, 'style') ?? ''))) ? root : null;
+}
+
+/** A page background written in the root element's `style`: the color after the image layers. */
+function rootFillSplices(model: TemplateModel, root: HtmlElement, edits: readonly PageFillEdit[]): Splice[] {
+  const before = attributeValue(root, 'style') ?? '';
+  const declarations = parseStyle(before);
+  const values = new Map<PageFillProp, string | null>();
+  for (const edit of edits) if (PROPS.includes(edit.prop)) values.set(edit.prop, edit.value?.trim() || null);
+  if (!values.size) return [];
+  const touched = (property: string) => values.has(property as PageFillProp) || (property === 'background-image' && values.has('background'));
+  const next = declarations.filter((d) => !touched(d.property));
+  for (const prop of PROPS) {
+    const value = values.get(prop);
+    if (value) next.push({ property: prop, value, important: false });
+  }
+  const text = serializeStyle(next);
+  if (text === serializeStyle(declarations)) return [];
+  return setAttribute(model, root, 'style', text || null);
 }
 
 /**

@@ -158,15 +158,16 @@ describe('lockVerdict', () => {
     assert.deepEqual(lockVerdict(styled, style('left: 9px; color: blue')), { kind: 'trimmed', op: style('color: blue; left: 4px') });
   });
 
-  it('refuses removing, moving, wrapping and dropping into locked elements', () => {
+  it('refuses removing, moving and wrapping locked elements, and lets others go into them', () => {
     assert.deepEqual(lockVerdict(model, { kind: 'remove', targets: [O, L] }), { kind: 'refused' });
     assert.deepEqual(lockVerdict(model, { kind: 'remove', targets: [O] }), { kind: 'free' });
     assert.deepEqual(lockVerdict(model, { kind: 'move', targets: [L], target: O, position: 'after' }), { kind: 'refused' });
-    assert.deepEqual(lockVerdict(model, { kind: 'move', targets: [O], target: at(model, box!), position: 'last-child' }), { kind: 'refused' });
+    // The lock pins the element itself, not what it holds.
+    assert.deepEqual(lockVerdict(model, { kind: 'move', targets: [O], target: at(model, box!), position: 'last-child' }), { kind: 'free' });
     assert.deepEqual(lockVerdict(model, { kind: 'move', targets: [O], target: L, position: 'before' }), { kind: 'free' });
     assert.deepEqual(lockVerdict(model, { kind: 'wrap', targets: [L], open: '<div>', close: '</div>' }), { kind: 'refused' });
     assert.deepEqual(lockVerdict(model, { kind: 'unwrap', target: L }), { kind: 'refused' });
-    assert.deepEqual(lockVerdict(model, { kind: 'insert', target: at(model, box!), position: 'first-child', html: '<b></b>' }), { kind: 'refused' });
+    assert.deepEqual(lockVerdict(model, { kind: 'insert', target: at(model, box!), position: 'first-child', html: '<b></b>' }), { kind: 'free' });
     assert.deepEqual(lockVerdict(model, { kind: 'duplicate', targets: [L] }), { kind: 'free' });
     assert.deepEqual(lockVerdict(model, { kind: 'text', target: L, text: 'New' }), { kind: 'free' });
   });

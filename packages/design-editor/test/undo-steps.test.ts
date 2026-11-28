@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { closeStep, joinSteps, noteBoard, noteCanvas, openStep, touchesBoard } from '../src/lib/undo-steps.ts';
-import { useDocument } from '../src/state/document.ts';
+import { boardNeedsWrite, isDirty, useDocument } from '../src/state/document.ts';
 import { emptyCanvas } from '@open-artifact/design-core';
 
 const state = (source: string) => ({ source, pending: [] });
@@ -120,6 +120,34 @@ describe('artboard files through undo', () => {
     assert.deepEqual(doc().trash, ['p.dc.html']);
     doc().undoLast();
     assert.deepEqual([doc().trash, doc().boards.a!.source, 'p.dc.html' in doc().canvas.boards], [[], 'A', true]);
+  });
+});
+
+describe('a deleted artboard once its deleting is saved', () => {
+  it('is not written back by the next save, and is written again once undo puts it back', () => {
+    useDocument.getState().load({ title: 'Steps', readOnly: false, canvas: { text: JSON.stringify({ boards: { 'p.dc.html': { x: 0, y: 0, w: 5, h: 5 } }, order: ['p.dc.html'] }), hash: '1' }, boards: { 'p.dc.html': { text: '<i></i>', hash: 'p' } } });
+    useDocument.setState({ undo: [], redo: [] });
+    const doc = useDocument.getState;
+    doc().editBoard('p.dc.html', { kind: 'source', text: '<b></b>' });
+    doc().deleteBoards(['p.dc.html']);
+    // The save deleted the file (and wrote the canvas).
+    doc().acknowledge({ canvas: { canvas: doc().canvas, text: '' }, boards: {}, deleted: ['p.dc.html'] }, { 'canvas.json': '2' });
+    // Before, it left the trash with its source unsaved, so the next save wrote the file again.
+    assert.equal(boardNeedsWrite(doc(), 'p.dc.html', doc().boards['p.dc.html']!), false);
+    assert.equal(isDirty(doc()), false);
+    doc().undoLast();
+    assert.ok('p.dc.html' in doc().canvas.boards);
+    assert.equal(boardNeedsWrite(doc(), 'p.dc.html', doc().boards['p.dc.html']!), true);
+  });
+
+  it('leaves the trash when someone writes its file again, so no save deletes their file', () => {
+    useDocument.getState().load({ title: 'Steps', readOnly: false, canvas: { text: JSON.stringify({ boards: { 'p.dc.html': { x: 0, y: 0, w: 5, h: 5 } }, order: ['p.dc.html'] }), hash: '1' }, boards: { 'p.dc.html': { text: '<i></i>', hash: 'p' } } });
+    const doc = useDocument.getState;
+    doc().deleteBoards(['p.dc.html']);
+    doc().acknowledge({ canvas: { canvas: doc().canvas, text: '' }, boards: {}, deleted: ['p.dc.html'] }, { 'canvas.json': '2' });
+    assert.ok(doc().trash.includes('p.dc.html'));
+    doc().remoteBoard('p.dc.html', '<u></u>', 'q');
+    assert.equal(doc().trash.includes('p.dc.html'), false);
   });
 });
 

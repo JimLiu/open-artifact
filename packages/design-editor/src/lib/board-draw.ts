@@ -266,13 +266,15 @@ function holds(element: HtmlElement, placed: 'div' | 'svg'): boolean {
 
 /**
  * The element a drawing goes into when pressed on `under` (the innermost
- * element at the point): out of locked elements and svg drawings, then
- * outward past elements that can't hold it. `null` is the artboard itself.
+ * element at the point): out of locked elements, svg drawings and repeats
+ * (`sc-for`), then outward past elements that can't hold it. `null` is the
+ * artboard itself.
  */
 export function drawContainer(under: HtmlElement | null, placed: 'div' | 'svg', locked: (element: HtmlElement) => boolean = () => false): HtmlElement | null {
   let element = under;
   let outer: HtmlElement | null = null;
-  for (let node = element; node; node = node.parent) if (node.tag === 'svg' || locked(node)) outer = node;
+  // Out of a repeat too: drawn in an `sc-for`, one drawing would show in every item.
+  for (let node = element; node; node = node.parent) if (node.tag === 'svg' || node.tag === 'sc-for' || locked(node)) outer = node;
   if (outer) element = outer.parent;
   while (element && !holds(element, placed)) element = element.parent;
   return element;

@@ -55,6 +55,9 @@ describe('state styles', () => {
     const errors = (attrs: string) => checkDcFile('Main.dc.html', board(attrs)).filter((d) => d.level === 'error').map((d) => d.message);
     assert.deepEqual(errors('style-hover="background: #eee"'), []);
     assert.ok(errors('style-hover="} body { color: red"').some((m) => m.includes('style-hover')));
+    // A hole is filled before the rule is made; before, check read its braces as part of the value.
+    assert.deepEqual(errors('style-hover="background: {{ accent }}; border-color: {{theme.line}}"'), []);
+    assert.ok(errors('style-hover="background: {{ accent }} } body {"').some((m) => m.includes('style-hover')));
     assert.ok(checkDcFile('Main.dc.html', board('style-visited="color: red"')).some((d) => d.level === 'warning' && d.message.includes('style-visited')));
   });
 

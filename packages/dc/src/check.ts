@@ -174,7 +174,8 @@ export function checkDcFile(path: string, source: string, options: CheckOptions 
       if (lower.startsWith('style-')) {
         const state = stateOfAttribute(lower);
         if (!state) out.push({ level: 'warning', message: `${attr.name}="…" is not a state style and does nothing; use ${STATE_STYLES.map((name) => `style-${name}`).join(', ')}.`, line });
-        else for (const problem of readStateStyle(attr.value).problems) out.push({ level: 'error', message: `${attr.name}: ${problem}. It holds CSS declarations, like style-hover="background: #f4f4f4".`, line });
+        // Holes are filled before the rule is made, and what they bring is checked then: here each stands for a plain word.
+        else for (const problem of readStateStyle(attr.value.replace(/\{\{[\s\S]*?\}\}/g, 'hole')).problems) out.push({ level: 'error', message: `${attr.name}: ${problem}. It holds CSS declarations, like style-hover="background: #f4f4f4".`, line });
       }
     }
     for (const child of element.children) {

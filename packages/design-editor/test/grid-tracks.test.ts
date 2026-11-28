@@ -12,6 +12,10 @@ describe('grid tracks', () => {
     assert.equal(trackCount('160px 1fr'), null);
     assert.equal(trackCount('repeat(auto-fill, minmax(120px, 1fr))'), null);
     assert.equal(trackCount(''), null);
+    // A bare number or a negative one is no track: the browser drops such a list.
+    assert.equal(trackCount('-2'), null);
+    assert.equal(trackCount('2 2'), null);
+    assert.equal(trackCount('0 0'), 2);
     assert.equal(tracksShown('160px 1fr'), '160px 1fr');
     assert.equal(tracksShown('1fr 1fr'), '2');
   });
@@ -23,6 +27,9 @@ describe('grid tracks', () => {
     assert.equal(tracksValue('2.6'), 'repeat(3, minmax(0, 1fr))');
     assert.equal(tracksValue('160px 1fr'), '160px 1fr');
     assert.equal(tracksValue(' '), null);
+    // Before, "-2" was written as it was (`grid-template-columns: -2`, which the browser drops) and the field showed 1.
+    assert.equal(tracksValue('-2'), 'repeat(2, minmax(0, 1fr))');
+    assert.equal(tracksValue('+4'), 'repeat(4, minmax(0, 1fr))');
   });
 
   it('reads a span with or without its start line', () => {

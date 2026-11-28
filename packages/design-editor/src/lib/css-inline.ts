@@ -246,7 +246,9 @@ function importBody(target: string | null, condition: string, from: string, walk
   const found = find(target, from, walk.sources);
   if (!found) return null;
   const key = found.kind === 'upload' ? splitAddress(target).file : found.path;
-  if (walk.open.includes(key)) return null;
+  // An import loop: that stylesheet is being written already, and a browser skips the import too. Kept as an import,
+  // it would move to the top with an address read from the wrong folder.
+  if (walk.open.includes(key)) return '';
   const css = stylesheetText(found);
   if (css === null) {
     walk.warnings.add(notCssWarning(target));

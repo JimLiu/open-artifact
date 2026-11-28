@@ -136,6 +136,12 @@ describe('the HTML exports', () => {
     assert.equal(rewriteRefs(text, new Map([['img/a.png', 'data:x']])), '<img src="data:x"> <p>img/a.png</p> <div style="background: url(data:x)">');
   });
 
+  it('drops a query from a reference made a data: URL, and keeps it on a path', () => {
+    // Before, `logo.png?v=2` became `data:…;base64,AAAA?v=2`, which breaks the image.
+    assert.equal(rewriteRefs('<img src="logo.png?v=2"> <img src="logo.png#top">', new Map([['logo.png', 'data:x']])), '<img src="data:x"> <img src="data:x#top">');
+    assert.equal(rewriteRefs('<img src="logo.png?v=2">', new Map([['logo.png', 'assets/logo.png']])), '<img src="assets/logo.png?v=2">');
+  });
+
   it('builds one file that inlines the runtime, styles and images', () => {
     const source = `<!doctype html><html><head><title>A</title>\n<script src="./support.js"></script>\n<link rel="stylesheet" href="ds/x/tokens.css"></head><body><x-dc><img src="img/a.png"><dc-import name="Card"></dc-import></x-dc><script type="text/x-dc" data-dc-script>class Component extends DCLogic {}</script></body></html>`;
     const { html, warnings } = standaloneDocument({
@@ -178,6 +184,23 @@ describe('the HTML exports', () => {
     assert.ok(html.includes("url('data:image/png;base64,AQID#frag%20one')"));
     assert.ok(html.includes('@import url(data.json);'));
     assert.deepEqual(warnings, ['stylesheet import not embedded (data.json): it is not a CSS file']);
+  });
+
+  it('inlines a stylesheet and a script linked with a query or a fragment', () => {
+    // Before, `look.css?v=2` was left a link, and the exported file asked for a file beside it.
+    const source = `<!doctype html><html><head><link rel="stylesheet" href="./look.css?v=2"><script src="app.js#x"></script></head><body><x-dc></x-dc></body></html>`;
+    const { html } = standaloneDocument({
+      path: 'Main.dc.html',
+      source,
+      files: new Map<string, Uint8Array | string>([
+        ['look.css', '.look { color: red }'],
+        ['app.js', 'window.APP = 1;'],
+      ]),
+      uploads: new Map(),
+      runtime: '',
+    });
+    assert.ok(!html.includes('<link rel="stylesheet" href="./look.css?v=2">') && html.includes('<style>\n.look { color: red }\n</style>'), html);
+    assert.ok(!html.includes('<script src="app.js#x">') && /<script\s*>\s*window\.APP = 1;\s*<\/script>/.test(html), html);
   });
 
   it('serves the embedded copies to the runtime’s fetch', async () => {

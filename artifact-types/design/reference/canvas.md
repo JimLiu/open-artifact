@@ -66,7 +66,7 @@ Keep boards on one page apart: lay them out on a grid with 80–120 px
 gaps; leave at least 223 px above a row that has a title note.
 
 A **piece** is an element someone dragged out of an artboard onto bare
-canvas: the editor writes it as a small artboard file of its own
+canvas (or a copy of one, Alt-dragged there): the editor writes it as a small artboard file of its own
 (`Piece.dc.html`, `Piece-2.dc.html`, …) sized to the element, with
 `frameless: true`, the element's tag as `title`, and the page it was
 dropped on. It is an ordinary `.dc.html` otherwise: edit its file like any

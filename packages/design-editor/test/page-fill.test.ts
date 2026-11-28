@@ -80,3 +80,30 @@ describe('page fill', () => {
     assert.equal(rootElementOf(model)?.tag, 'main');
   });
 });
+
+describe('a page painted by its root element', () => {
+  const page = '<helmet><style>body{margin:0}</style></helmet>\n<div style="width: 880px; padding: 64px; background: rgb(30, 60, 90); font-family: Georgia">x</div>';
+  const covers = { rootCovers: true };
+
+  it('reads the background from the root that covers the page, and the body’s otherwise', () => {
+    // Before, the root's background was missed and the page read as white.
+    assert.deepEqual(readPageFill(parseTemplate(page), covers), { color: 'rgb(30, 60, 90)' });
+    assert.deepEqual(readPageFill(parseTemplate(page)), {});
+    // A root with no background of its own leaves the body's.
+    assert.deepEqual(readPageFill(parseTemplate('<helmet><style>body { background: #222 }</style></helmet><div style="width: 10px">x</div>'), covers), { color: '#222' });
+  });
+
+  it('writes the background into the root’s style, the color after the image layers', () => {
+    const write = (template: string, edits: PageFillEdit[]) => {
+      const model = parseTemplate(template);
+      const splices = pageFillSplices(model, edits, covers);
+      return splices ? applySplices(template, splices) : null;
+    };
+    // Before, it went to a body rule the root covers, so nothing showed.
+    assert.equal(write(page, pageFillEdits({ color: 'red' })), '<helmet><style>body{margin:0}</style></helmet>\n<div style="width: 880px; padding: 64px; font-family: Georgia; background-color: red">x</div>');
+    assert.equal(
+      write('<div style="background-color: #fff; height: 5px; background-image: url(a.png)">x</div>', pageFillEdits({ image: 'linear-gradient(red, blue)', color: 'green' })),
+      '<div style="height: 5px; background: linear-gradient(red, blue); background-color: green">x</div>',
+    );
+  });
+});

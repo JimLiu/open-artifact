@@ -96,7 +96,8 @@ whole page at that width, as tall as its content. Point them there; you take no 
     a lock the person set in the editor: there the thing can't be moved, resized or deleted until they unlock it
     (which removes the key or attribute); its words and colors can still change. Don't move, resize or delete a locked
     frame, note or element yourself, even to make room, and never add or remove the mark unless asked; copies made in
-    the editor come unlocked. In the index it is `true` or `false`: `open-artifact check` reports anything else.
+    the editor come unlocked, and an element moved to another file (a piece, another artboard) keeps the locks in it.
+    In the index it is `true` or `false`: `open-artifact check` reports anything else.
 - **`project/<path>`**, one file per artboard: the WHOLE `.dc.html` source. `<path>` ends `.dc.html`; segments
   start with a letter, digit or `_`, then only those and `.` `-`, no spaces; stems unique.
 - A support file you name goes under `project/` too, linked relatively; an unnamed image or a font stays an upload
