@@ -7,7 +7,7 @@ import { library } from './lib/app.ts';
 import { connectCdp, type Cdp } from './lib/cdp.ts';
 import { APP, alive, cleanEnv, daemonState, freePort, leftovers, makeProfile, RUNTIME, stopDaemon, until } from './lib/env.ts';
 
-test('root launcher: React/CSS hot updates, guarded Electron restarts, fresh same-version runtime and cleanup', { timeout: 240_000 }, async () => {
+test('root launcher: React/CSS hot updates, guarded Electron restarts, fresh same-version runtime and cleanup', { timeout: 480_000 }, async () => {
   const repo = resolve(APP, '../..');
   const profile = makeProfile('oa-desktop-dev-');
   const port = await freePort();
@@ -32,7 +32,8 @@ const root = document.createElement('div'); document.body.append(root); createRo
   child.stderr.on('data', (data: Buffer) => logs.push(String(data)));
   const connection: { current: Cdp | null } = { current: null };
   const readyCount = () => (logs.join('').match(/\[desktop:dev\] Ready\./g) ?? []).length;
-  const waitReady = async (count: number) => assert.ok(await until(() => readyCount() >= count, 100_000), logs.join('').slice(-8000));
+  // Native macOS CI takes over two minutes to build all editors before the launcher is ready.
+  const waitReady = async (count: number) => assert.ok(await until(() => readyCount() >= count, 180_000), logs.join('').slice(-8000));
   const connect = async () => {
     connection.current?.close();
     const cdp = connection.current = await connectCdp(debug);
