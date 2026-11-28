@@ -3,9 +3,9 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import test from 'node:test';
-import { library } from './lib/app.ts';
+import { isShellOf, library } from './lib/app.ts';
 import { connectCdp, type Cdp } from './lib/cdp.ts';
-import { APP, alive, cleanEnv, daemonState, freePort, leftovers, makeProfile, RUNTIME, stopDaemon, until } from './lib/env.ts';
+import { APP, alive, cleanEnv, daemonState, freePort, leftovers, makeProfile, RUNTIME, sleep, stopDaemon, until } from './lib/env.ts';
 
 test('root launcher: React/CSS hot updates, guarded Electron restarts, fresh same-version runtime and cleanup', { timeout: 480_000 }, async () => {
   const repo = resolve(APP, '../..');
@@ -68,6 +68,13 @@ const root = document.createElement('div'); document.body.append(root); createRo
     assert.deepEqual(await page.evaluate(`desktop.open(${JSON.stringify(doc.id)})`), { ok: true, id: doc.id });
     const tabReady = await page.waitFor(`desktop.state().then(s => s.tabs.find(t => t.id === ${JSON.stringify(doc.id)})?.status === 'ready')`, 30_000);
     assert.ok(tabReady, JSON.stringify({ state: await page.evaluate('desktop.state()'), targets: await connection.current?.targets() }));
+    // As in the unsaved-work tests, let the editor's initial saved reports settle before overriding them.
+    const docTarget = await connection.current!.waitTarget(isShellOf(doc.id));
+    const docPage = await connection.current!.attach(docTarget.targetId);
+    await docPage.send('Page.enable');
+    assert.ok(await docPage.waitInFrame((url) => /\/docs\/[0-9a-f]+\//.test(url), "!!document.querySelector('.doc-text p')", 30_000), 'the doc editor did not draw');
+    assert.ok(await page.waitFor(`desktop.state().then(s => s.tabs.find(t => t.id === ${JSON.stringify(doc.id)})?.saved === 'saved')`, 30_000), 'the doc did not report its initial saved state');
+    await sleep(500);
     await page.evaluate(`desktop.test.saved(${JSON.stringify(doc.id)}, {state:'unsaved', leaveLosesWork:true})`);
     writeFileSync(mainProbe, 'export {};\n');
     assert.ok(await page.waitFor('desktop.state().then(s => s.ask?.kind === "quit")', 20_000));
@@ -112,6 +119,9 @@ const root = document.createElement('div'); document.body.append(root); createRo
     rmSync(fixture, { recursive: true, force: true });
     rmSync(mainProbe, { force: true });
     rmSync(typeProbe, { force: true });
+    // Later plugin and desktop packaging must not carry the runtime fixture the test built.
+    for (const runtime of [join(repo, 'skills/open-artifact'), join(repo, 'plugins/dsh'), RUNTIME])
+      rmSync(join(runtime, 'vendor/artifact-types/docs/reference', basename(typeProbe)), { force: true });
     rmSync(profile.root, { recursive: true, force: true });
   }
 });
