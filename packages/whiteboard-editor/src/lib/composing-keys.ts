@@ -38,6 +38,6 @@ export function guardComposingKeys(host: EventTarget, ownsComposition: (target: 
     };
     if (isInputMethodKey(press, ownsComposition)) event.stopImmediatePropagation();
   };
-  host.addEventListener('keydown', onKey, true);
-  return () => host.removeEventListener('keydown', onKey, true);
+  host.addEventListener('keydown', onKey, { capture: true });
+  return () => host.removeEventListener('keydown', onKey, { capture: true });
 }
