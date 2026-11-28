@@ -20,7 +20,7 @@ import {
   suggestsHalfRate,
   unfinishedNote,
 } from '../src/export/options.ts';
-import { chosenShape, otherShapeIds, ownShapeLabel, ratioOf, shapeIdOf, typedStart } from '../src/export/shapes.ts';
+import { chosenShape, ratioOf, shapeIdOf, typedStart } from '../src/export/shapes.ts';
 import * as words from '../src/export/words.ts';
 
 const wide = { width: 1920, height: 1080 };
@@ -34,13 +34,10 @@ test('ratios read in lowest terms, or as people say them', () => {
   assert.equal(ratioOf({ width: 0, height: 10 }), '');
 });
 
-test('a film knows its named shape and offers the others', () => {
+test('a film knows its named shape', () => {
   assert.equal(shapeIdOf(wide), 'wide');
   assert.equal(shapeIdOf({ width: 1000, height: 1000 }), 'square');
   assert.equal(shapeIdOf({ width: 1000, height: 300 }), null);
-  assert.deepEqual(otherShapeIds(wide), ['vertical', 'square', 'portrait']);
-  assert.equal(ownShapeLabel(wide), words.shapeLabel('Wide', '16:9'));
-  assert.equal(ownShapeLabel({ width: 2520, height: 1080 }), '21:9');
 });
 
 test('a shape choice makes another shape, nothing, or cannot be made', () => {

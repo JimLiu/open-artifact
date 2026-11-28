@@ -20,8 +20,8 @@
  *     artifact-types/<id>/                         the built-in types, each scripts/cli.mjs running type-server/
  *                                                  (scripts/vendor-types.mjs)
  *
- * Run `node scripts/build.mjs` first (the Shell, frame-host and the type server come from it); a piece that is
- * not there is skipped with a warning.
+ * Run `node scripts/build.mjs` first (the Shell, frame-host and the type server come from it); missing or incomplete
+ * build outputs fail the build so skills and plugins never ship with missing editors.
  *
  *   node scripts/build-skill.mjs [--out <dir>]     --out also copies the finished skill folder there
  */
@@ -32,25 +32,21 @@ import { buildSync } from 'esbuild';
 import { localSkill } from '../packages/harness-kit/src/skill.ts';
 import { renderSkill, renderedSkillFile } from '../packages/protocol/src/skill.ts';
 import { PROTOCOL_MAX, PROTOCOL_MIN } from '../packages/protocol/src/harness.ts';
-import { vendorTypes } from './vendor-types.mjs';
+import { assertSkillVendorComplete, readBuiltinTypeIds, vendorTypes } from './vendor-types.mjs';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const skill = join(repo, 'skills', 'open-artifact');
 const vendor = join(skill, 'vendor');
 // The built-in types: the protocol's list (BUILTIN_TYPE_IDS), as the daemon lists no other type from the built-in root.
-const TYPES = JSON.parse(
-  /BUILTIN_TYPE_IDS[^=]*=\s*(?:Object\.freeze\()?(\[[^\]]*\])/
-    .exec(readFileSync(join(repo, 'packages', 'protocol', 'src', 'type-authoring.ts'), 'utf8'))[1]
-    .replace(/'/g, '"'),
-);
+const TYPES = readBuiltinTypeIds(repo);
 
 const warn = (message) => console.warn(`open-artifact skill build: ${message}`);
 const log = (message) => console.log(`open-artifact skill build: ${message}`);
 const isDir = (path) => existsSync(path) && statSync(path).isDirectory();
 
-/** Copies a folder into vendor/, leaving out node_modules; warns when it is not there. */
+/** Copies a folder into vendor/, leaving out node_modules; fails when a required build output is missing. */
 function vendorCopy(from, to, what) {
-  if (!isDir(from)) return warn(`${what}: ${relative(repo, from)} is not there; skipped.`);
+  if (!isDir(from)) throw new Error(`open-artifact skill build: ${what} (${relative(repo, from)}) is missing; run npm run build first.`);
   rmSync(to, { recursive: true, force: true });
   cpSync(from, to, { recursive: true, filter: (path) => basename(path) !== 'node_modules' });
 }
@@ -111,6 +107,7 @@ function main() {
   vendorCopy(join(repo, 'packages', 'daemon', 'harnesses'), join(vendor, 'harnesses'), 'the harness profiles');
   // One type server for every type, not a copy in each (scripts/vendor-types.mjs).
   vendorTypes({ repo, vendor, types: TYPES, warn, log });
+  assertSkillVendorComplete(skill, { repo, types: TYPES, label: 'open-artifact skill build' });
   log('vendor/');
   const i = process.argv.indexOf('--out');
   if (i > 0) {

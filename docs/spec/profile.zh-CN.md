@@ -41,7 +41,7 @@ harness profile 是 daemon 在适配器开口之前（以及之外）对一个 A
 | `sessionWorkspace` | `"codex-rollout"` | **否** | 没有人告知时怎么找到会话的目录 |
 | `caps` | `AdapterCaps` | 是 | harness 在每个维度上做到哪一步（[Harness API](harness-api.zh-CN.md#adaptercaps)） |
 | `policy` | `{ offer?, reuse?, artifacts?, roles?, confirm? }` | 是 | 以数据表示的规则（[见下文](#policy)） |
-| `rules` | string，最多 4000 个字符 | 是 | 以文本表示的规则：Agent 最先读到它们，它们优先于随后的指令；不改变任何权限 |
+| `rules` | string，最多 4000 个字符 | 是 | 以文本表示的规则：会放在 MCP `initialize` 指令、`skill.get`、`quickstart`、`publish` 和 `adopt` 的最前面，优先于随后的指令；不改变任何权限 |
 | `commands` | string[] | 是 | harness 的命令名，例如 `["artifact"]` |
 | `toolNames` | `{ Artifact?, ArtifactData?, ArtifactComments? }` | 是 | harness 给工具起的名字 |
 | `source` | `shipped` \| `adapter` \| `user` | 否 | profile 的来源 |

@@ -7,7 +7,7 @@
  *   lib/client.js  the browser half (src/client/index.tsx), CommonJS in the app's `window.__ModuleLoader__.load`
  *                  wrapper, with React and the app's platform modules left to the loader
  *   vendor/        the daemon (`open-artifact.mjs`), the built Shell and home pages, frame-host (the type server from dist/daemon/frame-host), the harness profiles, the type server (type-server/) and the built-in types that run it;
- *                  a piece that is not there is skipped with a warning; and `runtime.json`, the daemon's version and protocols
+ *                  missing or incomplete build outputs fail the build (pass `--no-vendor` to skip vendoring); and `runtime.json`, the daemon's version and protocols
  *   scripts/open-artifact.mjs  the open-artifact skill's launcher (skills/open-artifact/scripts/open-artifact.mjs), so this
  *                  folder is a runtime folder: the daemon records it from the plugin's `hello`, and another harness on
  *                  this computer can start it
@@ -25,7 +25,7 @@ import { basename, dirname, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildSync } from 'esbuild';
 import { PROTOCOL_MAX, PROTOCOL_MIN } from '../../../packages/protocol/src/harness.ts';
-import { vendorTypes } from '../../../scripts/vendor-types.mjs';
+import { readBuiltinTypeIds, vendorTypes } from '../../../scripts/vendor-types.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const repo = join(root, '..', '..');
@@ -36,9 +36,7 @@ const PLATFORM_MODULES = ['react', 'react/jsx-runtime', 'react-dom', '@deepseek-
 
 const warn = (message) => console.warn(`dsh-open-artifact build: ${message}`);
 // The built-in types: the protocol's list (BUILTIN_TYPE_IDS), which the daemon and a site share.
-const BUILTIN_TYPES = JSON.parse(
-  /BUILTIN_TYPE_IDS[^=]*=\s*(?:Object\.freeze\()?(\[[^\]]*\])/.exec(readFileSync(join(repo, 'packages', 'protocol', 'src', 'type-authoring.ts'), 'utf8'))[1].replace(/'/g, '"'),
-);
+const BUILTIN_TYPES = readBuiltinTypeIds(repo);
 const log = (message) => console.log(`dsh-open-artifact build: ${message}`);
 
 // ---------------------------------------------------------------- bundles
@@ -101,9 +99,9 @@ function buildClient() {
 
 const isDir = (path) => existsSync(path) && statSync(path).isDirectory();
 
-/** Copies a folder into vendor/, leaving out node_modules; warns when it is not there. */
+/** Copies a folder into vendor/, leaving out node_modules; fails when a required build output is missing. */
 function vendorCopy(from, to, what) {
-  if (!isDir(from)) return warn(`${what}: ${relative(repo, from)} is not there; skipped.`);
+  if (!isDir(from)) throw new Error(`dsh-open-artifact build: ${what} (${relative(repo, from)}) is missing; run npm run build first.`);
   rmSync(to, { recursive: true, force: true });
   cpSync(from, to, { recursive: true, filter: (path) => basename(path) !== 'node_modules' });
 }

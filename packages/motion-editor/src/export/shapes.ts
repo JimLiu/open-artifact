@@ -1,10 +1,9 @@
 /**
- * The shapes a film can be made again in, as the Shape menu and the export dialog offer them. A film has one size;
+ * The shapes a film can be made again in, as the export dialog offers them. A film has one size;
  * another shape is a second film the agent makes, never a crop of this one.
  */
 
 import { FILM_SHAPES, FILM_SHAPE_IDS, customFilmShape, type FilmShape, type FilmShapeId } from '@open-artifact/motion-core';
-import { SHAPE_NAMES, shapeLabel } from './words.ts';
 
 export interface FilmSize {
   width: number;
@@ -41,17 +40,6 @@ export function ratioOf(size: FilmSize): string {
 /** The named shape the size has, if any. */
 export function shapeIdOf(size: FilmSize): FilmShapeId | null {
   return FILM_SHAPE_IDS.find((id) => sameShape(FILM_SHAPES[id], size)) ?? null;
-}
-
-/** The film's own shape as a label, `Wide · 16:9`. */
-export function ownShapeLabel(size: FilmSize): string {
-  const id = shapeIdOf(size);
-  return id === null ? ratioOf(size) : shapeLabel(SHAPE_NAMES[id], FILM_SHAPES[id].ratio);
-}
-
-/** The named shapes other than the film's own. */
-export function otherShapeIds(own: FilmSize): FilmShapeId[] {
-  return FILM_SHAPE_IDS.filter((id) => !sameShape(FILM_SHAPES[id], own));
 }
 
 /**

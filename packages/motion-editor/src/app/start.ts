@@ -1,9 +1,8 @@
 /**
  * Starts the page: the compact inspector look, the host connection and live sync (`host/boot.ts`), then the film engine, the keyboard,
- * comments, full screen, the Comments toolbar button and the view context. Resolves to a function that stops it all.
+ * comments, full screen and the view context. Resolves to a function that stops it all.
  */
 
-import { createElement } from 'react';
 import { create } from 'zustand';
 import { guardFileDrops } from '@open-artifact/editor-kit';
 import runtime from 'virtual:motion-stage-runtime';
@@ -20,10 +19,8 @@ import { installShortcuts } from '../keyboard/install.ts';
 import { registerLetterKeysRow } from '../keyboard/LetterKeysRow.tsx';
 import { registerPlaybackShortcuts } from '../keyboard/shortcuts.ts';
 import { startComments } from '../comments/comments.ts';
-import { FilmCommentsButton } from '../comments/CommentLayer.tsx';
 import { registerCommentShortcuts } from '../comments/keys.ts';
 import { watchFullscreen } from '../transport/fullscreen.ts';
-import { registerToolbarItem, TOOLBAR_ORDER } from '../transport/slots.ts';
 import { installTweaks } from '../tweaks/install.ts';
 import { installLayers } from '../layers/install.ts';
 import { installStyle } from '../style/install.ts';
@@ -59,12 +56,6 @@ export async function startVideoApp(): Promise<() => void> {
     registerCommentShortcuts(),
     startComments(),
     watchFullscreen(),
-    registerToolbarItem({
-      id: 'comments',
-      side: 'end',
-      order: TOOLBAR_ORDER.comments,
-      render: () => createElement(FilmCommentsButton),
-    }),
     registerUndoShortcuts(),
     installTweaks(),
     installLayers(),

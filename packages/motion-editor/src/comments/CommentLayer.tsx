@@ -1,5 +1,5 @@
 import { useCallback, useMemo, type ReactElement } from 'react';
-import { CommentCapture, CommentPins, CommentsButton, CommentPopover, CommentsLayer, ThreadCard, type AgentBadge } from '@open-artifact/editor-kit/react';
+import { CommentCapture, CommentPins, CommentPopover, CommentsLayer, ThreadCard, type AgentBadge } from '@open-artifact/editor-kit/react';
 import type { Box, PinPlace, Point } from '@open-artifact/editor-kit';
 import { useFilmSize } from '../player/StageView.tsx';
 import { useFilm } from '../stores/film.ts';
@@ -8,7 +8,6 @@ import { useUi } from '../stores/ui.ts';
 import { useWorking } from '../stores/working.ts';
 import { anchorShowsAt, anchorWorldBox, boxAnchorAt, filmMomentOf, pinWorldPoint, pointAnchorAt, stageCamera, type VideoAnchor } from './anchor-place.ts';
 import { filmComments, useComments, useRangeMark } from './comments.ts';
-import { usePopupSide } from '../transport/placement.ts';
 import { formatPlaybackTime } from '../transport/time-format.ts';
 import * as words from './words.ts';
 
@@ -93,9 +92,4 @@ function RangeMarkNote(): ReactElement | null {
       <span className="rounded-md bg-chrome px-2.5 py-1 text-[12px] shadow-chrome">{words.rangeFrom(formatPlaybackTime(from))}</span>
     </div>
   );
-}
-
-/** The toolbar's Comments button: comment mode, and the list of every comment. */
-export function FilmCommentsButton(): ReactElement {
-  return <CommentsButton comments={filmComments} side={usePopupSide()} />;
 }

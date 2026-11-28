@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, type ReactElement, type ReactNode, type RefObject } from 'react';
-import { Maximize, Minimize, Pause, Play, Repeat, SkipBack } from 'lucide-react';
-import { ToolButton } from '@open-artifact/editor-kit/react';
+import { Maximize2, Minimize2, Pause, Play, Repeat, RotateCcw } from 'lucide-react';
+import { ChromeDivider, ToolButton } from '@open-artifact/editor-kit/react';
 import { restart, setLoop, togglePlay } from '../engine/actions.ts';
 import { useFilm } from '../stores/film.ts';
 import { usePlayback } from '../stores/playback.ts';
@@ -58,8 +58,8 @@ function Items({ items, side }: { items: readonly ToolbarItem[]; side: ToolbarIt
     ));
 }
 
-/** Play, back to the start, time, loop and sound. */
-function PlaybackControls(): ReactElement {
+/** Play, back to the start and loop, then the time and sound; on top, a divider sets the time apart. */
+function PlaybackControls({ divided = false }: { divided?: boolean }): ReactElement {
   const playing = usePlayback((s) => s.playing);
   const loop = usePlayback((s) => s.loop);
   const ready = useFilm((s) => s.stage === 'ready');
@@ -75,15 +75,16 @@ function PlaybackControls(): ReactElement {
         icon={playing ? <Pause /> : <Play />}
         onClick={togglePlay}
       />
-      <ToolButton label={words.BACK_TO_START} shortcut="Home" size="lg" tipSide={tipSide} className="@max-[26rem]:hidden" disabled={!ready} icon={<SkipBack />} onClick={restart} />
-      <TimeDisplay />
+      <ToolButton label={words.BACK_TO_START} shortcut="Home" size="lg" tipSide={tipSide} className="@max-[26rem]:hidden" disabled={!ready} icon={<RotateCcw />} onClick={restart} />
       <ToolButton label={words.LOOP} size="lg" tipSide={tipSide} pressed={loop} icon={<Repeat />} onClick={() => setLoop(!loop)} />
+      {divided ? <ChromeDivider /> : null}
+      <TimeDisplay />
       <VolumeControl />
     </>
   );
 }
 
-/** The buttons the page's parts add, More, full screen, and the panel toggle last. */
+/** The buttons the page's parts add (Add video, Export), full screen, More, and the panel toggle last. */
 function ActionControls(): ReactElement {
   const fullscreen = useUi((s) => s.fullscreen);
   const items = useToolbar((s) => s.items);
@@ -92,16 +93,16 @@ function ActionControls(): ReactElement {
     <>
       <Items items={items} side="start" />
       <Items items={items} side="end" />
-      <MoreMenu />
       <ToolButton
         label={!canFullscreen ? words.FULL_SCREEN_UNAVAILABLE : fullscreen ? words.EXIT_FULL_SCREEN : words.FULL_SCREEN}
         shortcut="F"
         size="lg"
         tipSide={usePopupSide()}
         disabled={!canFullscreen}
-        icon={fullscreen ? <Minimize /> : <Maximize />}
+        icon={fullscreen ? <Minimize2 /> : <Maximize2 />}
         onClick={toggleFullscreen}
       />
+      <MoreMenu />
       <Items items={items} side="last" />
     </>
   );
@@ -123,7 +124,7 @@ function MeasuredTopBars(): ReactElement {
     <ToolbarPlaceContext.Provider value="top">
       <div className="flex shrink-0 items-start justify-between gap-2 px-3 pt-3">
         <div ref={playback} role="toolbar" aria-label={words.PLAYBACK} className={BAR_CLASS} data-video-transport="">
-          <PlaybackControls />
+          <PlaybackControls divided />
         </div>
         <div ref={actions} role="toolbar" aria-label={words.ACTIONS} className={BAR_CLASS} data-video-transport="">
           <ActionControls />

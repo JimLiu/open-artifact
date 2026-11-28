@@ -157,7 +157,18 @@ describe(TYPE, { skip: skip() }, () => {
       assert.deepEqual(top.map((bar) => bar.panel), [false, true]);
       assert.equal(await page.evaluate(`document.querySelectorAll('button[aria-label="Theme"]').length`), 0);
 
-      await page.cdp('Emulation.setDeviceMetricsOverride', { width: 420, height: 800, deviceScaleFactor: 1, mobile: false });
+      // 2026-11-28: the bars hold what the original's do. Play, back to the start, loop, a divider, then the time and
+      // sound; Export, full screen, More and the panel toggle. No shape menu, and no Comments: the Shell's header has it.
+      const controls = JSON.parse(await page.evaluate(`JSON.stringify([...document.querySelectorAll('[data-video-transport]')].map((bar) =>
+        [...bar.querySelectorAll('button[aria-label], div[aria-hidden="true"].w-px')].map((el) => el.tagName === 'BUTTON' ? el.getAttribute('aria-label') : '|')))`));
+      const [playback, actions] = controls;
+      assert.deepEqual(playback.slice(1, 4), ['Back to the start', 'Loop', '|'], JSON.stringify(playback));
+      // Mute shows only for a film with sound; this one has none.
+      assert.ok(['Play', 'Pause'].includes(playback[0]) && playback.length === 4, JSON.stringify(playback));
+      assert.deepEqual(actions.slice(-4).map((label) => label.startsWith('Full screen') ? 'Full screen' : label), ['Export', 'Full screen', 'More', 'Properties'], JSON.stringify(actions));
+      assert.ok(!actions.includes('Comments') && !actions.includes('Make it in another shape'), JSON.stringify(actions));
+
+      await page.cdp('Emulation.setDeviceMetricsOverride', { width: 340, height: 800, deviceScaleFactor: 1, mobile: false });
       assert.ok(await page.waitFor(`document.querySelectorAll('[data-video-transport]').length === 1`, 10_000), await page.evaluate(bars));
       const [bottom] = JSON.parse(await page.evaluate(bars));
       assert.ok(bottom.top > 400 && bottom.panel, JSON.stringify(bottom));

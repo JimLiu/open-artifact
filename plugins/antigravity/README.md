@@ -39,6 +39,13 @@ working folder was not measured; when it does not, the agent sends the files thr
 - `skills/open-artifact/`: the skill, carrying the daemon;
 - `hooks.json`: `SessionStart`, `PreInvocation` and `Stop`.
 
+## Opening artifacts
+
+In the Antigravity app, artifacts open by default in Antigravity's built-in **Browser** side pane (via the `browser`
+subagent) rather than relying on an inline `ShowArtifact` card inside the chat steps. In the `agy` CLI (where there is
+no built-in browser), or when the built-in browser cannot open the page, the agent falls back to opening the page in
+your computer's browser (`Artifact {action: "open", url}`).
+
 ## Recommended with Gemini models: `gemini-frontend-design`
 
 For design work (`/open-artifact design …`: screens, landing pages, mockups) on a Gemini model, pair this plugin with

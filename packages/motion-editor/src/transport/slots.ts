@@ -1,13 +1,13 @@
 /**
- * Buttons later parts of the page add to the actions bar. `start` items lead it; `end` items follow, ordered by
- * {@link TOOLBAR_ORDER} so Export and Comments keep their places whichever registers first; More and full screen come
- * next, and `last` items (the panel toggle) close the bar, beside the side panel.
+ * Buttons later parts of the page add to the actions bar. `start` items lead it; `end` items (Export) follow, ordered by
+ * {@link TOOLBAR_ORDER}; full screen and More come next, and `last` items (the panel toggle) close the bar, beside the
+ * side panel. Comments live in the Shell's header, not here.
  */
 
 import type { ReactNode } from 'react';
 import { create } from 'zustand';
 
-export const TOOLBAR_ORDER = { tweaks: 10, style: 20, layers: 30, export: 40, comments: 50 } as const;
+export const TOOLBAR_ORDER = { tweaks: 10, style: 20, layers: 30, export: 40 } as const;
 
 export interface ToolbarItem {
   id: string;

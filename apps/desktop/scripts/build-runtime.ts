@@ -25,6 +25,7 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { BUILTIN_TYPE_IDS } from '@open-artifact/protocol';
 
 const app = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repo = resolve(app, '..', '..');
@@ -37,6 +38,7 @@ const fail = (line: string) => {
   process.exit(1);
 };
 const readJson = <T>(path: string): T => JSON.parse(readFileSync(path, 'utf8'));
+const SERVER_TYPES = BUILTIN_TYPE_IDS.filter((id) => id !== 'page');
 
 /** What must be there for the daemon to start and every built-in editor to open. */
 const REQUIRED = [
@@ -44,17 +46,19 @@ const REQUIRED = [
   'vendor/open-artifact.mjs',
   'vendor/runtime.json',
   'vendor/shell/index.html',
-  'vendor/home',
-  'vendor/frame-host',
+  'vendor/home/index.html',
+  'vendor/frame-host/frame-host.mjs',
   'vendor/harnesses',
   'vendor/type-server/cli.mjs',
   'vendor/type-server/support.js',
+  'vendor/type-server/sheets.wasm',
   'vendor/type-server/motion-tools.html',
-  'vendor/type-server/editors/docs/index.html',
-  'vendor/type-server/editors/sheets/index.html',
-  'vendor/type-server/editors/slides/index.html',
-  'vendor/type-server/editors/whiteboard/index.html',
-  'vendor/artifact-types/docs/scripts/cli.mjs',
+  'vendor/type-server/pdf-reader.mjs',
+  'vendor/type-server/pdf-cmaps',
+  'vendor/type-server/shell/index.html',
+  ...SERVER_TYPES.map((type) => `vendor/type-server/editors/${type}/index.html`),
+  ...BUILTIN_TYPE_IDS.map((type) => `vendor/artifact-types/${type}/artifact-type.json`),
+  ...SERVER_TYPES.map((type) => `vendor/artifact-types/${type}/scripts/cli.mjs`),
 ];
 const missing = REQUIRED.filter((path) => !existsSync(join(skill, path)));
 if (missing.length) {

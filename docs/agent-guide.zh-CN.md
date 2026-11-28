@@ -76,8 +76,8 @@ node <skill>/scripts/open-artifact.mjs wait --timeout 600000
    - 需要视觉检查且环境支持看图时，可调用 `Artifact {action: "call", url, name: "snapshot"}`（Motion 支持 `stills`）。自由页面和所有页面型类型可以带 `args: {width, height, scheme}`（`scheme` 为 `light` 或 `dark`），它们的截图只读。
 6. **向用户展示页面**
    - 若创建结果已返回 `open: "after_first_write"`，写入后宿主会自动打开页面。
-   - 若当前应用支持内联渲染 MCP Apps，在内容就绪后调用 `ShowArtifact {url}`（对于 `motion` 粗剪或 `docs` 骨架等支持实时观看进度的类型，在第一批可播放/可预览内容写入后立即展示）。由于 `ShowArtifact` 本身不会打开浏览器标签页（且长任务中过早弹出的卡片容易被后续步骤淹没），若没有内置浏览器或无法确认页面已可见展示，请同时调用一次 `Artifact {action: "open", url}`。
-   - 否则，如果应用自带内置浏览器面板，在其中打开 `view_url`；仅在没有内置浏览器时调用 `Artifact {action: "open", url}` 打开系统浏览器。
+   - 否则，在内容就绪后（对于 `motion` 粗剪或 `docs` 骨架等支持实时观看进度的类型，在第一批可播放/可预览内容写入后立即展示），只要应用提供内置浏览器（浏览器面板、标签页或 `browser` 子代理），**默认在内置浏览器中打开 `view_url`**。不要用 `ShowArtifact` 替代内置浏览器（`ShowArtifact` 只会在对话中渲染一张内联卡片，不会打开浏览器标签页，且长任务中容易折叠或被后续步骤淹没）。
+   - 仅当没有内置浏览器时：如果当前应用支持可见内联渲染 MCP Apps，可调用 `ShowArtifact {url}`；如果没有内置浏览器且无法确认内联预览已可见展示，则调用一次 `Artifact {action: "open", url}` 打开系统浏览器。
    - 人在 Open Artifact Desktop 的设置里打开了 **agent 做的作品在这个 App 里打开**（默认关）时，`Artifact {action: "open"}` 原本打开浏览器的那一步改交给这个 App：在 App 里开一个标签页（App 没在运行时，用作品的 `open-artifact://` 链接启动它；启动失败就回到浏览器）。这时结果里是 `opened_in: "desktop"`。自己显示页面的应用不受影响。这个设置只有人能改：在 agent 的会话里，daemon 会拒绝。
 7. **简短汇报**
    - 用一两句话说明做了什么，并提醒用户可以直接在页面编辑、留评论并点 **Send to agent**。无论页面是否已自动打开，最终回复中都应附上 `view_url` 链接，方便用户随时打开或回到页面。

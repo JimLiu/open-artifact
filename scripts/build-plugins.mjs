@@ -22,6 +22,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'no
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildSync } from 'esbuild';
+import { assertSkillVendorComplete } from './vendor-types.mjs';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const source = join(repo, 'plugins');
@@ -42,6 +43,7 @@ if (!process.argv.includes('--no-skill') || !existsSync(join(skill, 'vendor', 'o
   const run = spawnSync(process.execPath, [join(repo, 'scripts', 'build-skill.mjs')], { stdio: 'inherit' });
   if (run.status !== 0) throw new Error('the skill build failed');
 }
+assertSkillVendorComplete(skill, { repo, label: 'plugins build' });
 
 // plugins/dsh is an npm package with its own build (plugins/dsh/scripts/build.mjs, run by scripts/build.mjs): not copied here.
 const plugins = readdirSync(source).filter(

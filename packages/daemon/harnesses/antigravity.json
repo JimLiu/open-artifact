@@ -59,5 +59,6 @@
   },
   "policy": {
     "artifacts": "workspace"
-  }
+  },
+  "rules": "When showing an artifact page in the Antigravity app, open view_url in the built-in Browser pane by default: invoke the `browser` subagent (`invoke_subagent` with TypeName \"browser\", Model \"flash\" if available) to navigate to view_url and finish immediately once the page loads, leaving the tab open (idle) for the person. Do not use ShowArtifact in place of the built-in browser (ShowArtifact only renders an inline card inside the conversation steps and does not open the Browser pane). Only when you have no `browser` subagent (such as in the `agy` CLI) or the built-in browser cannot open view_url, call `Artifact {action: \"open\", url}` once instead."
 }

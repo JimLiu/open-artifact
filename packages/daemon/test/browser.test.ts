@@ -68,3 +68,19 @@ test('browser: an openEarly type (motion) tells the agent to show the page right
   assert.match(String(made.instructions), /Show the page right after your first playable batch.*built-in browser/);
   assert.match(String(made.next), /write the first playable batch into root, then show it right away.*built-in browser/);
 });
+
+test('browser: Antigravity publish delivers rules preferring the built-in Browser pane over ShowArtifact', async () => {
+  const antigravity: SessionRef = { harness: 'antigravity', session: 'ag-browser-test', workspace };
+  const made = (await daemon.tools.call(
+    'Artifact',
+    { action: 'publish', type_url: 'open-artifact://type/motion', title: 'Antigravity film', open: 'after_first_write' },
+    antigravity,
+  )) as Record<string, any>;
+  assert.equal(made.open, undefined);
+  assert.match(String(made.rules), /Antigravity.*built-in Browser pane/s);
+  assert.match(String(made.rules), /browser.*subagent/i);
+  assert.match(String(made.rules), /Do not use ShowArtifact in place of the built-in browser/);
+  const instructions = String(made.instructions);
+  assert.ok(instructions.startsWith("# Antigravity's rules\n"), 'Antigravity rules come first in publish instructions');
+  assert.ok(instructions.includes('built-in Browser pane'));
+});

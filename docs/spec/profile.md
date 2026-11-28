@@ -45,7 +45,7 @@ profiles that ship. The type is `HarnessProfile` in `packages/protocol/src/harne
 | `sessionWorkspace` | `"codex-rollout"` | **no** | how to find a session's folder when nothing said it |
 | `caps` | `AdapterCaps` | yes | how far the harness goes in each dimension ([Harness API](harness-api.md#adaptercaps)) |
 | `policy` | `{ offer?, reuse?, artifacts?, roles?, confirm? }` | yes | rules that are data ([below](#policy)) |
-| `rules` | string, at most 4000 characters | yes | rules that are text: the agent reads them first, and they win over the instructions that follow; they change no permission |
+| `rules` | string, at most 4000 characters | yes | rules that are text: delivered first in MCP `initialize` instructions, `skill.get`, `quickstart`, `publish` and `adopt`, where they win over the instructions that follow; they change no permission |
 | `commands` | string[] | yes | the harness's command names, e.g. `["artifact"]` |
 | `toolNames` | `{ Artifact?, ArtifactData?, ArtifactComments? }` | yes | the names the harness gave the tools |
 | `source` | `shipped` \| `adapter` \| `user` | no | where the profile came from |

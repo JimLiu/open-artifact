@@ -2391,8 +2391,16 @@ export function createTypeServer(options: TypeServerOptions): TypeServer {
     const file = rel === '' || rel === 'index.html' ? 'index.html' : rel;
     const dir = editorDir(artifact.type);
     if (file === 'index.html') {
-      const html = await readFile(inside(dir, file), 'utf8').catch(() => null);
-      if (html === null) throw new HttpError(404, 'not_found', 'Not found.');
+      const indexFile = inside(dir, file);
+      const html = await readFile(indexFile, 'utf8').catch(() => null);
+      if (html === null) {
+        log(`missing editor page for ${artifact.type}: ${indexFile}`);
+        throw new HttpError(
+          503,
+          'unavailable',
+          `The ${artifact.type} editor is missing from this Open Artifact installation. Rebuild or reinstall Open Artifact.`,
+        );
+      }
       const page = withStableAssets(html, artifact.type);
       const pageHeaders: Record<string, string> = { 'content-security-policy': `${pageAncestors ? `frame-ancestors ${pageAncestors}; ` : ''}object-src 'none'` };
       // A guest's page is plain http at a LAN address: not a secure context (see `withShim`).

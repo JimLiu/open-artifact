@@ -102,6 +102,15 @@ test('MCP Apps: a client that shows them gets ShowArtifact and the view of the l
   const init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: apps });
   assert.deepEqual(init.result.capabilities.resources, {});
   assert.match(init.result.instructions, /ShowArtifact \{url\}/);
+  assert.match(init.result.instructions, /built-in browser.*Do not use ShowArtifact in place of the built-in browser/s);
+
+  const agInit = await rpc(
+    'initialize',
+    { protocolVersion: '2025-06-18', capabilities: apps },
+    { 'X-Open-Artifact-Harness': 'antigravity', 'X-Open-Artifact-Session': 'ag-apps-1' },
+  );
+  assert.match(agInit.result.instructions, /^The rules of Antigravity.*built-in Browser pane/s);
+  assert.ok(agInit.result.instructions.indexOf('built-in Browser pane') < agInit.result.instructions.indexOf('<open_artifact>'));
 
   const ui = { 'X-Open-Artifact-UI': '1', 'X-Open-Artifact-Harness': 'dsh', 'X-Open-Artifact-Session': 'apps-1' };
   const tools = (await rpc('tools/list', {}, ui)).result.tools as Array<{ name: string; _meta?: { ui?: { resourceUri?: string } } }>;
@@ -131,6 +140,7 @@ test('MCP Apps: a client that shows them gets ShowArtifact and the view of the l
   assert.equal(called.structuredContent.type, 'design');
   assert.equal(called.structuredContent.view_url, `${state.url}/a/${id}`);
   assert.match(called.structuredContent.note, /view_url/);
+  assert.match(called.structuredContent.note, /built-in browser/);
   const missing = (await rpc('tools/call', { name: 'ShowArtifact', arguments: { url: 'open-artifact://artifact/art_missing' } }, ui)).result;
   assert.equal(missing.isError, true);
   assert.equal(missing.structuredContent, undefined);

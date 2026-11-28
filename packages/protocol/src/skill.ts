@@ -226,10 +226,11 @@ const STEP_FILL = `**Fill it.** The result carries the artifact's \`url\`, its \
 const SHOW_HEAD = `**Show it.** If the create result says \`open: "after_first_write"\` (the default when your app shows pages), the
    page opens by itself in your app once you write. Otherwise, once the content is written — or right after the first
    playable batch when the type's instructions ask to show progress live (never while it is empty) — open \`view_url\` in
-   your app's built-in browser (its browser panel or tab) if you have one: that is where the person is. If your app
-   offers \`ShowArtifact\`, you may call \`ShowArtifact {url}\` to show an inline card, but note that it does not open a
-   browser tab by itself (and in long multi-step builds an early card can scroll out of view). When you have no
-   built-in browser panel — or cannot confirm the page visibly opened — call \`Artifact {action: "open", url}\` once,`;
+   your app's built-in browser (its browser panel, tab, or browser subagent) by default whenever you have one: that is
+   where the person is. Do not use \`ShowArtifact\` in place of the built-in browser (\`ShowArtifact\` only renders an
+   inline card in the chat, does not open a browser tab, and can collapse or scroll out of view in multi-step builds).
+   When you have no built-in browser — use \`ShowArtifact {url}\` if your app visibly renders MCP Apps inline, or call
+   \`Artifact {action: "open", url}\` once (if no preview opened visibly),`;
 
 const SHOW_CLI = `   which opens it in the computer's browser (with the command line, \`{{cli}} open <url> --browser\`).
    The page refreshes by itself after later changes.`;

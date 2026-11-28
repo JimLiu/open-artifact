@@ -27,11 +27,12 @@
 
 import { build as esbuild } from 'esbuild';
 import { execFileSync } from 'node:child_process';
-import { chmod, cp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { missingTypeServerFiles } from './vendor-types.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'dist/server');
@@ -124,13 +125,23 @@ async function buildPdfReader() {
 }
 
 async function buildEditors() {
+  const editorsOut = join(OUT, 'editors');
+  // Remove only unknown/stale editor folders instead of wiping `dist/server/editors/` upfront;
+  // each Vite config sets `emptyOutDir: true` for its own folder, so valid editors stay intact on partial/aborted runs.
+  if (existsSync(editorsOut)) {
+    const known = new Set(Object.keys(EDITORS));
+    for (const name of await readdir(editorsOut)) {
+      if (!known.has(name)) await rm(join(editorsOut, name), { recursive: true, force: true });
+    }
+  }
   for (const [type, folder] of Object.entries(EDITORS)) {
     const config = join(ROOT, folder, 'vite.config.ts');
     if (!existsSync(join(ROOT, folder, 'index.html'))) {
-      console.warn(`skip ${type}: ${folder} has no index.html yet`);
-      continue;
+      throw new Error(`editor ${type}: ${folder} has no index.html`);
     }
     runVite(config);
+    const built = join(editorsOut, type, 'index.html');
+    if (!existsSync(built)) throw new Error(`editor ${type}: Vite build did not produce ${built}`);
   }
 }
 
@@ -200,7 +211,6 @@ async function copyIntoTypes() {
 }
 
 await mkdir(OUT, { recursive: true });
-if (!only) await rm(join(OUT, 'editors'), { recursive: true, force: true });
 const started = Date.now();
 if (wants('support')) await buildSupport();
 if (wants('cli')) await buildCli();
@@ -211,6 +221,10 @@ if (wants('shell') || (copyTypes && !existsSync(join(OUT, 'shell/index.html'))))
   await buildShell();
   await rm(join(OUT, 'shell'), { recursive: true, force: true });
   await cp(join(ROOT, 'dist/daemon/shell'), join(OUT, 'shell'), { recursive: true });
+}
+if (!only) {
+  const missing = missingTypeServerFiles(OUT, Object.keys(EDITORS));
+  if (missing.length > 0) throw new Error(`dist/server is incomplete after build (missing ${missing.join(', ')})`);
 }
 if (copyTypes) await copyIntoTypes();
 if (only === 'shell') {

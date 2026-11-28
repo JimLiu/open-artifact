@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "playground",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "website/playground",
+        "run",
+        "dev"
+      ],
+      "port": 5190,
+      "url": "http://127.0.0.1:5190"
+    },
+    {
+      "name": "website",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "website/scripts/serve.mjs",
+        "website/dist",
+        "--port",
+        "4330"
+      ],
+      "port": 4330,
+      "url": "http://127.0.0.1:4330"
+    }
+  ]
+}

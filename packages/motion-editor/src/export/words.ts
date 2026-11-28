@@ -51,13 +51,11 @@ export const SHAPE_NAMES: Readonly<Record<FilmShapeId | 'custom', string>> = {
 export const shapeLabel = (name: string, ratio: string): string => `${name} · ${ratio}`;
 export const makeShapeLabel = (id: FilmShapeId | null, ratio: string): string =>
   id === null ? `Make ${ratio} animation` : `Make ${SHAPE_NAMES[id].toLowerCase()} animation`;
-export const ANOTHER_SHAPE = 'Make it in another shape';
 export const shapeSecondAnimation = (agent: string): string =>
   `${agent} will make a second animation in this shape, which takes a few minutes. This one won’t change.`;
 export const RATIO_ACROSS = 'Width part of the ratio';
 export const RATIO_DOWN = 'Height part of the ratio';
 export const RATIO_HELP = 'Type a ratio from 1:3 to 3:1, each side a whole number up to 999.';
-export const OTHER_RATIO = 'Other ratio…';
 export const SAME_SHAPE ='That is this animation’s own shape.';
 
 export const ESTIMATING = 'Estimating…';

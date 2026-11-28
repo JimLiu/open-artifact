@@ -721,6 +721,30 @@ describe('type server: top-level visits, stale frames and cached editor files', 
     const boardPage = await raw(new URL('index.html', board));
     assert.match(boardPage.body, /src="\/_open-artifact\/editors\/whiteboard\/assets\/index-AbCd_123\.js"/);
   });
+
+  it('reports 503 unavailable with a clear message when an editor page is missing from assetsDir', async () => {
+    const tmp = await mkdtemp(join(tmpdir(), 'oa-missing-editor-'));
+    const logs: string[] = [];
+    const srv = createTypeServer({
+      assetsDir: join(tmp, 'assets'),
+      secret: 's',
+      idleMs: 0,
+      log: (message) => logs.push(message),
+    });
+    try {
+      await srv.listen();
+      const opened = await srv.open({ root: join(tmp, 'film'), type: 'motion', title: 'Missing Editor' });
+      const res = await raw(new URL(opened.pageUrl));
+      assert.equal(res.status, 503);
+      const body = JSON.parse(res.body) as { code: string; message: string };
+      assert.equal(body.code, 'unavailable');
+      assert.match(body.message, /motion editor is missing/i);
+      assert.ok(logs.some((line) => line.includes('missing editor page for motion')));
+    } finally {
+      await srv.stop();
+      await rm(tmp, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('actionsOfType', () => {

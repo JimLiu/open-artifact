@@ -205,6 +205,11 @@ The harness asks its questions (`waitFor`, `evaluateAll`, `load`'s `ready`) in a
 
 - The page's WebSockets are kept, and while the stream is held new ones go to a port nobody listens on. With a box on the first slide selected, the stream is closed; the first slide's title is rewritten on disk, a third slide written and added to `deck.json`. After 1.5 s the stage still shows the old title. Once the stream comes back, the stage shows the new title, the rail three slides, the box is still selected, and nothing was written over the changed file.
 
+**Motion: the toolbar** (`motion.test.mjs`, the "floats the playback and action bars on top" case, Chrome only)
+
+- At 1200px two bars float on top. Playback holds Play, Back to the start and Loop, a divider, then the time (and Mute, for a film with sound); Actions ends with Export, Full screen, More and Properties. Neither has a shape menu or a Comments button (comments sit in the Shell's header).
+- At 340px the two join into one bar at the bottom, with Properties in it.
+
 **Sheets** (`sheets.test.mjs`)
 
 - `read` on a folder with no Sheet is refused; a first `update` makes the Sheet (one blank `Sheet1`) and applies its edits.

@@ -36,7 +36,8 @@ export function clientShowsApps(capabilities: unknown): boolean {
 /** What the agent is told when its app shows MCP Apps. */
 export const MCP_APP_NOTE = [
   'This app shows MCP Apps in the conversation:',
-  '- Call ShowArtifact {url} to show the artifact\'s live page right in the conversation, where the person can look, edit and comment, go full screen or open it in a browser. Call it once the artifact is filled and checked — or right after the first playable batch when the type\'s instructions ask to show progress live (such as motion\'s rough cut), since the page updates live on every write. ShowArtifact does not open a browser tab by itself: always include view_url in your final reply, and if your app does not visibly render MCP Apps cards inline, also call Artifact {action: "open", url} once.',
+  '- If your app has a built-in browser (browser panel, tab, or browser subagent), open view_url there by default once the artifact is filled and checked — or right after the first playable batch when the type\'s instructions ask to show progress live (such as motion\'s rough cut). Do not use ShowArtifact in place of the built-in browser: ShowArtifact only renders an inline card in the conversation (which can collapse or scroll out of view in multi-step builds) and does not open a browser tab.',
+  '- When your app has no built-in browser (or in addition when an inline card is helpful), call ShowArtifact {url} to embed the artifact\'s live page in the conversation, where the person can look, edit and comment, go full screen or open it in a browser. Always include view_url in your final reply, and if you have no built-in browser and your app does not visibly render MCP Apps cards inline, call Artifact {action: "open", url} once.',
   '- When the person presses "Send comments" there, a message asks you to read the comments: read them with ArtifactComments {action: "read", url}, handle them and reply.',
 ].join('\n');
 
@@ -45,7 +46,7 @@ export const SHOW_TOOL = {
   name: 'ShowArtifact',
   title: 'Show artifact',
   description:
-    "Show an Open Artifact in the conversation: its live page, where the person can look, edit and comment without leaving the chat, with buttons to go full screen, open it in a browser and send their comments back to you. Call it once an artifact is filled and checked, or right after the first playable batch when the type asks to show progress live (the page updates live on every write). ShowArtifact does not open a browser tab by itself — always include view_url in your final reply too (and call Artifact {action: \"open\", url} if no preview opened visibly).",
+    "Show an Open Artifact as an inline card in the conversation, where the person can look, edit and comment without leaving the chat, with buttons to go full screen, open it in a browser and send their comments back to you. If your app has a built-in browser (browser panel, tab, or browser subagent), open view_url there by default instead of relying on ShowArtifact alone — ShowArtifact does not open a browser tab and an inline card can collapse or scroll out of view in multi-step builds. Always include view_url in your final reply too (and call Artifact {action: \"open\", url} if you have no built-in browser and no preview opened visibly).",
   inputSchema: {
     type: 'object',
     properties: { url: { type: 'string', description: 'The artifact: open-artifact://artifact/<id>.' } },

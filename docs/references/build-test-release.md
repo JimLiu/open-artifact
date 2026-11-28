@@ -17,6 +17,8 @@ node scripts/build-skill.mjs   # The skill (skills/open-artifact/) and its OMP r
 node scripts/build-plugins.mjs # Build unified skill + dist/plugins/<name>/ + marketplace manifests
 ```
 
+`scripts/build.mjs` keeps existing editor outputs in place while rebuilding each editor (cleaning only unknown folders under `dist/server/editors/`) and verifies every server-backed type in `dist/server/` at the end of a full build. `scripts/vendor-types.mjs`, `scripts/build-skill.mjs`, `scripts/build-plugins.mjs`, `scripts/build-npm.mjs`, `scripts/build-sea.mjs`, `plugins/dsh/scripts/build.mjs`, and `apps/desktop/scripts/build-runtime.ts` all fail fast if any built-in editor (`editors/<type>/index.html`) or required runtime file is missing, so partial or concurrent builds cannot produce broken skills, plugins, npm packages, or desktop runtimes.
+
 ### Partial builds
 
 - `node scripts/build.mjs --only <part>` where `<part>` is one of:

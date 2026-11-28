@@ -24,6 +24,7 @@ import { builtinModules } from 'node:module';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { relativeTsSpecifiers, rewriteDeclarationSpecifiers } from './declaration-specifiers.mjs';
+import { missingSkillVendorFiles } from './vendor-types.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'dist', 'npm');
@@ -273,10 +274,9 @@ function stageLibrary(dir) {
 
 function stageCli() {
   const skill = join(ROOT, 'skills', 'open-artifact');
-  if (!existsSync(join(skill, 'vendor', 'open-artifact.mjs'))) fail('skills/open-artifact/vendor is missing; run node scripts/build-skill.mjs first');
-  // The motion type's `stills` command loads this page; it comes from node scripts/build.mjs, beside the shared cli.mjs.
-  if (!existsSync(join(skill, 'vendor', 'type-server', 'motion-tools.html')))
-    fail('the vendored type server has no motion-tools.html; run node scripts/build.mjs, then node scripts/build-skill.mjs');
+  const missing = missingSkillVendorFiles(skill, { repo: ROOT });
+  if (missing.length > 0)
+    fail(`skills/open-artifact is incomplete (missing ${missing.join(', ')}); run npm run build, then node scripts/build-skill.mjs`);
   const out = join(OUT, 'cli');
   rmSync(out, { recursive: true, force: true });
   cpSync(skill, out, { recursive: true });

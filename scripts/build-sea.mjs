@@ -31,6 +31,7 @@ import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { buildSync } from 'esbuild';
+import { missingSkillVendorFiles } from './vendor-types.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SKILL = join(ROOT, 'skills', 'open-artifact');
@@ -157,8 +158,9 @@ export function packFolder(dir) {
 
 /** The runtime folder the executable carries: the skill folder with the package.json npm publishes. */
 function stageRuntime() {
-  if (!existsSync(join(SKILL, 'vendor', 'open-artifact.mjs'))) {
-    throw new SeaBuildError('skills/open-artifact/vendor is missing: run npm run build, then node scripts/build-skill.mjs.');
+  const missing = missingSkillVendorFiles(SKILL, { repo: ROOT });
+  if (missing.length > 0) {
+    throw new SeaBuildError(`skills/open-artifact is incomplete (missing ${missing.join(', ')}): run npm run build, then node scripts/build-skill.mjs.`);
   }
   const dir = join(STAGE, 'package');
   rmSync(dir, { recursive: true, force: true });

@@ -540,7 +540,9 @@ export class Tools {
       .map((t) => ({ id: t.id, title: t.title, when: t.when, description: t.description, exports: t.exports, offer: offers.has(t.id) ? t.offer : null }));
     if (!harness) return agentPrompt({ types });
     const profile = harnessProfile(harness);
-    return agentPrompt({ types, toolNames: profile.toolNames, offer: profile.policy?.offer !== 'asked' });
+    const base = agentPrompt({ types, toolNames: profile.toolNames, offer: profile.policy?.offer !== 'asked' });
+    const rules = String(profile.rules ?? '').trim();
+    return rules ? `The rules of ${profile.title || harness}, the app you work in. They win over everything else here:\n\n${rules}\n\n${base}` : base;
   }
 
   /** The installed types and the ones the person lets agents offer: what `skill.get` and `commands.list` list. */
@@ -985,15 +987,18 @@ export class Tools {
     return !!(type.entry && type.entry.kind !== 'static' && type.entry.actions);
   }
 
-  /** The note put before the type's own instructions: this artifact, and how the type's commands map to the tools. */
-  private hostNote(type: TypeInfo, record: ArtifactRecord, actions: TypeAction[] | null, opening?: Opening): string {
+  /** The note put before the type's own instructions: the app's rules (when any), this artifact, and how the type's commands map to the tools. */
+  private hostNote(type: TypeInfo, record: ArtifactRecord, actions: TypeAction[] | null, opening?: Opening, caller?: SessionRef): string {
     // A restricted type's files (an installed package's, or an untrusted project's): nothing of it is run outside its
     // page, by Open Artifact or by the agent.
     const restricted = !type.trusted;
     const script = restricted ? undefined : ['cli.mjs', 'artifact.mjs'].map((name) => join(type.dir, 'scripts', name)).find((file) => existsSync(file));
     const declares = !!(type.entry && type.entry.kind !== 'static' && type.entry.actions);
     const check = this.hasCheck(type, actions);
+    const profile = caller ? harnessProfile(caller.harness) : null;
+    const rules = String(profile?.rules ?? '').trim();
     const lines = [
+      ...(rules ? [`# ${profile!.title || caller!.harness}'s rules`, 'These win over everything else below:', rules, ''] : []),
       '# This artifact',
       `- url: ${artifactUrl(record.id)} (pass it to Artifact, ArtifactData and ArtifactComments)`,
       `- root: ${record.root} (the folder the instructions below call <root>)`,
@@ -1032,9 +1037,9 @@ export class Tools {
     return lines.join('\n');
   }
 
-  private instructionsFor(type: TypeInfo, record: ArtifactRecord, actions: TypeAction[] | null, opening?: Opening): string {
+  private instructionsFor(type: TypeInfo, record: ArtifactRecord, actions: TypeAction[] | null, opening?: Opening, caller?: SessionRef): string {
     const body = skillBody(type);
-    return `${this.hostNote(type, record, actions, opening)}\n\n---\n\n${body ?? `(The type ${type.id} has no SKILL.md: ${type.description})`}`;
+    return `${this.hostNote(type, record, actions, opening, caller)}\n\n---\n\n${body ?? `(The type ${type.id} has no SKILL.md: ${type.description})`}`;
   }
 
   private async create(args: ArtifactArgs, caller: SessionRef): Promise<ToolCallResult> {
@@ -1098,7 +1103,8 @@ export class Tools {
       type_url: typeUrl(typeId),
       ...(opening ? { open: opening } : args.open && args.open !== 'never' ? { note: this.o.harnesses().canShow(caller) ? (openEarly ? OPEN_EARLY_YOURSELF : OPEN_YOURSELF) : OPEN_NOT_AVAILABLE } : {}),
       ...(actions?.length ? { actions } : {}),
-      instructions: this.instructionsFor(type, record, actions, opening),
+      ...this.rulesOf(caller),
+      instructions: this.instructionsFor(type, record, actions, opening, caller),
       ...this.noticeFields(type),
       source: typeSourceOf(type).source,
       next:
@@ -1437,7 +1443,7 @@ export class Tools {
       title: record.title,
       type: record.type,
       view_url: this.o.viewUrl(record.id),
-      note: 'Always include view_url in your final reply too. ShowArtifact does not open a browser tab by itself; if your app does not render MCP Apps cards inline, call Artifact {action: "open", url}.',
+      note: 'Always include view_url in your final reply too. ShowArtifact only renders an inline card and does not open a browser tab: if your app has a built-in browser (panel, tab, or browser subagent), open view_url there as well; otherwise, if your app does not visibly render MCP Apps cards inline, call Artifact {action: "open", url}.',
     };
   }
 
@@ -1613,7 +1619,7 @@ export class Tools {
         owner: sessionKeyOf(caller),
         view_url: this.o.viewUrl(next.id),
         ...(actions?.length ? { actions } : {}),
-        ...(type ? { instructions: this.instructionsFor(type, next, actions), ...this.noticeFields(type) } : {}),
+        ...(type ? { instructions: this.instructionsFor(type, next, actions, undefined, caller), ...this.noticeFields(type) } : {}),
       };
     }
     if (!args.folder) throw new OpenArtifactError('invalid_argument', 'adopt takes url (an artifact) or folder (one to add).');
@@ -1664,7 +1670,7 @@ export class Tools {
       root,
       view_url: this.o.viewUrl(record.id),
       ...(actions?.length ? { actions } : {}),
-      ...(type ? { instructions: this.instructionsFor(type, record, actions), ...this.noticeFields(type) } : {}),
+      ...(type ? { instructions: this.instructionsFor(type, record, actions, undefined, caller), ...this.noticeFields(type) } : {}),
       ...(auto ? { notes: [autoNote(this.o.link?.autoTarget?.() ?? null)] } : {}),
     };
   }
